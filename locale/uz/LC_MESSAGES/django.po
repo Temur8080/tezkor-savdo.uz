@@ -1,0 +1,138 @@
+# Tezkor admin o'zbek tarjimalari
+msgid ""
+msgstr ""
+"Project-Id-Version: Tezkor\n"
+"Language: uz\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=1; plural=0;\n"
+
+msgid "Model name"
+msgstr "Model nomi"
+
+msgid "Add link"
+msgstr "Qo‘shish havolasi"
+
+msgid "Change or view list link"
+msgstr "O‘zgartirish yoki ro‘yxat"
+
+msgid "Add"
+msgstr "Qo‘shish"
+
+msgid "Change"
+msgstr "O‘zgartirish"
+
+msgid "View"
+msgstr "Ko‘rish"
+
+msgid "Recent actions"
+msgstr "So‘nggi harakatlar"
+
+msgid "My actions"
+msgstr "Mening harakatlarim"
+
+msgid "None available"
+msgstr "Mavjud emas"
+
+msgid "Home"
+msgstr "Bosh sahifa"
+
+msgid "Save"
+msgstr "Saqlash"
+
+msgid "Save and add another"
+msgstr "Saqlash va yana qo‘shish"
+
+msgid "Save and continue editing"
+msgstr "Saqlash va tahrirlashni davom ettirish"
+
+msgid "Delete"
+msgstr "O‘chirish"
+
+msgid "Filter"
+msgstr "Filtrlash"
+
+msgid "Search"
+msgstr "Qidirish"
+
+msgid "Go"
+msgstr "O‘tish"
+
+msgid "Log in"
+msgstr "Kirish"
+
+msgid "Log out"
+msgstr "Chiqish"
+
+msgid "History"
+msgstr "Tarix"
+
+msgid "View site"
+msgstr "Saytni ko‘rish"
+
+msgid "Authentication and Authorization"
+msgstr "Foydalanuvchilar va guruhlar"
+
+msgid "Username"
+msgstr "Login"
+
+msgid "Password"
+msgstr "Parol"
+
+msgid "Email address"
+msgstr "Email manzil"
+
+msgid "First name"
+msgstr "Ism"
+
+msgid "Last name"
+msgstr "Familiya"
+
+msgid "Staff status"
+msgstr "Xodim holati"
+
+msgid "Active"
+msgstr "Faol"
+
+msgid "Superuser status"
+msgstr "Super foydalanuvchi"
+
+msgid "Date joined"
+msgstr "Qo‘shilgan sana"
+
+msgid "Last login"
+msgstr "Oxirgi kirish"
+
+msgid "Permissions"
+msgstr "Ruxsatlar"
+
+msgid "Groups"
+msgstr "Guruhlar"
+
+msgid "Users"
+msgstr "Foydalanuvchilar"
+
+msgid "Themes"
+msgstr "Mavzular"
+
+msgid "Theme"
+msgstr "Mavzu"
+
+msgid "Failed tasks"
+msgstr "Muvaffaqiyatsiz vazifalar"
+
+msgid "Queued tasks"
+msgstr "Navbatdagi vazifalar"
+
+msgid "Scheduled tasks"
+msgstr "Rejalashtirilgan vazifalar"
+
+msgid "Successful tasks"
+msgstr "Muvaffaqiyatli vazifalar"
+
+msgid "Django Q"
+msgstr "Fon vazifalari"
+
+msgid "Accounts"
+msgstr "Tezkor ma’lumotlar"

@@ -1,0 +1,485 @@
+{% load static %}
+<!doctype html>
+<html lang="uz">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <script>
+        (function () {
+            var h = new Date().getHours();
+            var byClock = h >= 19 || h < 6;
+            var bySys = false;
+            try { bySys = window.matchMedia('(prefers-color-scheme: dark)').matches; } catch (e) {}
+            if (byClock || bySys) {
+                document.documentElement.classList.add('dark');
+                document.documentElement.style.colorScheme = 'dark';
+                document.documentElement.setAttribute('data-theme', 'night');
+            } else {
+                document.documentElement.setAttribute('data-theme', 'day');
+            }
+        })();
+    </script>
+    <title>{{ brand.brand_name|default:"Tezkor" }} — Kirish</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&family=Syne:wght@700;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --ink: #071820;
+            --teal: #0e4a56;
+            --teal-mid: #156878;
+            --mist: #e8eef0;
+            --paper: #f4f8f9;
+            --accent: #ff6b35;
+            --accent-deep: #e25522;
+            --line: rgba(7, 24, 32, 0.12);
+            --muted: #5a6b72;
+        }
+
+        html.dark {
+            --paper: #0f1c22;
+            --mist: #15262e;
+            --line: rgba(245, 250, 251, 0.12);
+            --muted: #9aadb5;
+        }
+
+        * { box-sizing: border-box; }
+
+        html, body {
+            margin: 0;
+            min-height: 100%;
+            font-family: "Manrope", sans-serif;
+            color: var(--ink);
+            background: var(--ink);
+        }
+
+        body {
+            min-height: 100vh;
+            display: grid;
+            grid-template-columns: 1.15fr 1fr;
+        }
+
+        .hero {
+            position: relative;
+            overflow: hidden;
+            padding: clamp(2rem, 5vw, 4rem);
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            color: #f5fafb;
+            background:
+                radial-gradient(ellipse 80% 60% at 15% 20%, rgba(255, 107, 53, 0.28), transparent 55%),
+                radial-gradient(ellipse 70% 50% at 90% 80%, rgba(21, 104, 120, 0.55), transparent 50%),
+                linear-gradient(155deg, #071820 0%, #0e4a56 48%, #123a42 100%);
+        }
+
+        .hero::before {
+            content: "";
+            position: absolute;
+            inset: 0;
+            background-image:
+                linear-gradient(rgba(255, 255, 255, 0.04) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(255, 255, 255, 0.04) 1px, transparent 1px);
+            background-size: 48px 48px;
+            mask-image: linear-gradient(180deg, rgba(0,0,0,0.55), transparent 85%);
+            pointer-events: none;
+            animation: gridDrift 28s linear infinite;
+        }
+
+        .hero::after {
+            content: "";
+            position: absolute;
+            width: 42vw;
+            max-width: 520px;
+            aspect-ratio: 1;
+            right: -8%;
+            bottom: -12%;
+            border-radius: 40% 60% 55% 45%;
+            background: linear-gradient(145deg, rgba(255, 107, 53, 0.35), rgba(21, 104, 120, 0.15));
+            filter: blur(2px);
+            animation: blobFloat 12s ease-in-out infinite;
+            pointer-events: none;
+        }
+
+        .brand-mark {
+            position: relative;
+            z-index: 1;
+            display: flex;
+            align-items: center;
+            gap: 0.85rem;
+            text-decoration: none;
+            color: inherit;
+            opacity: 0;
+            animation: riseIn 0.7s ease forwards 0.1s;
+        }
+
+        .brand-mark img {
+            width: 52px;
+            height: 52px;
+            object-fit: contain;
+            border-radius: 12px;
+            background: rgba(255, 255, 255, 0.08);
+            padding: 4px;
+        }
+
+        .brand-mark span {
+            font-family: "Syne", sans-serif;
+            font-weight: 800;
+            font-size: 1.15rem;
+            letter-spacing: -0.02em;
+        }
+
+        .hero-copy {
+            position: relative;
+            z-index: 1;
+            max-width: 26rem;
+            opacity: 0;
+            animation: riseIn 0.8s ease forwards 0.25s;
+        }
+
+        .hero-copy h1 {
+            margin: 0 0 0.75rem;
+            font-family: "Syne", sans-serif;
+            font-weight: 800;
+            font-size: clamp(3.2rem, 7vw, 5.4rem);
+            line-height: 0.92;
+            letter-spacing: -0.04em;
+        }
+
+        .hero-copy h1 em {
+            font-style: normal;
+            color: var(--accent);
+        }
+
+        .hero-copy p {
+            margin: 0;
+            font-size: 1.05rem;
+            line-height: 1.55;
+            color: rgba(245, 250, 251, 0.78);
+            max-width: 22rem;
+        }
+
+        .hero-foot {
+            position: relative;
+            z-index: 1;
+            font-size: 0.8rem;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+            color: rgba(245, 250, 251, 0.45);
+            opacity: 0;
+            animation: riseIn 0.7s ease forwards 0.4s;
+        }
+
+        .panel {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: clamp(1.5rem, 4vw, 3rem);
+            background:
+                linear-gradient(180deg, #f7fbfc 0%, var(--mist) 100%);
+        }
+
+        html.dark .panel {
+            background: linear-gradient(180deg, #0c181e 0%, #12262e 100%);
+            color: #e8f0f2;
+        }
+
+        html.dark .panel-inner h2 {
+            color: #f5fafb;
+        }
+
+        html.dark .lead {
+            color: var(--muted);
+        }
+
+        html.dark input {
+            background: #15262e;
+            color: #f5fafb;
+            border-color: rgba(245, 250, 251, 0.14);
+        }
+
+        html.dark input:focus {
+            border-color: #2a8a9a;
+            box-shadow: 0 0 0 3px rgba(42, 138, 154, 0.25);
+        }
+
+        html.dark label {
+            color: #7ec8d4;
+        }
+
+        html.dark .alert {
+            background: rgba(255, 107, 53, 0.16);
+            color: #ffc4a8;
+        }
+
+        html.dark .submit {
+            background: #ff6b35;
+            color: #071820;
+        }
+
+        html.dark .submit:hover {
+            background: #ff8558;
+        }
+
+        .panel-inner {
+            width: 100%;
+            max-width: 400px;
+            opacity: 0;
+            transform: translateY(16px);
+            animation: riseIn 0.75s ease forwards 0.35s;
+        }
+
+        .panel-inner h2 {
+            margin: 0 0 0.35rem;
+            font-family: "Syne", sans-serif;
+            font-weight: 700;
+            font-size: 1.85rem;
+            letter-spacing: -0.03em;
+        }
+
+        .panel-inner .lead {
+            margin: 0 0 1.75rem;
+            color: var(--muted);
+            font-size: 0.95rem;
+            line-height: 1.5;
+        }
+
+        .alert {
+            margin: 0 0 1.25rem;
+            padding: 0.85rem 1rem;
+            border-left: 3px solid var(--accent);
+            background: rgba(255, 107, 53, 0.1);
+            color: #8a3418;
+            font-size: 0.9rem;
+            font-weight: 500;
+        }
+
+        form {
+            display: grid;
+            gap: 1.1rem;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 0.4rem;
+            font-size: 0.82rem;
+            font-weight: 600;
+            letter-spacing: 0.02em;
+            color: var(--teal);
+        }
+
+        input {
+            width: 100%;
+            padding: 0.95rem 1rem;
+            border: 1px solid var(--line);
+            border-radius: 10px;
+            background: #fff;
+            font: inherit;
+            font-size: 1rem;
+            color: var(--ink);
+            outline: none;
+            transition: border-color 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        input::placeholder {
+            color: #9aa8ae;
+        }
+
+        input:focus {
+            border-color: var(--teal-mid);
+            box-shadow: 0 0 0 3px rgba(21, 104, 120, 0.15);
+        }
+
+        .field-pass {
+            position: relative;
+        }
+
+        .field-pass button {
+            position: absolute;
+            right: 0.65rem;
+            top: 50%;
+            transform: translateY(-50%);
+            border: 0;
+            background: transparent;
+            color: var(--muted);
+            font: inherit;
+            font-size: 0.78rem;
+            font-weight: 600;
+            cursor: pointer;
+            padding: 0.35rem 0.45rem;
+        }
+
+        .field-pass button:hover {
+            color: var(--teal);
+        }
+
+        .field-pass input {
+            padding-right: 4.25rem;
+        }
+
+        .submit {
+            margin-top: 0.35rem;
+            width: 100%;
+            border: 0;
+            border-radius: 10px;
+            padding: 1rem 1.25rem;
+            background: var(--ink);
+            color: #fff;
+            font: inherit;
+            font-size: 1rem;
+            font-weight: 700;
+            letter-spacing: 0.01em;
+            cursor: pointer;
+            transition: background 0.2s ease, transform 0.15s ease;
+        }
+
+        .submit:hover {
+            background: var(--teal);
+        }
+
+        .submit:active {
+            transform: translateY(1px);
+        }
+
+        .submit:focus-visible {
+            outline: 3px solid rgba(255, 107, 53, 0.45);
+            outline-offset: 2px;
+        }
+
+        .hint {
+            margin: 1.5rem 0 0;
+            text-align: center;
+            font-size: 0.8rem;
+            color: var(--muted);
+        }
+
+        @keyframes riseIn {
+            from { opacity: 0; transform: translateY(18px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        @keyframes blobFloat {
+            0%, 100% { transform: translate(0, 0) rotate(0deg); }
+            50% { transform: translate(-18px, -22px) rotate(8deg); }
+        }
+
+        @keyframes gridDrift {
+            from { transform: translateY(0); }
+            to { transform: translateY(48px); }
+        }
+
+        @media (max-width: 900px) {
+            body {
+                grid-template-columns: 1fr;
+                grid-template-rows: auto 1fr;
+            }
+
+            .hero {
+                min-height: 42vh;
+                padding: 1.5rem 1.35rem 2rem;
+            }
+
+            .hero-copy h1 {
+                font-size: clamp(2.6rem, 12vw, 3.6rem);
+            }
+
+            .hero-foot {
+                display: none;
+            }
+
+            .panel {
+                align-items: flex-start;
+                padding-top: 2rem;
+                padding-bottom: 3rem;
+            }
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            *, *::before, *::after {
+                animation: none !important;
+                transition: none !important;
+            }
+            .brand-mark, .hero-copy, .hero-foot, .panel-inner {
+                opacity: 1;
+                transform: none;
+            }
+        }
+    </style>
+</head>
+<body>
+    <aside class="hero" aria-label="Brend">
+        <a class="brand-mark" href="{% url 'login' %}">
+            {% if brand.logo_is_static %}
+                <img src="{% static brand.logo_url %}" alt="{{ brand.brand_name }}">
+            {% else %}
+                <img src="{{ brand.logo_url }}" alt="{{ brand.brand_name }}">
+            {% endif %}
+            <span>{{ brand.brand_name|default:"Tezkor" }}</span>
+        </a>
+
+        <div class="hero-copy">
+            <h1>{{ brand.brand_name|default:"Tezkor" }}<br><em>Savdo</em></h1>
+            <p>Tezkor kassa, ombor va hisobotlar — bitta portalda. Skanerlang, soting, boshqaring.</p>
+        </div>
+
+        <p class="hero-foot">{{ brand.company_name|default:"Tezkor Savdo" }}</p>
+    </aside>
+
+    <main class="panel">
+        <div class="panel-inner">
+            <h2>Hisobga kirish</h2>
+            <p class="lead">Login va parolingizni kiriting — ish joyingizga yo‘naltiriladi.</p>
+
+            {% if messages %}
+                {% for message in messages %}
+                    <div class="alert" role="alert">{{ message }}</div>
+                {% endfor %}
+            {% endif %}
+
+            <form action="" method="POST" autocomplete="on">
+                {% csrf_token %}
+                <div>
+                    <label for="username">Login</label>
+                    <input type="text" name="username" id="username"
+                           placeholder="Foydalanuvchi nomi"
+                           autocomplete="username" required autofocus>
+                </div>
+                <div>
+                    <label for="password">Parol</label>
+                    <div class="field-pass">
+                        <input type="password" name="password" id="password"
+                               placeholder="Parolingiz"
+                               autocomplete="current-password" required>
+                        <button type="button" id="toggle-pass" aria-label="Parolni ko‘rsatish">Ko‘rsat</button>
+                    </div>
+                </div>
+                <button type="submit" class="submit">Kirish</button>
+            </form>
+
+            <p class="hint">Faqat tashkilot xodimlari uchun</p>
+        </div>
+    </main>
+
+    <script>
+        window.TEZKOR_THEME = {
+            mode: "{{ theme_settings.mode|default:'system'|escapejs }}",
+            dayStart: {{ theme_settings.day_start|default:6 }},
+            nightStart: {{ theme_settings.night_start|default:19 }}
+        };
+    </script>
+    <script src="{% static 'js/themeAuto.js' %}?v=4"></script>
+    <script>
+        (function () {
+            const input = document.getElementById('password');
+            const btn = document.getElementById('toggle-pass');
+            if (!input || !btn) return;
+            btn.addEventListener('click', function () {
+                const show = input.type === 'password';
+                input.type = show ? 'text' : 'password';
+                btn.textContent = show ? 'Yashir' : 'Ko‘rsat';
+                btn.setAttribute('aria-label', show ? 'Parolni yashirish' : 'Parolni ko‘rsatish');
+            });
+        })();
+    </script>
+</body>
+</html>

@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"></head>
+<body style="margin: 0; padding: 20px; background-color: #f4f4f4; font-family: 'Courier New', Courier, monospace;">
+    <div style="max-width: 500px; margin: auto; background: #ffffff; padding: 30px; border-top: 8px solid #10b981; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);">
+
+        <div style="text-align: center; margin-bottom: 20px;">
+            <h1 style="font-size: 22px; font-weight: 900; margin: 0; color: #111827;">{{ brand_name|default:"Tezkor"|upper }} CHEKI</h1>
+            <p style="font-size: 14px; font-weight: 700; color: #0f766e; margin: 8px 0 4px;">{{ organization_name|upper }}</p>
+            <p style="font-size: 14px; color: #4b5563; margin: 5px 0;">Filial: {{ order.branch.name }}</p>
+            <p style="font-size: 14px; color: #4b5563; margin: 0;">CHEK №: {{ invoice.or_number|upper }}</p>
+            <div style="border-bottom: 2px dashed #d1d5db; margin: 20px 0;"></div>
+        </div>
+
+        <table style="width: 100%; font-size: 12px; margin-bottom: 20px;">
+            <tr>
+                <td><strong>SANA:</strong> {{ order.order_date|date:"d.m.Y H:i" }}<br><strong>MIJOZ:</strong> {{ order.customer.name|upper|default:"NOMA'LUM MIJOZ" }}</td>
+                <td style="text-align: right;"><strong>BUYURTMA:</strong> {{ order.id }}<br><strong>KASSIR:</strong> {{ order.employee.user.username|upper }}</td>
+            </tr>
+        </table>
+
+        <table style="width: 100%; border-collapse: collapse; font-size: 14px; margin-bottom: 20px;">
+            <thead style="border-bottom: 1px solid #111827;">
+                <tr>
+                    <th style="text-align: left; padding: 10px 0;">MAHSULOT</th>
+                    <th style="text-align: center;">MIQDOR</th>
+                    <th style="text-align: right;">JAMI</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in order.orderitem_set.all %}
+                <tr style="border-bottom: 1px dashed #e5e7eb;">
+                    <td style="padding: 12px 0;">
+                        <p style="margin: 0; font-weight: bold;">{{ item.product.product_name }}</p>
+                        <p style="margin: 0; font-size: 12px; color: #6b7280;">@ {{ item.unit_price|floatformat:2|money }}</p>
+                    </td>
+                    <td style="text-align: center;">{{ item.quantity }}</td>
+                    <td style="text-align: right; font-weight: bold;">{{ item.line_total|floatformat:2|money }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+
+        <div style="border-top: 2px solid #111827; padding-top: 15px;">
+            <table style="width: 100%; font-size: 14px;">
+                <tr>
+                    <td>ORALIQ</td>
+                    <td style="text-align: right;">{{ subtotal|floatformat:2|money:order.currency }}</td>
+                </tr>
+                <tr>
+                    <td>{{ vat_label|default:"QQS" }}</td>
+                    <td style="text-align: right;">{{ vat_amount|floatformat:2|money:order.currency }}</td>
+                </tr>
+                <tr style="font-size: 18px; font-weight: 900;">
+                    <td style="padding-top: 10px;">UMUMIY JAMI</td>
+                    <td style="text-align: right; padding-top: 10px;">{{ order.total_amount|floatformat:2|money:order.currency }}</td>
+                </tr>
+                <tr>
+                    <td style="padding-top: 10px;">TO'LANGAN (NAQD)</td>
+                    <td style="text-align: right; padding-top: 10px; font-weight: bold;">{{ cash_received|floatformat:2|money:order.currency }}</td>
+                </tr>
+                {% if has_debt %}
+                <tr>
+                    <td style="font-weight: bold; color: #b45309;">QARZ (QOLDIQ)</td>
+                    <td style="text-align: right; font-weight: bold; color: #b45309;">{{ debt_remaining|floatformat:2|money:order.currency }}</td>
+                </tr>
+                {% elif change_given %}
+                <tr>
+                    <td style="font-weight: bold; color: #059669;">QAYTIM</td>
+                    <td style="text-align: right; font-weight: bold; color: #059669;">{{ change_given|floatformat:2|money:order.currency }}</td>
+                </tr>
+                {% endif %}
+            </table>
+        </div>
+
+        <div style="margin-top: 40px; text-align: center; border-top: 1px dashed #d1d5db;">
+            <p style="font-size: 12px; color: #9ca3af; margin-top: 20px;">XARID UCHUN RAHMAT!</p>
+        </div>
+    </div>
+</body>
+</html>

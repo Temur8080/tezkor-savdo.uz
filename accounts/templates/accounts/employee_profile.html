@@ -1,0 +1,72 @@
+{% extends 'accounts/main.html' %}
+{% load static %}
+
+{% block content %}
+<div class="container mx-auto px-4 py-8">
+    <div class="max-w-4xl mx-auto bg-white shadow-lg rounded-lg overflow-hidden">
+
+        <div class="bg-blue-700 h-32"></div>
+
+        <div class="px-6 py-4">
+            <div class="relative -mt-16 mb-6">
+                <div class="inline-block">
+                    {% if sales_agent.profile_pic %}
+                        <img class="h-32 w-32 rounded-full border-4 border-white object-cover bg-white"
+                             src="{{ sales_agent.profile_pic.url }}" alt="Profil rasmi">
+                    {% else %}
+                        <div class="h-32 w-32 rounded-full border-4 border-white bg-gray-200 flex items-center justify-center">
+                            <span class="text-4xl text-gray-500 uppercase">{{ user.username|slice:":1" }}</span>
+                        </div>
+                    {% endif %}
+                </div>
+
+                <h1 class="text-3xl font-bold text-gray-800 mt-2">
+                    {{ user.get_full_name|default:user.username }}
+                </h1>
+                <p class="text-gray-600">{{ sales_agent.branch.name }} | {{ sales_agent.get_role_display }}</p>
+            </div>
+
+            <hr class="my-6">
+
+            <form method="POST" enctype="multipart/form-data" class="space-y-6">
+                {% csrf_token %}
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-500 mb-1">To‘liq ism</label>
+                        <p class="p-2 bg-gray-50 border border-gray-200 rounded-md text-gray-700">{{ sales_agent.name }}</p>
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-medium text-gray-500 mb-1">Lavozim</label>
+                        <p class="p-2 bg-gray-50 border border-gray-200 rounded-md text-gray-700">{{ sales_agent.get_role_display }}</p>
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Email manzili</label>
+                        {{ form.email }}
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Telefon raqami</label>
+                        {{ form.phone }}
+                    </div>
+
+                    <div class="md:col-span-2">
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Profil rasmini o‘zgartirish</label>
+                        <div class="mt-1 flex items-center p-2 border-2 border-dashed border-gray-300 rounded-md">
+                            {{ form.profile_pic }}
+                        </div>
+                    </div>
+                </div>
+
+                <div class="flex justify-end pt-4">
+                    <button type="submit" class="bg-blue-700 text-white px-6 py-2 rounded-md hover:bg-blue-800 transition">
+                        Profil o‘zgarishlarini saqlash
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}

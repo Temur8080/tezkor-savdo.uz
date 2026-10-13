@@ -1,0 +1,163 @@
+{% extends 'accounts/main.html' %}
+{% load static %}
+
+{% block content %}
+<div class="max-w-7xl mx-auto mt-10 p-4">
+    <div class="flex flex-col lg:flex-row gap-8 items-start">
+
+        <div class="w-full lg:w-5/12 bg-white rounded-xl shadow-md border border-gray-100 overflow-hidden">
+            <div class="bg-blue-700 p-4">
+                <h2 class="text-xl font-bold text-white">Buyurtmani boshqarish {{ object.id }}</h2>
+                <p class="text-blue-100 text-sm">Holat va tayinlashni yangilang</p>
+            </div>
+
+            <form method="post" class="p-6 space-y-6">
+                {% csrf_token %}
+
+                <div class="grid grid-cols-2 gap-3">
+                    <div class="p-3 bg-gray-50 rounded-lg border border-gray-100">
+                        <label class="block text-xs font-bold text-gray-500 uppercase">Mijoz</label>
+                        <p class="text-sm font-semibold text-gray-800">{{ object.customer|default:"Mehmon" }}</p>
+                    </div>
+                    <div class="p-3 bg-gray-50 rounded-lg border border-gray-100">
+                        <label class="block text-xs font-bold text-gray-500 uppercase">Joriy jami</label>
+                        <p class="text-sm font-bold text-emerald-600">{{ object.total_amount|money:object.currency }}</p>
+                    </div>
+                </div>
+
+                <div class="space-y-4">
+                    <div>
+                        <label class="block text-sm font-semibold text-gray-700 mb-1">Tayinlangan xodim</label>
+                        <div class="relative">
+                            {{ form.employee }}
+                        </div>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-semibold text-gray-700 mb-1">Tranzaksiya holati</label>
+                        {{ form.order_status }}
+                    </div>
+                </div>
+
+                <div class="pt-6 flex gap-3">
+                    <button type="submit" class="flex-1 px-6 py-3 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700 shadow-lg shadow-blue-200 transition-all">
+                        Buyurtmani yangilash
+                    </button>
+                    <a href="{% url 'sales_display' %}" class="px-6 py-3 bg-gray-100 text-gray-600 font-semibold rounded-lg hover:bg-gray-200 transition">
+                        Orqaga
+                    </a>
+                </div>
+
+                {% if request.user.is_superuser or request.user.employee.role == 'Manager' %}
+                <div class="mt-8 pt-6 border-t border-gray-200">
+                    <h3 class="text-sm font-bold text-gray-400 uppercase tracking-wider mb-4">Kafolat xizmatlari</h3>
+                    <div class="grid grid-cols-1 gap-3">
+                        <a href="{% url 'warranty' object.id %}"
+                           class="flex items-center justify-center gap-2 px-6 py-3 bg-amber-500 text-white font-bold rounded-lg hover:bg-amber-600 shadow-lg shadow-amber-100 transition-all">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                <path fill-rule="evenodd" d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 01-2.286.948c-1.372-.836-2.942.734-2.106 2.106.54.886.061 2.042-.947 2.287-1.561.379-1.561 2.6 0 2.978a1.532 1.532 0 01.947 2.287c-.836 1.372.734 2.942 2.106 2.106a1.532 1.532 0 012.287.947c.379 1.561 2.6 1.561 2.978 0a1.533 1.533 0 012.287-.947c1.372.836 2.942-.734 2.106-2.106a1.533 1.533 0 01.947-2.287c1.561-.379 1.561-2.6 0-2.978a1.532 1.532 0 01-.947-2.287c.836-1.372-.734-2.942-2.106-2.106a1.532 1.532 0 01-2.287-.947zM10 13a3 3 0 100-6 3 3 0 000 6z" clip-rule="evenodd" />
+                            </svg>
+                            Ta'mirlash / Almashtirishni amalga oshirish
+                        </a>
+                    </div>
+                    <p class="mt-2 text-[10px] text-gray-400 italic">Faqat vakolatli menejerlar jihoz arizalarini qayta ishlashi mumkin.</p>
+                </div>
+                {% endif %}
+            </form>
+        </div>
+
+        <div class="w-full lg:w-7/12">
+            <div class="bg-white p-8 rounded-sm shadow-2xl border-t-8 border-blue-600 relative overflow-hidden" style="font-family: 'Courier New', Courier, monospace;">
+                <div class="absolute top-0 left-0 w-full h-1 bg-repeat-x" style="background-image: radial-gradient(circle, transparent 70%, white 70%); background-size: 10px 10px;"></div>
+
+                <div class="text-center mb-6">
+                    <img src="{% static 'images/tezkor-logo.jpg' %}" alt="Tezkor" class="mx-auto h-14 w-auto object-contain mb-2">
+                    <h1 class="text-2xl font-black text-gray-900 tracking-tight">{{ brand.brand_name|default:"Tezkor"|upper }} CHEKI</h1>
+                    <p class="text-sm font-bold text-teal-800 mt-2">{{ object.branch.organization_name|upper }}</p>
+                    <p class="text-sm text-gray-600">Filial: {{ object.branch.name }}</p>
+                    <p class="text-sm font-semibold text-gray-800 mt-2">CHEK №: {{ invoice.or_number|upper }}</p>
+                    <div class="border-b-2 border-dashed border-gray-300 my-4"></div>
+                </div>
+
+                <div class="flex justify-between text-xs mb-4">
+                    <div>
+                        <p><span class="font-bold">SANA:</span> {{ object.order_date|date:"d.m.Y H:i" }}</p>
+                        <p><span class="font-bold">MIJOZ:</span> {{ object.customer|upper }}</p>
+                    </div>
+                    <div class="text-right">
+                        <p><span class="font-bold">BUYURTMA:</span> {{ object.id }}</p>
+                        <p><span class="font-bold">KASSIR:</span> {{ object.employee.user.username|upper }}</p>
+                    </div>
+                </div>
+
+                <table class="w-full text-sm mb-6">
+                    <thead class="border-b border-gray-800">
+                        <tr>
+                            <th class="text-left py-2">MAHSULOT</th>
+                            <th class="text-center py-2">MIQDOR</th>
+                            <th class="text-right py-2">JAMI</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-dashed divide-gray-200">
+                        {% for item in object.orderitem_set.all %}
+                        <tr>
+                            <td class="py-3">
+                                <p class="font-bold text-gray-800">{{ item.product.product_name }}</p>
+                                <p class="text-xs text-gray-500">@ {{ item.product.base_price|money:item.product.currency }}</p>
+                            </td>
+                            <td class="text-center py-3">{{ item.quantity }}</td>
+                            <td class="text-right py-3 font-bold">{{ item.line_total|money }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+
+                <div class="space-y-2 border-t-2 border-gray-800 pt-4">
+                    <div class="flex justify-between text-sm">
+                        <span>ORALIQ JAMI</span>
+                        <span>{{ object.total_amount|money:object.currency }}</span>
+                    </div>
+                    <div class="flex justify-between text-lg font-black">
+                        <span>UMUMIY JAMI</span>
+                        <span>{{ object.total_amount|money:object.currency }}</span>
+                    </div>
+                    {% with paid=object.get_cash_received debt=object.get_primary_debt %}
+                    <div class="flex justify-between text-sm mt-2">
+                        <span>TO‘LANGAN (NAQD)</span>
+                        <span class="font-semibold">{% if paid != None %}{{ paid|money:object.currency }}{% else %}—{% endif %}</span>
+                    </div>
+                    {% if debt and debt.remaining_balance > 0 %}
+                    <div class="flex justify-between text-sm font-bold text-amber-800">
+                        <span>QARZ (QOLDIQ)</span>
+                        <span>{{ debt.remaining_balance|money:object.currency }}</span>
+                    </div>
+                    {% endif %}
+                    {% endwith %}
+                </div>
+
+                <div class="mt-10 text-center border-t border-dashed border-gray-300 pt-6">
+                    <p class="text-xs text-gray-400">BIZDAN XARID QILGANINGIZ UCHUN RAHMAT!</p>
+                    <p class="text-[10px] text-gray-400 mt-1 italic">Iltimos, kafolat uchun ushbu chekni saqlab qoling.</p>
+                </div>
+            </div>
+
+            <div class="mt-4 flex justify-end">
+                <button onclick="window.print()" class="flex items-center gap-2 px-4 py-2 bg-gray-800 text-white rounded-md hover:bg-black transition">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
+                    </svg>
+                    Chekni chop etish
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+    @media print {
+        body * { visibility: hidden; }
+        .lg\:w-7\/12, .lg\:w-7\/12 * { visibility: visible; }
+        .lg\:w-7\/12 { position: absolute; left: 0; top: 0; width: 100%; }
+        button, a { display: none !important; }
+    }
+</style>
+{% endblock %}

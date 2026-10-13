@@ -1,0 +1,140 @@
+{% extends 'accounts/main.html' %}
+
+{% block content %}
+
+<div class="bg-white border border-gray-200 rounded-lg shadow-sm overflow-hidden">
+    <form method="get" class="flex flex-row flex-wrap items-end gap-4 p-4 bg-gray-50 border-b">
+        <div class="flex flex-col">
+            <label class="text-xs font-semibold text-gray-600 mb-1">Mahsulot nomi</label>
+            {{ myFilter.form.product__product_name }}
+        </div>
+
+        <div class="flex flex-col">
+            <label class="text-xs font-semibold text-gray-600 mb-1">Shtrix-kod</label>
+            {{ myFilter.form.product__barcode }}
+        </div>
+
+        <div class="flex flex-col">
+            <label class="text-xs font-semibold text-gray-600 mb-1">Mahsulotlar</label>
+            {{ myFilter.form.product }}
+        </div>
+
+        <div class="flex flex-col">
+            <label class="text-xs font-semibold text-gray-600 mb-1">Holat</label>
+            {{ myFilter.form.stock_status }}
+        </div>
+
+        {% if is_manager %}
+        <div class="flex flex-col">
+            <label class="text-xs font-semibold text-gray-600 mb-1">Filial</label>
+            {{ myFilter.form.branch }}
+        </div>
+        {% endif %}
+
+        <div class="flex gap-2">
+            <button type="submit" class="px-4 py-2 bg-blue-600 text-white text-sm rounded-md hover:bg-blue-700 transition">
+                Filtrlash
+            </button>
+            <a href="{% url 'branch_inventory' %}" class="px-4 py-2 bg-gray-200 text-gray-700 text-sm rounded-md hover:bg-gray-300 transition">
+                Tozalash
+            </a>
+        </div>
+
+        <div class="flex gap-2">
+            <a href="{% url 'inventory_intake' %}" class="px-4 py-2 bg-blue-700 text-white text-sm font-medium rounded-md hover:bg-blue-800 shadow-sm transition">
+                Skaner bilan kirim
+            </a>
+            <a href="{% url 'export_branch_inventory_csv' %}?{{ request.GET.urlencode }}" class="px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-md hover:bg-green-700 shadow-sm transition">
+                Inventar hisobotini yuklab olish
+            </a>
+        </div>
+    </form>
+
+    <table class="w-full text-sm text-left text-gray-500">
+        <thead class="text-xs text-gray-700 uppercase bg-gray-100 text-center">
+            <tr>
+                {% if is_manager %}
+                <th class="px-6 py-3">Filial</th>
+                {% endif %}
+                <th class="px-6 py-3">Yetkazib beruvchi</th>
+                <th class="px-6 py-3">Mahsulot nomi</th>
+                <th class="px-6 py-3">Kategoriya</th>
+                <th class="px-6 py-3">Miqdor</th>
+                <th class="px-6 py-3">Narx</th>
+                <th class="px-6 py-3">Shtrix-kod</th>
+                <th class="px-6 py-3">Holat</th>
+                {% if is_manager %}
+                <th class="px-6 py-3 text-center">Amal</th>
+                {% endif %}
+            </tr>
+        </thead>
+        <tbody class="divide-y divide-gray-200">
+            {% for i in items %}
+
+            <tr class="hover:bg-gray-50 text-center">
+                {% if is_manager %}
+                <td class="px-6 py-4 font-medium text-gray-900">{{ i.branch.name }}</td>
+                {% endif %}
+                <td class="px-6 py-4">{{ i.product.supplier }}</td>
+                <td class="px-6 py-4 font-medium text-gray-900">{{ i.product.product_name }}</td>
+                <td class="px-6 py-4">{{ i.product.category }}</td>
+                <td class="px-6 py-4 font-medium text-gray-900">{{ i.quantity }}</td>
+                <td class="px-6 py-4">{{ i.product.base_price|money:i.product.currency }}</td>
+                <td class="px-6 py-4 font-medium text-gray-900">{{ i.product.barcode }}</td>
+                <td class="px-6 py-4">
+                    {% if i.quantity <= 0 %}
+                        <span class="px-2 py-1 text-xs font-semibold text-red-800 bg-red-100 rounded-full">
+                            Tugagan
+                        </span>
+                    {% elif i.quantity <= i.product.min_stock_level %}
+                        <span class="px-2 py-1 text-xs font-semibold text-orange-800 bg-orange-100 rounded-full">
+                            Kam qoldiq: {{ i.quantity }}
+                        </span>
+                    {% else %}
+                        <span class="px-2 py-1 text-xs font-semibold text-green-800 bg-green-100 rounded-full">
+                            Mavjud: {{ i.quantity }}
+                        </span>
+                    {% endif %}
+                </td>
+                {% if is_manager %}
+                <td class="py-4 font-medium text-gray-900 flex justify-center item-center gap-4">
+                    <a href="{% url 'inventory_update' i.id %}" class="px-4 py-2 bg-blue-700 text-white text-sm rounded-md hover:bg-blue-500 transition">
+                        Qoldiqni tahrirlash
+                    </a>
+                    <a href="{% url 'delete_product' i.product.pk %}" class="px-4 py-2 bg-red-700 text-white text-sm rounded-md hover:bg-red-500 transition"
+                       onclick="return confirm('Ushbu mahsulot BARCHA filiallarda arxivlansinmi?');"
+                       class="text-red-600 hover:text-red-900">
+                       Mahsulotni arxivlash
+                    </a>
+                </td>
+                {% endif %}
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<div class="flex items-center justify-between p-4 bg-white border-t border-gray-200">
+    <span class="text-sm text-gray-700">
+        Sahifa <span class="font-semibold text-gray-900">{{ items.number }}</span> dan
+        <span class="font-semibold text-gray-900">{{ items.paginator.num_pages }}</span>
+    </span>
+
+    <div class="inline-flex mt-2 xs:mt-0">
+        {% if items.has_previous %}
+            <a href="?page={{ items.previous_page_number }}{% if request.GET.urlencode %}&{{ request.GET.urlencode|cut:'page=' }}{% endif %}"
+               class="flex items-center justify-center px-3 h-8 text-sm font-medium text-white bg-gray-800 rounded-s hover:bg-gray-900">
+                Oldingi
+            </a>
+        {% endif %}
+
+        {% if items.has_next %}
+            <a href="?page={{ items.next_page_number }}{% if request.GET.urlencode %}&{{ request.GET.urlencode|cut:'page=' }}{% endif %}"
+               class="flex items-center justify-center px-3 h-8 text-sm font-medium text-white bg-gray-800 border-0 border-s border-gray-700 rounded-e hover:bg-gray-900">
+                Keyingi
+            </a>
+        {% endif %}
+    </div>
+</div>
+
+{% endblock %}

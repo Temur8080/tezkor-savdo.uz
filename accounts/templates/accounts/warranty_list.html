@@ -1,0 +1,161 @@
+{% extends 'accounts/main.html' %}
+{% load humanize %}
+
+{% block content %}
+<div class="bg-white border border-gray-200 rounded-lg shadow-sm overflow-hidden">
+    <div class="flex flex-wrap items-start justify-between gap-3 p-4 bg-gray-50 border-b border-gray-200">
+        <div>
+            <h1 class="text-xl font-bold text-gray-900">Kafolat boshqaruv paneli</h1>
+            <p class="text-sm text-gray-500 mt-0.5">
+                Xizmat ko‘rsatish jarayoni, almashtirishlar va kafolat muddatlari.
+            </p>
+        </div>
+        <a href="{% url 'warranty_list_export_csv' %}?{{ request.GET.urlencode }}"
+           class="px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-md hover:bg-green-700 shadow-sm transition">
+            CSV yuklab olish
+        </a>
+    </div>
+
+    <div class="grid grid-cols-1 sm:grid-cols-3 divide-y sm:divide-y-0 sm:divide-x divide-gray-200 border-b border-gray-200">
+        <div class="p-4 text-center">
+            <p class="text-xs uppercase text-gray-500 font-semibold">Umumiy majburiyat</p>
+            <p class="text-xl font-bold text-gray-900 mt-1">{{ total_cost_impact|money }}</p>
+        </div>
+        <div class="p-4 text-center">
+            <p class="text-xs uppercase text-gray-500 font-semibold">Ta’mirlash (xizmat)</p>
+            <p class="text-xl font-bold text-blue-700 mt-1">{{ repair_cost_impact|money }}</p>
+        </div>
+        <div class="p-4 text-center">
+            <p class="text-xs uppercase text-gray-500 font-semibold">Almashtirish (ombor)</p>
+            <p class="text-xl font-bold text-amber-700 mt-1">{{ replacement_cost_impact|money }}</p>
+        </div>
+    </div>
+
+    <form method="get" class="flex flex-row flex-wrap items-end gap-4 p-4 bg-gray-50 border-b">
+        <div class="flex flex-col">
+            <label class="text-xs font-semibold text-gray-600 mb-1">Holat</label>
+            <select name="status"
+                    class="px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-blue-500 focus:border-blue-500 outline-none bg-white min-w-[160px]">
+                <option value="All" {% if not request.GET.status or request.GET.status == 'All' %}selected{% endif %}>Barcha</option>
+                <option value="Pending" {% if request.GET.status == 'Pending' %}selected{% endif %}>Kutilmoqda</option>
+                <option value="In-Progress" {% if request.GET.status == 'In-Progress' %}selected{% endif %}>Jarayonda</option>
+                <option value="Completed" {% if request.GET.status == 'Completed' %}selected{% endif %}>Yakunlangan</option>
+                <option value="Released" {% if request.GET.status == 'Released' %}selected{% endif %}>Berilgan</option>
+            </select>
+        </div>
+        <div class="flex flex-col flex-grow min-w-[200px]">
+            <label class="text-xs font-semibold text-gray-600 mb-1">Qidiruv</label>
+            <input name="q" type="text" value="{{ request.GET.q|default:'' }}"
+                   placeholder="Seriya, mijoz yoki mahsulot..."
+                   class="px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-blue-500 focus:border-blue-500 outline-none">
+        </div>
+        <div class="flex gap-2">
+            <button type="submit" class="px-4 py-2 bg-blue-600 text-white text-sm rounded-md hover:bg-blue-700 transition">
+                Filtrlash
+            </button>
+            <a href="{% url 'warranty_list' %}" class="px-4 py-2 bg-gray-200 text-gray-700 text-sm rounded-md hover:bg-gray-300 transition">
+                Tozalash
+            </a>
+        </div>
+    </form>
+
+    <table class="w-full text-sm text-left text-gray-500">
+        <thead class="text-xs text-gray-700 uppercase bg-gray-100 text-center">
+            <tr>
+                <th class="px-4 py-3">Ariza</th>
+                <th class="px-4 py-3">Mijoz / Mahsulot</th>
+                <th class="px-4 py-3">Turi</th>
+                <th class="px-4 py-3">Holat</th>
+                <th class="px-4 py-3">Ish kafolati</th>
+                <th class="px-4 py-3">Sana</th>
+                <th class="px-4 py-3">Amal</th>
+            </tr>
+        </thead>
+        <tbody class="divide-y divide-gray-200">
+            {% for claim in page_obj %}
+            <tr class="hover:bg-gray-50 text-center">
+                <td class="px-4 py-3 font-mono text-xs font-semibold text-gray-500">#WC-{{ claim.id }}</td>
+                <td class="px-4 py-3 text-left">
+                    <div class="font-semibold text-gray-900">{{ claim.order_item.order.customer|default:"Mijoz yo‘q" }}</div>
+                    <div class="text-xs text-gray-500">
+                        {{ claim.order_item.product.product_name }}
+                        · Seriya: {{ claim.faulty_serial }}
+                    </div>
+                    <div class="text-[11px] text-gray-400 mt-0.5">
+                        Mahsulot kafolati: {{ claim.order_item.effective_warranty_days }} kun ·
+                        Almashtirish: {{ claim.order_item.effective_replacement_days }} kun
+                    </div>
+                </td>
+                <td class="px-4 py-3">
+                    <span class="px-2 py-1 text-xs font-semibold rounded-full
+                        {% if claim.claim_type == 'Repair' %}text-blue-800 bg-blue-100{% else %}text-amber-800 bg-amber-100{% endif %}">
+                        {{ claim.get_claim_type_display }}
+                    </span>
+                </td>
+                <td class="px-4 py-3">
+                    <form method="POST" action="{% url 'update_claim_status' claim.id %}">
+                        {% csrf_token %}
+                        <select name="status" onchange="this.closest('form').submit()"
+                                class="border border-gray-300 rounded-md text-xs font-semibold px-2 py-1.5 bg-white focus:ring-blue-500 focus:border-blue-500 outline-none
+                                {% if claim.status == 'Pending' %}text-gray-600
+                                {% elif claim.status == 'In-Progress' %}text-blue-700
+                                {% elif claim.status == 'Completed' %}text-green-700
+                                {% else %}text-purple-700{% endif %}">
+                            <option value="Pending" {% if claim.status == 'Pending' %}selected{% endif %}>Kutilmoqda</option>
+                            <option value="In-Progress" {% if claim.status == 'In-Progress' %}selected{% endif %}>Jarayonda</option>
+                            <option value="Completed" {% if claim.status == 'Completed' %}selected{% endif %}>Yakunlangan</option>
+                            <option value="Released" {% if claim.status == 'Released' %}selected{% endif %}>Berilgan</option>
+                        </select>
+                    </form>
+                </td>
+                <td class="px-4 py-3 text-xs">
+                    {% if claim.service_warranty_until %}
+                        <span class="font-semibold text-gray-800">{{ claim.service_warranty_until|date:"d.m.Y" }}</span>
+                        <div class="text-gray-400">gacha</div>
+                    {% elif claim.claim_type == 'Repair' %}
+                        <span class="text-gray-400">Yakunlanganda belgilanadi</span>
+                        <div class="text-gray-400">({{ claim.order_item.effective_service_warranty_days }} kun)</div>
+                    {% else %}
+                        <span class="text-gray-400">—</span>
+                    {% endif %}
+                </td>
+                <td class="px-4 py-3 text-sm text-gray-600">{{ claim.date_filed|date:"d.m.Y" }}</td>
+                <td class="px-4 py-3">
+                    <a href="{% url 'warranty' claim.order_item.order_id %}"
+                       class="px-3 py-1.5 bg-blue-700 text-white text-xs font-medium rounded-md hover:bg-blue-800 transition">
+                        Buyurtma
+                    </a>
+                </td>
+            </tr>
+            {% empty %}
+            <tr>
+                <td colspan="7" class="px-6 py-16 text-center text-gray-400">
+                    Kafolat arizalari topilmadi.
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <div class="flex items-center justify-between p-4 bg-white border-t border-gray-200">
+        <span class="text-sm text-gray-700">
+            Sahifa <span class="font-semibold text-gray-900">{{ page_obj.number }}</span> /
+            <span class="font-semibold text-gray-900">{{ page_obj.paginator.num_pages }}</span>
+        </span>
+        <div class="inline-flex">
+            {% if page_obj.has_previous %}
+            <a href="?page={{ page_obj.previous_page_number }}{% if request.GET.urlencode %}&{{ request.GET.urlencode|cut:'page=' }}{% endif %}"
+               class="flex items-center justify-center px-3 h-8 text-sm font-medium text-white bg-gray-800 rounded-s hover:bg-gray-900">
+                Oldingi
+            </a>
+            {% endif %}
+            {% if page_obj.has_next %}
+            <a href="?page={{ page_obj.next_page_number }}{% if request.GET.urlencode %}&{{ request.GET.urlencode|cut:'page=' }}{% endif %}"
+               class="flex items-center justify-center px-3 h-8 text-sm font-medium text-white bg-gray-800 border-0 border-s border-gray-700 rounded-e hover:bg-gray-900">
+                Keyingi
+            </a>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}

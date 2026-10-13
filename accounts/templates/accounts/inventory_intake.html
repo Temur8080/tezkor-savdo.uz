@@ -1,0 +1,303 @@
+{% extends 'accounts/main.html' %}
+{% load static %}
+
+{% block content %}
+{% csrf_token %}
+
+<div class="h-[calc(100vh-110px)] flex flex-col min-h-0 gap-4 pb-2">
+
+    {# Header #}
+    <div class="bg-white border border-gray-200 rounded-lg shadow-sm shrink-0 overflow-hidden">
+        <div class="flex flex-wrap items-center justify-between gap-3 p-4 bg-gray-50 border-b border-gray-200">
+            <div>
+                <h1 class="text-xl font-bold text-gray-900">Ombor kirimi</h1>
+                <p class="text-sm text-gray-500 mt-0.5">Skanerlang — mavjudga qo‘shing yoki yangi mahsulot yarating.</p>
+            </div>
+            <a href="{% url 'branch_inventory' %}"
+               class="px-4 py-2 bg-white border border-gray-200 text-gray-700 text-sm font-medium rounded-md hover:bg-gray-100 transition">
+                ← Ombor ro‘yxati
+            </a>
+        </div>
+
+        <div class="p-4 grid grid-cols-1 lg:grid-cols-12 gap-3 items-end">
+            <div class="lg:col-span-3">
+                <label class="block text-xs font-semibold text-gray-600 mb-1">Filial</label>
+                {% if is_manager %}
+                <select id="intake-branch"
+                        class="w-full px-3 py-2.5 border border-gray-300 rounded-md text-sm bg-white focus:ring-teal-500 focus:border-teal-500 outline-none">
+                    {% for b in branches %}
+                    <option value="{{ b.id }}" {% if branch and branch.id == b.id %}selected{% endif %}>{{ b.name }}</option>
+                    {% endfor %}
+                </select>
+                {% else %}
+                <input type="hidden" id="intake-branch" value="{% if branch %}{{ branch.id }}{% endif %}">
+                <div class="px-3 py-2.5 bg-teal-50 border border-teal-100 rounded-md text-sm font-semibold text-teal-800">
+                    {{ branch.name|default:"Tayinlanmagan" }}
+                </div>
+                {% endif %}
+            </div>
+
+            <div class="lg:col-span-3">
+                <label class="block text-xs font-semibold text-gray-600 mb-1">Kurs (1 USD = so‘m)</label>
+                <div class="flex gap-2">
+                    <input id="usd-rate" type="number" min="1" step="1" value="{{ usd_rate }}"
+                           class="w-full px-3 py-2.5 border border-gray-300 rounded-md text-sm focus:ring-teal-500 focus:border-teal-500 outline-none">
+                    <button type="button" id="save-rate-btn"
+                            class="shrink-0 px-3 py-2.5 bg-teal-700 hover:bg-teal-800 text-white text-sm font-medium rounded-md transition">
+                        Saqlash
+                    </button>
+                </div>
+            </div>
+
+            <div class="lg:col-span-6">
+                <label class="block text-xs font-semibold text-gray-600 mb-1">Shtrix-kod</label>
+                <input id="barcode-input" type="text" autofocus autocomplete="off"
+                       placeholder="Skanerlang yoki yozib Enter bosing…"
+                       class="w-full px-4 py-2.5 border border-teal-300 bg-teal-50/40 rounded-md text-sm font-semibold tracking-wide
+                              focus:ring-2 focus:ring-teal-500/30 focus:border-teal-500 outline-none placeholder:text-gray-400 placeholder:font-normal">
+            </div>
+        </div>
+
+        <div id="status-msg"
+             class="mx-4 mb-4 text-sm font-medium min-h-[2.25rem] px-3 py-2 rounded-md bg-gray-50 text-gray-600 border border-gray-100">
+            Skanerlashga tayyor — yangi shtrix-kod bo‘lsa, forma ochiladi
+        </div>
+    </div>
+
+    {# Body: form + log #}
+    <div class="flex-1 min-h-0 grid grid-cols-1 xl:grid-cols-12 gap-4">
+
+        <section class="xl:col-span-8 min-h-0 flex flex-col bg-white border border-gray-200 rounded-lg shadow-sm overflow-hidden">
+            <div class="px-4 py-3 bg-gray-50 border-b border-gray-200 flex items-center justify-between gap-2 shrink-0">
+                <div>
+                    <h2 class="text-base font-bold text-gray-900">Mahsulot</h2>
+                    <p class="text-xs text-gray-500">Skanerdan keyin ma’lumotlar shu yerda ochiladi</p>
+                </div>
+                <label class="flex items-center gap-2 text-xs font-medium text-gray-600 select-none px-3 py-1.5 bg-white border border-gray-200 rounded-md">
+                    <input type="checkbox" id="quick-mode"
+                           class="rounded border-gray-300 text-teal-600 focus:ring-teal-500">
+                    Tez rejim
+                </label>
+            </div>
+
+            <div class="flex-1 min-h-0 overflow-y-auto p-4">
+                <div id="product-panel" class="hidden space-y-4">
+                    <div class="flex flex-wrap items-center gap-2">
+                        <span id="mode-badge"
+                              class="px-2.5 py-1 text-xs font-semibold text-teal-800 bg-teal-100 rounded-md">
+                            Mavjud mahsulot
+                        </span>
+                        <span id="low-stock-badge"
+                              class="hidden px-2.5 py-1 text-xs font-semibold text-amber-800 bg-amber-100 rounded-md">
+                            Kam qoldiq
+                        </span>
+                        <span id="new-item-badge"
+                              class="hidden px-2.5 py-1 text-xs font-semibold text-emerald-800 bg-emerald-100 rounded-md">
+                            Filialda yangi
+                        </span>
+                    </div>
+
+                    <div class="flex flex-col sm:flex-row gap-4">
+                        <label class="h-28 w-28 rounded-md bg-gray-50 border border-dashed border-gray-300 flex flex-col items-center justify-center overflow-hidden shrink-0 cursor-pointer hover:border-teal-500 relative">
+                            <div id="product-image" class="absolute inset-0 flex items-center justify-center text-gray-400 text-sm">
+                                Rasm
+                            </div>
+                            <input id="image-input" type="file" accept="image/*" class="hidden">
+                            <span class="absolute bottom-0 inset-x-0 text-[10px] text-center bg-gray-800/70 text-white py-0.5">Yuklash</span>
+                        </label>
+                        <div class="flex-grow space-y-3 min-w-0">
+                            <div>
+                                <label class="block text-xs font-semibold text-gray-600 mb-1">Mahsulot nomi *</label>
+                                <input id="product-name-input" type="text" maxlength="100"
+                                       class="w-full px-3 py-2.5 border border-gray-300 rounded-md text-sm font-semibold focus:ring-teal-500 focus:border-teal-500 outline-none bg-white">
+                            </div>
+                            <p id="product-meta" class="text-sm text-gray-500"></p>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
+                            <label class="block text-xs font-semibold text-gray-600 mb-1">Kategoriya *</label>
+                            <div class="flex gap-2">
+                                <select id="category-select"
+                                        class="w-full px-3 py-2.5 border border-gray-300 rounded-md text-sm focus:ring-teal-500 focus:border-teal-500 outline-none bg-white">
+                                    {% for c in categories %}
+                                    <option value="{{ c }}">{{ c }}</option>
+                                    {% empty %}
+                                    <option value="Noutbuk">Noutbuk</option>
+                                    {% endfor %}
+                                </select>
+                                <button type="button" id="add-category-btn"
+                                        class="shrink-0 w-10 border border-gray-300 bg-white text-teal-700 text-lg font-semibold rounded-md hover:bg-gray-50"
+                                        title="Yangi kategoriya">+</button>
+                            </div>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold text-gray-600 mb-1">Yetkazib beruvchi *</label>
+                            <select id="supplier-select"
+                                    class="w-full px-3 py-2.5 border border-gray-300 rounded-md text-sm focus:ring-teal-500 focus:border-teal-500 outline-none bg-white">
+                                {% for s in suppliers %}
+                                <option value="{{ s.id }}">{{ s.name }}</option>
+                                {% empty %}
+                                <option value="">Yetkazib beruvchi yo‘q</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                        <div>
+                            <label class="block text-xs font-semibold text-gray-600 mb-1">Kiritish valyutasi</label>
+                            <select id="entry-currency"
+                                    class="w-full px-3 py-2.5 border border-gray-300 rounded-md text-sm focus:ring-teal-500 focus:border-teal-500 outline-none bg-white">
+                                <option value="UZS">So‘m (UZS)</option>
+                                <option value="USD">Dollar (USD)</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold text-gray-600 mb-1">Saqlash valyutasi</label>
+                            <select id="store-currency"
+                                    class="w-full px-3 py-2.5 border border-gray-300 rounded-md text-sm focus:ring-teal-500 focus:border-teal-500 outline-none bg-white">
+                                <option value="UZS">So‘mda saqlash</option>
+                                <option value="USD">Dollarda saqlash</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold text-gray-600 mb-1">Min. zaxira</label>
+                            <input id="min-stock-input" type="number" min="0" value="3"
+                                   class="w-full px-3 py-2.5 border border-gray-300 rounded-md text-sm focus:ring-teal-500 focus:border-teal-500 outline-none bg-white">
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                        <div>
+                            <label class="block text-xs font-semibold text-gray-600 mb-1">Mahsulot kafolati (kun)</label>
+                            <input id="warranty-days-input" type="number" min="0" value="365"
+                                   class="w-full px-3 py-2.5 border border-gray-300 rounded-md text-sm focus:ring-teal-500 focus:border-teal-500 outline-none bg-white">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold text-gray-600 mb-1">Almashtirish (kun)</label>
+                            <input id="replacement-days-input" type="number" min="0" value="7"
+                                   class="w-full px-3 py-2.5 border border-gray-300 rounded-md text-sm focus:ring-teal-500 focus:border-teal-500 outline-none bg-white">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold text-gray-600 mb-1">Ish kafolati (kun)</label>
+                            <input id="service-warranty-input" type="number" min="0" value="90"
+                                   class="w-full px-3 py-2.5 border border-gray-300 rounded-md text-sm focus:ring-teal-500 focus:border-teal-500 outline-none bg-white"
+                                   title="Ta’mirlashdan keyin">
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
+                            <label class="block text-xs font-semibold text-gray-600 mb-1">Tannarx *</label>
+                            <input id="cost-price-input" type="number" min="0" step="0.01" placeholder="0"
+                                   class="w-full px-3 py-2.5 border border-gray-300 rounded-md text-sm font-semibold focus:ring-teal-500 focus:border-teal-500 outline-none bg-white">
+                            <p id="cost-converted" class="text-xs text-gray-500 mt-1"></p>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold text-gray-600 mb-1">Sotish narxi *</label>
+                            <input id="base-price-input" type="number" min="0" step="0.01" placeholder="0"
+                                   class="w-full px-3 py-2.5 border border-gray-300 rounded-md text-sm font-semibold focus:ring-teal-500 focus:border-teal-500 outline-none bg-white">
+                            <p id="sell-converted" class="text-xs text-gray-500 mt-1"></p>
+                        </div>
+                    </div>
+                    <p id="convert-hint" class="text-xs text-gray-500 px-1">
+                        Dollar ↔ so‘m kurs bo‘yicha hisoblanadi.
+                    </p>
+
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
+                            <label class="block text-xs font-semibold text-gray-600 mb-1">Qo‘shiladigan miqdor *</label>
+                            <div class="flex items-center gap-2">
+                                <button type="button" id="qty-minus"
+                                        class="h-11 w-11 rounded-md border border-gray-300 bg-white text-lg font-bold text-gray-700 hover:bg-gray-50">−</button>
+                                <input id="qty-input" type="number" min="1" value="1"
+                                       class="w-full h-11 px-3 border border-gray-300 rounded-md text-center text-sm font-bold focus:ring-teal-500 focus:border-teal-500 outline-none bg-white">
+                                <button type="button" id="qty-plus"
+                                        class="h-11 w-11 rounded-md border border-gray-300 bg-white text-lg font-bold text-gray-700 hover:bg-gray-50">+</button>
+                            </div>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold text-gray-600 mb-1">Izoh (ixtiyoriy)</label>
+                            <input id="note-input" type="text" maxlength="200" placeholder="Yetkazib beruvchi, hujjat №…"
+                                   class="w-full h-11 px-3 border border-gray-300 rounded-md text-sm focus:ring-teal-500 focus:border-teal-500 outline-none bg-white">
+                        </div>
+                    </div>
+
+                    <div class="flex flex-wrap items-center gap-2 pt-1 border-t border-gray-100">
+                        <button type="button" id="add-stock-btn"
+                                class="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold rounded-md transition">
+                            Omborga qo‘shish
+                        </button>
+                        <button type="button" id="new-product-btn"
+                                class="px-4 py-2.5 bg-white border border-gray-300 hover:bg-gray-50 text-gray-800 text-sm font-medium rounded-md transition">
+                            Yangi mahsulot
+                        </button>
+                    </div>
+                </div>
+
+                <div id="intake-empty-hint"
+                     class="h-full min-h-[16rem] flex flex-col items-center justify-center text-center px-6 text-gray-400">
+                    <p class="text-base font-semibold text-gray-500">Mahsulot skanerlang</p>
+                    <p class="text-sm mt-1 max-w-sm">Yuqoridagi maydonga shtrix-kodni kiriting — forma avtomatik ochiladi.</p>
+                </div>
+            </div>
+        </section>
+
+        <aside class="xl:col-span-4 min-h-[280px] xl:min-h-0 flex flex-col bg-white border border-gray-200 rounded-lg shadow-sm overflow-hidden">
+            <div class="px-4 py-3 bg-gray-50 border-b border-gray-200 flex flex-wrap items-center justify-between gap-2 shrink-0">
+                <div>
+                    <h2 class="text-base font-bold text-gray-900">Oxirgi kirimlar</h2>
+                    <p class="text-xs text-gray-500">Sessiya jurnali</p>
+                </div>
+                <div class="flex gap-2">
+                    <button type="button" id="undo-btn"
+                            class="px-3 py-1.5 text-xs font-semibold rounded-md bg-amber-50 text-amber-800 border border-amber-100 hover:bg-amber-100 disabled:opacity-40 disabled:cursor-not-allowed"
+                            disabled>
+                        Bekor
+                    </button>
+                    <button type="button" id="clear-log-btn"
+                            class="px-3 py-1.5 text-xs font-semibold rounded-md bg-white text-gray-600 border border-gray-200 hover:bg-gray-50">
+                        Tozalash
+                    </button>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-3 divide-x divide-gray-200 border-b border-gray-200 shrink-0">
+                <div class="p-3 text-center">
+                    <p class="text-[10px] uppercase text-gray-500 font-semibold">Kirimlar</p>
+                    <p id="stat-count" class="text-lg font-bold text-gray-900 mt-0.5">0</p>
+                </div>
+                <div class="p-3 text-center">
+                    <p class="text-[10px] uppercase text-gray-500 font-semibold">Dona</p>
+                    <p id="stat-qty" class="text-lg font-bold text-emerald-700 mt-0.5">0</p>
+                </div>
+                <div class="p-3 text-center">
+                    <p class="text-[10px] uppercase text-gray-500 font-semibold">SKU</p>
+                    <p id="stat-skus" class="text-lg font-bold text-gray-900 mt-0.5">0</p>
+                </div>
+            </div>
+
+            <div id="intake-log" class="flex-1 min-h-0 overflow-y-auto divide-y divide-gray-100">
+                <p class="text-gray-400 text-sm text-center py-12">Hali kirim yo‘q</p>
+            </div>
+        </aside>
+    </div>
+</div>
+
+<script>
+    (function () {
+        const panel = document.getElementById('product-panel');
+        const hint = document.getElementById('intake-empty-hint');
+        if (!panel || !hint || typeof MutationObserver === 'undefined') return;
+        const sync = () => {
+            const open = !panel.classList.contains('hidden');
+            hint.classList.toggle('hidden', open);
+        };
+        sync();
+        new MutationObserver(sync).observe(panel, { attributes: true, attributeFilter: ['class'] });
+    })();
+</script>
+<script src="{% static 'js/inventoryIntake.js' %}?v=7"></script>
+{% endblock %}

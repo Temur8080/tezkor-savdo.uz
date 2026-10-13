@@ -1,0 +1,44 @@
+{% extends 'accounts/main.html' %}
+{% load static %}
+
+{% block content %}
+{% csrf_token %}
+<div class="pos-shell h-[calc(100dvh-5.5rem)] sm:h-[calc(100vh-110px)] flex flex-col lg:flex-row gap-3 sm:gap-4 overflow-hidden min-h-0 pb-safe">
+    <div class="flex-1 min-h-[180px] lg:min-h-0 min-w-0 overflow-hidden order-2 lg:order-1">
+        {% include 'components/pos_product_list.html' %}
+    </div>
+    <div class="h-[46%] max-h-[480px] lg:h-full lg:max-h-none min-h-[240px] lg:min-h-0 shrink-0 order-1 lg:order-2 w-full lg:w-[400px]">
+        {% include 'components/cart.html' %}
+    </div>
+</div>
+
+<div id="modal-container" class="fixed inset-0 z-[100] hidden
+            bg-gray-900/45 backdrop-blur-sm
+            flex items-end sm:items-center justify-center p-0 sm:p-4 overflow-y-auto">
+    {% include 'components/cash_modal.html' %}
+</div>
+
+<script>
+    const currentEmployeeId = "{{ request.user.id }}"
+    const cartKey = `pos_cart_user${currentEmployeeId}`;
+    const heldOrdersKey = `pos_held_user${currentEmployeeId}`;
+    let cart = JSON.parse(localStorage.getItem(cartKey)) || [];
+    let heldOrders = JSON.parse(localStorage.getItem(heldOrdersKey)) || [];
+    let currentGrandTotal = 0;
+    let currentTotalsByCurrency = { UZS: 0, USD: 0 };
+    let isStageOpen = false;
+    const vatEnabled = {{ vat_enabled|yesno:"true,false" }};
+    const vatPercent = parseFloat("{{ vat_percent|default:'12' }}") || 0;
+    const LOYALTY_TIERS = {{ loyalty_tiers_json|safe }};
+    const LOYALTY_META = {{ loyalty_meta_json|safe }};
+    const IS_CONSULTANT = {{ is_consultant|yesno:"true,false" }};
+    const CAN_COMPLETE_SALE = {{ can_complete_sale|yesno:"true,false" }};
+    const SECRET_DISCOUNT_CODE = "{{ secret_discount_code|default:''|escapejs }}";
+    const SECRET_DISCOUNT_PERCENT = parseFloat("{{ secret_discount_percent|default:'0' }}") || 0;
+</script>
+
+<script src="{% static 'js/moneyFormat.js' %}?v=40"></script>
+<script src="{% static 'js/posScanner.js' %}?v=40"></script>
+<script src="{% static 'js/posUI.js' %}?v=40"></script>
+<script src="{% static 'js/posInit.js' %}?v=40"></script>
+{% endblock %}

@@ -1,0 +1,143 @@
+{% extends 'accounts/main.html' %}
+
+{% block content %}
+<div class="max-w-5xl mx-auto">
+    <div class="bg-white border border-gray-200 rounded-lg shadow-sm overflow-hidden">
+        <div class="flex flex-wrap items-center justify-between gap-3 p-4 bg-gray-50 border-b border-gray-200">
+            <div>
+                <h1 class="text-xl font-bold text-gray-900">Kafolatni qayta ishlash</h1>
+                <p class="text-sm text-gray-500 mt-0.5">
+                    Buyurtma #{{ sales.id }} · {{ sales.order_date|date:"d.m.Y H:i" }}
+                    {% if sales.customer %} · {{ sales.customer.name }}{% endif %}
+                </p>
+            </div>
+            <div class="flex gap-2">
+                <a href="{% url 'warranty_list' %}"
+                   class="px-4 py-2 bg-gray-200 text-gray-700 text-sm rounded-md hover:bg-gray-300 transition">
+                    ← Kafolat paneli
+                </a>
+                <a href="{% url 'sales_display' %}"
+                   class="px-4 py-2 bg-white border border-gray-300 text-gray-700 text-sm rounded-md hover:bg-gray-50 transition">
+                    Sotuvlar
+                </a>
+            </div>
+        </div>
+
+        {% if messages %}
+        <div class="px-4 pt-4 space-y-2">
+            {% for message in messages %}
+            <div class="px-3 py-2 rounded-md text-sm
+                {% if message.tags == 'error' %}bg-red-50 text-red-700 border border-red-100
+                {% else %}bg-green-50 text-green-700 border border-green-100{% endif %}">
+                {{ message }}
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+
+        <form method="POST">
+            {% csrf_token %}
+
+            <table class="w-full text-sm text-left text-gray-500">
+                <thead class="text-xs text-gray-700 uppercase bg-gray-100">
+                    <tr>
+                        <th class="px-4 py-3 text-center">Tanlash</th>
+                        <th class="px-4 py-3">Mahsulot / kafolat</th>
+                        <th class="px-4 py-3 text-center">Miqdor</th>
+                        <th class="px-4 py-3">Nosoz seriya</th>
+                        <th class="px-4 py-3">Yangi seriya</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-200">
+                    {% for row in items_info %}
+                    <tr class="hover:bg-gray-50">
+                        <td class="px-4 py-3 text-center">
+                            <input type="radio" name="order_item_id" value="{{ row.item.id }}" required
+                                   class="w-4 h-4 text-blue-600 border-gray-300 focus:ring-blue-500">
+                        </td>
+                        <td class="px-4 py-3">
+                            <p class="font-semibold text-gray-900">{{ row.item.product.product_name }}</p>
+                            <p class="text-xs text-gray-500 mt-0.5">
+                                Narx: {{ row.item.unit_price|money:sales.currency }} ·
+                                Sotib olinganiga: {{ row.days_since }} kun
+                            </p>
+                            <div class="mt-2 flex flex-wrap gap-1.5">
+                                <span class="px-2 py-0.5 text-[11px] font-semibold rounded-full
+                                    {% if row.repair_left > 0 %}bg-green-100 text-green-800{% else %}bg-red-100 text-red-700{% endif %}">
+                                    Ta’mirlash: {{ row.warranty_days }} kun
+                                    ({% if row.repair_left > 0 %}{{ row.repair_left }} qoldi{% else %}tugagan{% endif %})
+                                </span>
+                                <span class="px-2 py-0.5 text-[11px] font-semibold rounded-full
+                                    {% if row.replace_left > 0 %}bg-amber-100 text-amber-800{% else %}bg-gray-100 text-gray-500{% endif %}">
+                                    Almashtirish: {{ row.replacement_days }} kun
+                                    ({% if row.replace_left > 0 %}{{ row.replace_left }} qoldi{% else %}tugagan{% endif %})
+                                </span>
+                                <span class="px-2 py-0.5 text-[11px] font-semibold rounded-full bg-blue-100 text-blue-800">
+                                    Ish kafolati: {{ row.service_warranty_days }} kun
+                                    {% if row.under_service %} · amalda {{ row.service_until|date:"d.m.Y" }} gacha{% endif %}
+                                </span>
+                            </div>
+                        </td>
+                        <td class="px-4 py-3 text-center font-semibold text-gray-800">{{ row.item.quantity }}</td>
+                        <td class="px-4 py-3">
+                            <input type="text" name="faulty_serial_{{ row.item.id }}"
+                                   placeholder="Seriya raqami"
+                                   class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-blue-500 focus:border-blue-500 outline-none">
+                        </td>
+                        <td class="px-4 py-3">
+                            <input type="text" name="new_serial_{{ row.item.id }}"
+                                   placeholder="Almashtirish uchun"
+                                   class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-blue-500 focus:border-blue-500 outline-none">
+                        </td>
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="5" class="px-6 py-12 text-center text-gray-400">
+                            Bu buyurtmada mahsulot yo‘q.
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+
+            <div class="p-4 bg-gray-50 border-t border-gray-200 grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div class="space-y-3">
+                    <div>
+                        <label class="block text-xs font-semibold text-gray-600 mb-1">Ariza turi</label>
+                        <select name="claim_type" required
+                                class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-blue-500 focus:border-blue-500 outline-none bg-white">
+                            <option value="Repair">Ta’mirlash (mahsulot / ish kafolati)</option>
+                            <option value="Replacement">Almashtirish</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-gray-600 mb-1">Muammo tavsifi</label>
+                        <textarea name="issue_description" rows="4" required
+                                  placeholder="Nosozlikni batafsil yozing..."
+                                  class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-blue-500 focus:border-blue-500 outline-none"></textarea>
+                    </div>
+                </div>
+                <div class="flex flex-col justify-between gap-3">
+                    <div class="p-3 bg-white border border-gray-200 rounded-md text-sm text-gray-600 space-y-1">
+                        <p><span class="font-semibold text-gray-800">Menejer:</span> {{ request.user.username }}</p>
+                        <p class="text-xs text-red-600">
+                            Almashtirish — filial omboridan 1 dona ayiriladi.
+                            Ta’mirlash yakunlanganda ish kafolati avtomatik belgilanadi.
+                        </p>
+                    </div>
+                    <div class="flex gap-2">
+                        <button type="submit"
+                                class="flex-1 px-4 py-2.5 bg-blue-700 hover:bg-blue-800 text-white text-sm font-medium rounded-md shadow-sm transition">
+                            Arizani tasdiqlash
+                        </button>
+                        <a href="{% url 'sales_display' %}"
+                           class="px-4 py-2.5 bg-gray-200 text-gray-700 text-sm rounded-md hover:bg-gray-300 transition">
+                            Bekor qilish
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}

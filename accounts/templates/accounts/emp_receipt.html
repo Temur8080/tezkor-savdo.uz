@@ -1,0 +1,164 @@
+{% extends 'accounts/main.html' %}
+{% load static %}
+
+{% block content %}
+
+<div class="w-full flex flex-col justify-center items-center">
+    <div class="lg:w-7/12 mt-20 bg-white p-8 rounded-sm shadow-2xl border-t-8 border-teal-700 relative overflow-hidden" style="font-family: 'Courier New', Courier, monospace;">
+        <div class="absolute top-0 left-0 w-full h-1 bg-repeat-x" style="background-image: radial-gradient(circle, transparent 70%, white 70%); background-size: 10px 10px;"></div>
+
+        <div class="text-center mb-6">
+            {% if org_logo %}
+                <img src="{{ org_logo }}" alt="{{ brand_name }}" class="mx-auto h-16 w-auto object-contain mb-3">
+            {% else %}
+                <img src="{% static 'images/tezkor-logo.jpg' %}" alt="{{ brand_name }}" class="mx-auto h-16 w-auto object-contain mb-3">
+            {% endif %}
+            <h1 class="text-2xl font-black text-gray-900 tracking-tight">{{ brand_name|upper }} CHEKI</h1>
+            {% if awaiting_approval %}
+            <p class="mt-3 inline-block px-3 py-1.5 text-sm font-black tracking-wide text-amber-900 bg-amber-100 border-2 border-amber-400 rounded">
+                TASDIQLASH KUTILMOQDA
+            </p>
+            <p class="text-xs text-amber-700 mt-1">Bu oldindan hisob-kitob. Sotuv menejer tasdiqlagach yakunlanadi.</p>
+            {% endif %}
+            <p class="text-sm font-bold text-teal-800 mt-2">{{ organization_name|upper }}</p>
+            <p class="text-sm text-gray-600 mt-1">Filial: {{ order.branch.name }}</p>
+            {% if order.branch.address %}
+            <p class="text-xs text-gray-500">{{ order.branch.address }}</p>
+            {% endif %}
+            {% if order.branch.phone_number %}
+            <p class="text-xs text-gray-500">Tel: {{ order.branch.phone_number }}</p>
+            {% endif %}
+            <p class="text-sm font-semibold text-gray-800 mt-3">CHEK №: {{ invoice.or_number|upper }}</p>
+            <div class="border-b-2 border-dashed border-gray-300 my-4"></div>
+        </div>
+
+        <div class="flex justify-between text-xs mb-4">
+            <div>
+                <p><span class="font-bold">SANA:</span> {{ order.order_date|date:"d.m.Y H:i" }}</p>
+                <p><span class="font-bold">MIJOZ:</span> {{ order.customer|default:"Oddiy mijoz"|upper }}</p>
+                {% if order.partner %}
+                <p><span class="font-bold">HAMKOR:</span> {{ order.partner.name|upper }}</p>
+                {% endif %}
+            </div>
+            <div class="text-right">
+                <p><span class="font-bold">BUYURTMA:</span> {{ order.id }}</p>
+                <p><span class="font-bold">KASSIR:</span> {{ order.employee.user.username|upper }}</p>
+                {% if order.discount_percent and order.discount_percent > 0 %}
+                <p><span class="font-bold">CHEGIRMA:</span> −{{ order.discount_percent }}%</p>
+                {% endif %}
+            </div>
+        </div>
+
+        <table class="w-full text-sm mb-6">
+            <thead class="border-b border-gray-800">
+                <tr>
+                    <th class="text-left py-2">MAHSULOT</th>
+                    <th class="text-center py-2">MIQDOR</th>
+                    <th class="text-right py-2">JAMI</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-dashed divide-gray-200">
+                {% for item in order.orderitem_set.all %}
+                <tr>
+                    <td class="py-3">
+                        <p class="font-bold text-gray-800">{{ item.product.product_name }}</p>
+                        <p class="text-xs text-gray-500">@ {{ item.product.base_price|money:item.product.currency }}</p>
+                    </td>
+                    <td class="text-center py-3">{{ item.quantity }}</td>
+                    <td class="text-right py-3 font-bold">{{ item.line_total|money:order.currency }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+
+        <div class="space-y-2 border-t-2 border-gray-800 pt-4">
+            <div class="flex justify-between text-sm">
+                <span>ORALIQ</span>
+                <span>{{ subtotal|money:order.currency }}</span>
+            </div>
+            <div class="flex justify-between text-sm">
+                <span>{{ vat_label|default:"QQS" }}</span>
+                <span>{{ vat_amount|money:order.currency }}</span>
+            </div>
+            <div class="flex justify-between text-lg font-black">
+                <span>UMUMIY JAMI</span>
+                <span>{{ grand_total|money:order.currency }}</span>
+            </div>
+            {% if awaiting_approval %}
+            <div class="flex justify-between text-sm mt-2 text-amber-800 font-bold">
+                <span>TO‘LOV HOLATI</span>
+                <span>TASDIQLASH KUTILMOQDA</span>
+            </div>
+            {% else %}
+            <div class="flex justify-between text-sm mt-2">
+                <span>TO‘LANGAN (NAQD)</span>
+                <span class="font-semibold">{{ cash_received|money:order.currency }}</span>
+            </div>
+            {% if has_debt %}
+            <div class="flex justify-between text-sm text-amber-800 font-bold">
+                <span>QARZ (QOLDIQ)</span>
+                <span>{{ debt_remaining|money:order.currency }}</span>
+            </div>
+            <p class="text-xs text-amber-700 mt-1">
+                Jami {{ grand_total|money:order.currency }} dan
+                {{ cash_received|money:order.currency }} to‘landi,
+                {{ debt_remaining|money:order.currency }} qarzga qoldi.
+            </p>
+            {% elif change_given and change_given > 0 %}
+            <div class="flex justify-between text-sm font-bold text-emerald-700">
+                <span>QAYTIM</span>
+                <span>{{ change_given|money:order.currency }}</span>
+            </div>
+            {% else %}
+            <div class="flex justify-between text-sm italic text-emerald-700">
+                <span>TO‘LOV HOLATI</span>
+                <span>TO‘LIQ TO‘LANGAN</span>
+            </div>
+            {% endif %}
+            {% endif %}
+        </div>
+
+        <div class="mt-10 text-center border-t border-dashed border-gray-300 pt-6">
+            <p class="text-xs text-gray-400">{{ brand_name|upper }} — XARID UCHUN RAHMAT!</p>
+            <p class="text-[10px] text-gray-400 mt-1 italic">Iltimos, kafolat uchun ushbu chekni saqlab qoling.</p>
+        </div>
+    </div>
+
+    <div class="mt-4 flex justify-end">
+        <button onclick="window.print()" class="flex items-center gap-2 px-4 py-2 bg-gray-800 text-white rounded-md hover:bg-black transition">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
+            </svg>
+            Chekni chop etish
+        </button>
+    </div>
+</div>
+
+<style>
+    @media print {
+        body * { visibility: hidden; }
+        .lg\:w-7\/12, .lg\:w-7\/12 * { visibility: visible; }
+        .lg\:w-7\/12 { position: absolute; left: 0; top: 0; width: 100%; }
+        button, a { display: none !important; }
+    }
+</style>
+
+{% if request.GET.autoprint %}
+<script>
+    (function () {
+        function doPrint() {
+            try { window.focus(); window.print(); } catch (e) {}
+        }
+        if (document.readyState === 'complete') {
+            setTimeout(doPrint, 200);
+        } else {
+            window.addEventListener('load', function () { setTimeout(doPrint, 200); });
+        }
+        window.addEventListener('afterprint', function () {
+            try { window.close(); } catch (e) {}
+        });
+    })();
+</script>
+{% endif %}
+
+{% endblock %}

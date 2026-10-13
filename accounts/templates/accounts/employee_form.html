@@ -1,0 +1,114 @@
+{% extends 'accounts/main.html' %}
+{% load static %}
+
+{% block content %}
+<form method="POST" enctype="multipart/form-data" class="bg-white border border-gray-200 rounded-lg shadow-sm overflow-hidden mb-8">
+    {% csrf_token %}
+
+    <div class="flex flex-wrap items-start justify-between gap-3 p-4 bg-gray-50 border-b border-gray-200">
+        <div>
+            <h1 class="text-xl font-bold text-gray-900">
+                {% if form.instance.pk %}
+                    Xodimni tahrirlash: {{ form.instance.name }}
+                {% else %}
+                    Yangi xodim
+                {% endif %}
+            </h1>
+            <p class="text-sm text-gray-500 mt-0.5">Profil, lavozim, filial va kirish ma’lumotlari.</p>
+        </div>
+        <a href="{% url 'employee_list' %}"
+           class="px-4 py-2 bg-gray-200 text-gray-700 text-sm font-medium rounded-md hover:bg-gray-300 transition">
+            ← Orqaga
+        </a>
+    </div>
+
+    <div class="p-4 md:p-6 flex flex-col lg:flex-row gap-6">
+        <div class="w-full lg:w-64 shrink-0 border border-gray-200 rounded-md p-5 flex flex-col items-center bg-gray-50">
+            <div class="w-28 h-28 bg-white rounded-md flex items-center justify-center overflow-hidden border border-gray-200 mb-3">
+                {% if object.profile_pic %}
+                    <img id="image-preview" src="{{ object.profile_pic.url }}" class="w-full h-full object-cover" alt="Profil">
+                {% else %}
+                    <img id="image-preview" class="w-full h-full object-cover hidden" src="" alt="">
+                    <span id="svg" class="text-2xl font-bold text-gray-400">+</span>
+                {% endif %}
+            </div>
+            <label class="text-xs font-semibold text-gray-600 mb-2">Profil rasmi</label>
+            <div class="w-full text-center">
+                {{ form.profile_pic }}
+                <p class="text-[11px] text-gray-400 mt-2">JPG/PNG, tavsiya 800×800</p>
+            </div>
+        </div>
+
+        <div class="flex-1 min-w-0">
+            <h2 class="text-base font-bold text-gray-900 mb-1">Ish ma’lumotlari</h2>
+            <p class="text-xs text-gray-500 mb-5">Kerakli maydonlarni to‘ldiring.</p>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                <div>
+                    <label class="block text-xs font-semibold text-gray-600 mb-1">To‘liq ism</label>
+                    {{ form.name }}
+                    {% if form.name.errors %}<span class="text-red-500 text-xs">{{ form.name.errors.0 }}</span>{% endif %}
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-gray-600 mb-1">Email</label>
+                    {{ form.email }}
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-gray-600 mb-1">Telefon</label>
+                    {{ form.phone }}
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-gray-600 mb-1">Filial</label>
+                    {{ form.branch }}
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-gray-600 mb-1">Lavozim</label>
+                    {{ form.role }}
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-gray-600 mb-1">Login</label>
+                    {{ form.username }}
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-gray-600 mb-1">Parol</label>
+                    {{ form.password }}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="px-4 md:px-6 py-4 bg-gray-50 border-t border-gray-200 flex justify-end items-center gap-3">
+        <a href="{% url 'employee_list' %}" class="px-4 py-2 text-sm font-medium text-gray-600 hover:text-gray-900">Bekor qilish</a>
+        <button type="submit"
+                class="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-md shadow-sm transition">
+            Saqlash
+        </button>
+    </div>
+</form>
+
+<style>
+    input, select {
+        width: 100%;
+        padding: 0.5rem 0.75rem;
+        border: 1px solid #d1d5db;
+        border-radius: 0.375rem;
+        font-size: 0.875rem;
+        color: #111827;
+        background: #fff;
+    }
+    input:focus, select:focus {
+        outline: none;
+        border-color: #2563eb;
+        box-shadow: 0 0 0 1px #2563eb;
+    }
+    input[type="file"] {
+        font-size: 0.75rem;
+        color: #6b7280;
+        border: none;
+        padding: 0;
+        background: transparent;
+    }
+</style>
+
+<script src="{% static 'js/image-preview.js' %}"></script>
+{% endblock %}

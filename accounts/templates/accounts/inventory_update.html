@@ -1,0 +1,169 @@
+{% extends 'accounts/main.html' %}
+
+{% block content %}
+<div class="max-w-4xl mx-auto">
+    <div class="bg-white border border-gray-200 rounded-lg shadow-sm overflow-hidden">
+        <div class="flex flex-wrap items-center justify-between gap-3 p-4 bg-gray-50 border-b border-gray-200">
+            <div>
+                <h1 class="text-xl font-bold text-gray-900">Mahsulotni tahrirlash</h1>
+                <p class="text-sm text-gray-500 mt-0.5">
+                    {{ inventory.branch.name }} · barcha ma’lumotlar va qoldiq
+                </p>
+            </div>
+            <a href="{% url 'branch_inventory' %}"
+               class="px-4 py-2 bg-gray-200 text-gray-700 text-sm rounded-md hover:bg-gray-300 transition">
+                ← Ombor ro‘yxati
+            </a>
+        </div>
+
+        <form method="post" enctype="multipart/form-data" class="p-4 space-y-5">
+            {% csrf_token %}
+
+            {% if form.non_field_errors %}
+            <div class="px-3 py-2 bg-red-50 border border-red-100 text-red-700 text-sm rounded-md">
+                {{ form.non_field_errors }}
+            </div>
+            {% endif %}
+
+            <div class="flex flex-col sm:flex-row gap-4 p-4 bg-blue-50 border border-blue-100 rounded-md">
+                <div class="h-28 w-28 rounded-md bg-white border border-gray-200 overflow-hidden shrink-0 flex items-center justify-center">
+                    {% if inventory.product.image %}
+                    <img src="{{ inventory.product.image.url }}" alt="" class="h-full w-full object-cover" id="image-preview">
+                    {% else %}
+                    <span class="text-xs text-gray-400 font-semibold" id="image-preview-empty">Rasm yo‘q</span>
+                    <img src="" alt="" class="h-full w-full object-cover hidden" id="image-preview">
+                    {% endif %}
+                </div>
+                <div class="flex-grow space-y-2">
+                    <p class="text-xs font-semibold text-blue-700 uppercase">Joriy mahsulot</p>
+                    <p class="text-lg font-bold text-gray-900">{{ inventory.product.product_name }}</p>
+                    <p class="text-sm text-gray-600">
+                        Shtrix-kod: {{ inventory.product.barcode }} ·
+                        Kategoriya: {{ inventory.product.get_category_display }} ·
+                        Qoldiq: {{ inventory.quantity }}
+                    </p>
+                    <div>
+                        <label class="block text-xs font-semibold text-gray-600 mb-1">{{ form.image.label }}</label>
+                        {{ form.image }}
+                        {% if form.image.errors %}
+                        <p class="text-xs text-red-600 mt-1">{{ form.image.errors.0 }}</p>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                    <label class="block text-xs font-semibold text-gray-600 mb-1">{{ form.product_name.label }} *</label>
+                    {{ form.product_name }}
+                    {% if form.product_name.errors %}<p class="text-xs text-red-600 mt-1">{{ form.product_name.errors.0 }}</p>{% endif %}
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-gray-600 mb-1">{{ form.barcode.label }} *</label>
+                    {{ form.barcode }}
+                    {% if form.barcode.errors %}<p class="text-xs text-red-600 mt-1">{{ form.barcode.errors.0 }}</p>{% endif %}
+                </div>
+
+                <div>
+                    <label class="block text-xs font-semibold text-gray-600 mb-1">{{ form.category.label }} *</label>
+                    {{ form.category }}
+                    {% if form.category.errors %}<p class="text-xs text-red-600 mt-1">{{ form.category.errors.0 }}</p>{% endif %}
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-gray-600 mb-1">{{ form.new_category.label }}</label>
+                    {{ form.new_category }}
+                </div>
+
+                <div>
+                    <label class="block text-xs font-semibold text-gray-600 mb-1">{{ form.supplier.label }} *</label>
+                    {{ form.supplier }}
+                    {% if form.supplier.errors %}<p class="text-xs text-red-600 mt-1">{{ form.supplier.errors.0 }}</p>{% endif %}
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-gray-600 mb-1">{{ form.currency.label }} *</label>
+                    {{ form.currency }}
+                    {% if form.currency.errors %}<p class="text-xs text-red-600 mt-1">{{ form.currency.errors.0 }}</p>{% endif %}
+                </div>
+
+                <div>
+                    <label class="block text-xs font-semibold text-gray-600 mb-1">{{ form.cost_price.label }} *</label>
+                    {{ form.cost_price }}
+                    {% if form.cost_price.errors %}<p class="text-xs text-red-600 mt-1">{{ form.cost_price.errors.0 }}</p>{% endif %}
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-gray-600 mb-1">{{ form.base_price.label }} *</label>
+                    {{ form.base_price }}
+                    {% if form.base_price.errors %}<p class="text-xs text-red-600 mt-1">{{ form.base_price.errors.0 }}</p>{% endif %}
+                </div>
+
+                <div>
+                    <label class="block text-xs font-semibold text-gray-600 mb-1">{{ form.quantity.label }} *</label>
+                    {{ form.quantity }}
+                    {% if form.quantity.errors %}<p class="text-xs text-red-600 mt-1">{{ form.quantity.errors.0 }}</p>{% endif %}
+                    <p class="text-xs text-gray-500 mt-1">Faqat {{ inventory.branch.name }} filiali uchun</p>
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-gray-600 mb-1">{{ form.min_stock_level.label }} *</label>
+                    {{ form.min_stock_level }}
+                    {% if form.min_stock_level.errors %}<p class="text-xs text-red-600 mt-1">{{ form.min_stock_level.errors.0 }}</p>{% endif %}
+                </div>
+
+                <div>
+                    <label class="block text-xs font-semibold text-gray-600 mb-1">{{ form.warranty_days.label }} *</label>
+                    {{ form.warranty_days }}
+                    {% if form.warranty_days.errors %}<p class="text-xs text-red-600 mt-1">{{ form.warranty_days.errors.0 }}</p>{% endif %}
+                    <p class="text-xs text-gray-500 mt-1">Ta’mirlash uchun (sotib olishdan)</p>
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-gray-600 mb-1">{{ form.replacement_days.label }} *</label>
+                    {{ form.replacement_days }}
+                    {% if form.replacement_days.errors %}<p class="text-xs text-red-600 mt-1">{{ form.replacement_days.errors.0 }}</p>{% endif %}
+                </div>
+                <div class="md:col-span-2">
+                    <label class="block text-xs font-semibold text-gray-600 mb-1">{{ form.service_warranty_days.label }} *</label>
+                    {{ form.service_warranty_days }}
+                    {% if form.service_warranty_days.errors %}<p class="text-xs text-red-600 mt-1">{{ form.service_warranty_days.errors.0 }}</p>{% endif %}
+                    <p class="text-xs text-gray-500 mt-1">Ta’mirlash/xizmat yakunlangandan keyin qo‘shimcha kafolat</p>
+                </div>
+            </div>
+
+            <p class="text-xs text-gray-500 bg-gray-50 border border-gray-100 rounded-md px-3 py-2">
+                Valyuta kursi (ma’lumot): 1 USD ≈ {{ usd_rate }} so‘m.
+                Bu yerda narxlar tanlangan valyutada saqlanadi (ombor kirimidagi konvertatsiya alohida).
+            </p>
+
+            <div class="flex flex-wrap gap-2 pt-2 border-t border-gray-100">
+                <button type="submit"
+                        class="px-5 py-2 bg-blue-700 hover:bg-blue-800 text-white text-sm font-medium rounded-md shadow-sm transition">
+                    O‘zgarishlarni saqlash
+                </button>
+                <a href="{% url 'branch_inventory' %}"
+                   class="px-5 py-2 bg-gray-200 hover:bg-gray-300 text-gray-700 text-sm rounded-md transition">
+                    Bekor qilish
+                </a>
+                <a href="{% url 'inventory_intake' %}"
+                   class="px-5 py-2 bg-white border border-gray-300 text-blue-700 text-sm rounded-md hover:bg-blue-50 transition">
+                    Ombor kirimi
+                </a>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+(function () {
+    const input = document.querySelector('input[type="file"][name="image"]');
+    const preview = document.getElementById('image-preview');
+    const empty = document.getElementById('image-preview-empty');
+    if (!input || !preview) return;
+    input.addEventListener('change', function () {
+        const file = input.files && input.files[0];
+        if (!file) return;
+        const url = URL.createObjectURL(file);
+        preview.src = url;
+        preview.classList.remove('hidden');
+        if (empty) empty.classList.add('hidden');
+    });
+})();
+</script>
+{% endblock %}

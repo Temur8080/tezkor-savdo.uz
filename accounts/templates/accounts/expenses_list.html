@@ -1,0 +1,205 @@
+{% extends 'accounts/main.html' %}
+{% load humanize money_tags %}
+
+{% block content %}
+{% if messages %}
+<div class="mb-4 space-y-2">
+    {% for message in messages %}
+    <div class="px-4 py-3 rounded-md text-sm font-medium border
+        {% if message.tags == 'error' %}bg-red-50 text-red-800 border-red-200
+        {% elif message.tags == 'success' %}bg-emerald-50 text-emerald-800 border-emerald-200
+        {% else %}bg-blue-50 text-blue-800 border-blue-200{% endif %}">
+        {{ message }}
+    </div>
+    {% endfor %}
+</div>
+{% endif %}
+
+<div class="space-y-6 pb-8">
+
+    <div class="bg-white border border-gray-200 rounded-lg shadow-sm overflow-hidden">
+        <div class="flex flex-wrap items-start justify-between gap-3 p-4 bg-gray-50 border-b border-gray-200">
+            <div>
+                <h1 class="text-xl font-bold text-gray-900">Xarajatlar</h1>
+                <p class="text-sm text-gray-500 mt-0.5">Ijara, kommunal, ish haqi va boshqa chiqimlar.</p>
+            </div>
+            <a href="{% url 'admin_reports' %}"
+               class="px-4 py-2 bg-gray-200 text-gray-700 text-sm font-medium rounded-md hover:bg-gray-300 transition">
+                Hisobotlarga
+            </a>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-3 divide-y sm:divide-y-0 sm:divide-x divide-gray-200">
+            <div class="p-4 text-center">
+                <p class="text-xs uppercase text-gray-500 font-semibold">Jami xarajat</p>
+                <p class="text-xl font-bold text-rose-700 mt-1">{{ total_all|money }}</p>
+                <p class="text-[11px] text-gray-400">{{ count_all }} ta yozuv</p>
+            </div>
+            <div class="p-4 text-center">
+                <p class="text-xs uppercase text-gray-500 font-semibold">Shu oy</p>
+                <p class="text-xl font-bold text-amber-700 mt-1">{{ total_month|money }}</p>
+            </div>
+            <div class="p-4 text-center">
+                <p class="text-xs uppercase text-gray-500 font-semibold">Kategoriyalar</p>
+                <p class="text-xl font-bold text-gray-900 mt-1">{{ by_category|length }}</p>
+            </div>
+        </div>
+    </div>
+
+    {# Yangi xarajat #}
+    <div class="bg-white border border-gray-200 rounded-lg shadow-sm overflow-hidden">
+        <div class="p-4 bg-gray-50 border-b border-gray-200">
+            <h2 class="text-base font-bold text-gray-900">Yangi xarajat qo‘shish</h2>
+        </div>
+        <form method="post" class="p-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {% csrf_token %}
+            <div class="sm:col-span-2 lg:col-span-1">
+                <label class="text-xs font-semibold text-gray-600 mb-1 block">Nomi</label>
+                <input name="title" type="text" required placeholder="Masalan: Ofis ijara"
+                       class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm outline-none focus:ring-blue-500 focus:border-blue-500">
+            </div>
+            <div>
+                <label class="text-xs font-semibold text-gray-600 mb-1 block">Kategoriya</label>
+                <select name="category"
+                        class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm bg-white outline-none focus:ring-blue-500 focus:border-blue-500">
+                    {% for key, label in categories %}
+                    <option value="{{ key }}">{{ label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div>
+                <label class="text-xs font-semibold text-gray-600 mb-1 block">Summa</label>
+                <input name="amount" type="number" step="0.01" min="0" required placeholder="0"
+                       class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm outline-none focus:ring-blue-500 focus:border-blue-500">
+            </div>
+            <div>
+                <label class="text-xs font-semibold text-gray-600 mb-1 block">Valyuta</label>
+                <select name="currency"
+                        class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm bg-white outline-none">
+                    <option value="UZS">So‘m</option>
+                    <option value="USD">Dollar</option>
+                </select>
+            </div>
+            <div>
+                <label class="text-xs font-semibold text-gray-600 mb-1 block">Sana</label>
+                <input name="expense_date" type="date" value="{{ today }}"
+                       class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm outline-none">
+            </div>
+            {% if is_manager %}
+            <div>
+                <label class="text-xs font-semibold text-gray-600 mb-1 block">Filial</label>
+                <select name="branch"
+                        class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm bg-white outline-none">
+                    {% for b in branches %}
+                    <option value="{{ b.id }}">{{ b.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            {% endif %}
+            <div class="sm:col-span-2 lg:col-span-3">
+                <label class="text-xs font-semibold text-gray-600 mb-1 block">Izoh</label>
+                <input name="note" type="text" placeholder="Ixtiyoriy"
+                       class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm outline-none">
+            </div>
+            <div class="sm:col-span-2 lg:col-span-3">
+                <button type="submit"
+                        class="px-5 py-2.5 bg-rose-600 text-white text-sm font-semibold rounded-md hover:bg-rose-700 transition">
+                    Xarajatni saqlash
+                </button>
+            </div>
+        </form>
+    </div>
+
+    {# Filtr #}
+    <div class="bg-white border border-gray-200 rounded-lg shadow-sm overflow-hidden">
+        <form method="get" class="flex flex-row flex-wrap items-end gap-4 p-4 bg-gray-50 border-b">
+            <div class="flex flex-col">
+                <label class="text-xs font-semibold text-gray-600 mb-1">Kategoriya</label>
+                <select name="category"
+                        class="px-3 py-2 border border-gray-300 rounded-md text-sm bg-white min-w-[160px]">
+                    <option value="">Barchasi</option>
+                    {% for key, label in categories %}
+                    <option value="{{ key }}" {% if category_filter == key %}selected{% endif %}>{{ label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="flex flex-col flex-grow min-w-[200px]">
+                <label class="text-xs font-semibold text-gray-600 mb-1">Qidiruv</label>
+                <input name="q" type="text" value="{{ q }}" placeholder="Nomi yoki izoh..."
+                       class="px-3 py-2 border border-gray-300 rounded-md text-sm outline-none">
+            </div>
+            <div class="flex gap-2">
+                <button type="submit" class="px-4 py-2 bg-blue-600 text-white text-sm rounded-md hover:bg-blue-700">Filtrlash</button>
+                <a href="{% url 'expenses_list' %}" class="px-4 py-2 bg-gray-200 text-gray-700 text-sm rounded-md hover:bg-gray-300">Tozalash</a>
+            </div>
+        </form>
+
+        <div class="overflow-x-auto">
+            <table class="w-full text-sm text-left text-gray-500">
+                <thead class="text-xs text-gray-700 uppercase bg-gray-100 text-center">
+                    <tr>
+                        <th class="px-4 py-3 text-left">Nomi</th>
+                        <th class="px-4 py-3">Kategoriya</th>
+                        {% if is_manager %}<th class="px-4 py-3">Filial</th>{% endif %}
+                        <th class="px-4 py-3">Summa</th>
+                        <th class="px-4 py-3">Sana</th>
+                        <th class="px-4 py-3">Yozgan</th>
+                        <th class="px-4 py-3">Amal</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-200">
+                    {% for e in page_obj %}
+                    <tr class="hover:bg-gray-50 text-center">
+                        <td class="px-4 py-3 text-left">
+                            <div class="font-semibold text-gray-900">{{ e.title }}</div>
+                            {% if e.note %}<div class="text-xs text-gray-500">{{ e.note }}</div>{% endif %}
+                        </td>
+                        <td class="px-4 py-3">
+                            <span class="px-2 py-1 text-xs font-semibold rounded-full bg-rose-100 text-rose-800">
+                                {{ e.get_category_display }}
+                            </span>
+                        </td>
+                        {% if is_manager %}
+                        <td class="px-4 py-3">{{ e.branch.name }}</td>
+                        {% endif %}
+                        <td class="px-4 py-3 font-bold text-rose-700">{{ e.amount|money:e.currency }}</td>
+                        <td class="px-4 py-3 whitespace-nowrap">{{ e.expense_date|date:"d.m.Y" }}</td>
+                        <td class="px-4 py-3">{{ e.created_by.name|default:"—" }}</td>
+                        <td class="px-4 py-3">
+                            <form method="post" action="{% url 'expense_delete' e.id %}"
+                                  onsubmit="return confirm('O‘chirilsinmi?');">
+                                {% csrf_token %}
+                                <button type="submit" class="text-xs font-semibold text-red-600 hover:text-red-800">
+                                    O‘chirish
+                                </button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="7" class="px-4 py-10 text-center text-gray-500">Xarajatlar yo‘q — yuqoridan qo‘shing</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        <div class="flex items-center justify-between p-4 bg-gray-50 border-t border-gray-200">
+            <span class="text-sm text-gray-700">
+                Sahifa <span class="font-semibold">{{ page_obj.number }}</span> /
+                <span class="font-semibold">{{ page_obj.paginator.num_pages }}</span>
+            </span>
+            <div class="inline-flex gap-2">
+                {% if page_obj.has_previous %}
+                <a href="?page={{ page_obj.previous_page_number }}&category={{ category_filter }}&q={{ q|urlencode }}"
+                   class="px-3 py-1.5 text-sm text-white bg-gray-800 rounded-md">Oldingi</a>
+                {% endif %}
+                {% if page_obj.has_next %}
+                <a href="?page={{ page_obj.next_page_number }}&category={{ category_filter }}&q={{ q|urlencode }}"
+                   class="px-3 py-1.5 text-sm text-white bg-gray-800 rounded-md">Keyingi</a>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

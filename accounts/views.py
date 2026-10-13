@@ -1,0 +1,3308 @@
+from django.contrib.auth import authenticate, login, logout
+from django.core.exceptions import PermissionDenied
+from django.shortcuts import render, redirect, get_object_or_404
+from django.http import HttpResponse, JsonResponse
+from django.contrib.auth.decorators import login_required, user_passes_test
+
+from .decorators import (
+    unauthenticated_user,
+    post_login_redirect_name,
+    get_active_employee,
+    is_app_manager,
+    is_consultant,
+    can_complete_sale,
+    manager_required,
+    ManagerRequiredMixin,
+    ROLE_CONSULTANT,
+)
+from .models import Product, Employee, Branch, BranchInventory, Customer, Order, OrderItem, Payment, CashPayment, \
+    Invoice, WarrantyClaims, DefectiveInventory, ReplacementRecord, AuditTrail, \
+    Organization, Supplier, ProductCategory, AppSettings, CustomerDebt, DebtPayment, Expense, PriceTier
+from .loyalty import apply_discount, customer_payload, money as money_dec
+from .money import (
+    CURRENCY_UZS, CURRENCY_USD, parse_decimal, convert_amount, format_money,
+)
+from .filters import InventoryFilter, salesFilter
+from django.core.paginator import Paginator
+from django.views.generic.edit import UpdateView, CreateView
+from django.urls import reverse_lazy
+from .forms import EmployeeForm, EmployeeAdminForm, InventoryEditForm
+from django.views.generic import ListView
+from django.contrib.messages.views import SuccessMessageMixin
+
+from django.contrib.auth.models import User
+from django.contrib import messages
+from django.db import transaction
+
+from datetime import timedelta, datetime
+from django.utils import timezone
+
+from django.core.mail import EmailMessage
+from django.template.loader import render_to_string
+from django.conf import settings
+from django.utils.dateparse import parse_date
+from django.utils.text import slugify
+
+from django.db.models import (
+    Sum, F, ExpressionWrapper, Count, Q, DecimalField,
+    Case, When, Value, IntegerField, Max,
+)
+from django.db.models.functions import Coalesce
+from django.db import models
+
+import re
+from decimal import Decimal
+import json
+import uuid
+import csv
+
+
+_ZERO_MONEY = Decimal('0.00')
+
+
+def _active_order_stats_qs():
+    return (
+        Order.objects.filter(is_active=True, deleted_at__isnull=True)
+        .exclude(order_status__in=['AwaitingApproval', 'Cancelled'])
+    )
+
+
+def _customer_purchase_stats(customer):
+    orders = _active_order_stats_qs().filter(customer=customer)
+    agg = orders.aggregate(
+        orders_count=Count('id'),
+        total_spent=Coalesce(Sum('total_amount'), _ZERO_MONEY),
+        total_discount=Coalesce(Sum('discount_amount'), _ZERO_MONEY),
+        last_purchase=Max('order_date'),
+    )
+    return {
+        'orders_count': agg['orders_count'] or 0,
+        'total_spent': agg['total_spent'] or _ZERO_MONEY,
+        'total_discount': agg['total_discount'] or _ZERO_MONEY,
+        'last_purchase': agg['last_purchase'],
+    }
+
+
+def _suggest_bonus_percent(total_spent, orders_count, current_bonus):
+    """Reyting asosida shaxsiy aksiya tavsiyasi (foiz)."""
+    spent = total_spent or _ZERO_MONEY
+    count = orders_count or 0
+    suggested = Decimal('0.00')
+    if spent >= Decimal('50000000') or count >= 30:
+        suggested = Decimal('15.00')
+    elif spent >= Decimal('20000000') or count >= 15:
+        suggested = Decimal('12.00')
+    elif spent >= Decimal('10000000') or count >= 8:
+        suggested = Decimal('10.00')
+    elif spent >= Decimal('5000000') or count >= 4:
+        suggested = Decimal('8.00')
+    elif spent >= Decimal('1000000') or count >= 2:
+        suggested = Decimal('5.00')
+    current = current_bonus or _ZERO_MONEY
+    if suggested > current:
+        return suggested
+    return None
+
+
+def _checkout_discount_percent(customer, secret_code):
+    discount = customer.get_discount_percent() if customer else Decimal('0.00')
+    code = (secret_code or '').strip()
+    if not code:
+        return money_dec(discount)
+    settings_obj = AppSettings.get_solo()
+    expected = (settings_obj.pos_secret_code or '').strip()
+    if expected and code == expected:
+        secret_pct = money_dec(settings_obj.pos_secret_discount_percent or 0)
+        if secret_pct > discount:
+            discount = secret_pct
+    return money_dec(discount)
+
+
+@login_required(login_url='login')
+def inventory_update(request, pk):
+
+    inventory = get_object_or_404(
+        BranchInventory.objects.select_related('product', 'product__supplier', 'branch'),
+        pk=pk,
+        product__is_active=True,
+        branch__is_active=True,
+    )
+
+    if not _is_inventory_manager(request.user):
+        emp_branch = getattr(getattr(request.user, 'employee', None), 'branch', None)
+        if not emp_branch or emp_branch.id != inventory.branch_id:
+            raise PermissionDenied('Bu filial omborini tahrirlash huquqi yo‘q')
+
+    if request.method == 'POST':
+        form = InventoryEditForm(request.POST, request.FILES, inventory=inventory)
+        if form.is_valid():
+            form.save()
+            messages.success(
+                request,
+                f"«{inventory.product.product_name}» ma’lumotlari yangilandi "
+                f"({inventory.branch.name}, qoldiq: {inventory.quantity})",
+            )
+            return redirect('branch_inventory')
+    else:
+        form = InventoryEditForm(inventory=inventory)
+
+    return render(request, 'accounts/inventory_update.html', {
+        'form': form,
+        'inventory': inventory,
+        'object': inventory,
+        'usd_rate': str(AppSettings.get_solo().usd_to_uzs),
+        'is_manager': _is_inventory_manager(request.user),
+    })
+
+class salesUpdateView(UpdateView):
+    model = Order
+    fields = ['employee', 'order_status']
+    template_name = 'components/sales_edit.html'
+    success_url = reverse_lazy('sales_display')
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context['invoice'] = Invoice.objects.filter(order=self.object).first()
+        return context
+
+@login_required(login_url='login')
+def delete_order(request, pk):
+    order = get_object_or_404(Order, pk=pk)
+
+    order.soft_delete()
+
+    messages.success(request, f"Buyurtma{order.id} arxivlandi")
+
+    return redirect('sales_display')
+
+def _reports_resolve_period(request):
+
+    now = timezone.localtime(timezone.now())
+    today = now.date()
+    preset = (request.GET.get('period') or '30d').strip().lower()
+    start_raw = (request.GET.get('start_date') or '').strip()
+    end_raw = (request.GET.get('end_date') or '').strip()
+    start_d = parse_date(start_raw) if start_raw else None
+    end_d = parse_date(end_raw) if end_raw else None
+
+    if start_d or end_d:
+        preset = 'custom'
+        if start_d and end_d and start_d > end_d:
+            start_d, end_d = end_d, start_d
+        if not start_d:
+            start_d = today - timedelta(days=30)
+        if not end_d:
+            end_d = today
+    elif preset == 'week':
+        start_d = (now - timedelta(days=now.weekday())).date()
+        end_d = today
+    elif preset == 'month':
+        start_d = today.replace(day=1)
+        end_d = today
+    elif preset == 'year':
+        start_d = today.replace(month=1, day=1)
+        end_d = today
+    elif preset == 'all':
+        start_d = None
+        end_d = today
+    else:
+        preset = '30d'
+        start_d = today - timedelta(days=30)
+        end_d = today
+
+    tz = timezone.get_current_timezone()
+    if start_d:
+        start_dt = timezone.make_aware(datetime.combine(start_d, datetime.min.time()), tz)
+    else:
+        start_dt = None
+    end_dt = timezone.make_aware(
+        datetime.combine(end_d or today, datetime.max.time().replace(microsecond=0)),
+        tz,
+    )
+
+    labels = {
+        'week': 'Shu hafta',
+        'month': 'Shu oy',
+        'year': 'Shu yil',
+        '30d': 'So‘nggi 30 kun',
+        'all': 'Barcha vaqt',
+        'custom': 'Maxsus davr',
+    }
+    if preset == 'custom' and start_d and end_d:
+        period_label = f"{start_d.strftime('%d.%m.%Y')} — {end_d.strftime('%d.%m.%Y')}"
+    elif preset == 'all':
+        period_label = 'Barcha vaqt'
+    else:
+        period_label = labels.get(preset, 'So‘nggi 30 kun')
+
+    return {
+        'preset': preset,
+        'start_d': start_d,
+        'end_d': end_d or today,
+        'start_dt': start_dt,
+        'end_dt': end_dt,
+        'period_label': period_label,
+        'start_str': start_d.isoformat() if start_d else '',
+        'end_str': (end_d or today).isoformat(),
+    }
+
+def _reports_build_context(request):
+
+    period = _reports_resolve_period(request)
+    now = timezone.localtime(timezone.now())
+    start_of_week = (now - timedelta(days=now.weekday())).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    )
+    start_of_month = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    start_of_year = now.replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
+
+    zero = Decimal('0.00')
+    money_field = DecimalField(max_digits=18, decimal_places=2)
+    usd_rate = AppSettings.get_solo().usd_to_uzs
+    start_dt = period['start_dt']
+    end_dt = period['end_dt']
+    start_d = period['start_d']
+    end_d = period['end_d']
+
+    def to_uzs(amount, currency):
+        amount = amount or zero
+        if (currency or CURRENCY_UZS) == CURRENCY_USD:
+            return convert_amount(amount, CURRENCY_USD, CURRENCY_UZS, usd_rate)
+        return Decimal(amount)
+
+    stock_units = 0
+    stock_cost_uzs = zero
+    stock_retail_uzs = zero
+    low_stock_count = 0
+    inv_rows = (
+        BranchInventory.objects
+        .filter(branch__is_active=True, product__is_active=True)
+        .select_related('product')
+    )
+    for row in inv_rows.iterator():
+        qty = int(row.quantity or 0)
+        if qty <= 0:
+            continue
+        stock_units += qty
+        stock_cost_uzs += to_uzs(row.product.cost_price * qty, row.product.currency)
+        stock_retail_uzs += to_uzs(row.product.base_price * qty, row.product.currency)
+        min_lvl = row.product.min_stock_level or 0
+        if qty <= min_lvl:
+            low_stock_count += 1
+
+    period_orders = Order.objects.filter(
+        order_date__lte=end_dt,
+        employee__is_active=True,
+        branch__is_active=True,
+        is_active=True,
+    ).exclude(order_status__in=['AwaitingApproval', 'Cancelled'])
+    if start_dt:
+        period_orders = period_orders.filter(order_date__gte=start_dt)
+    active_order_ids = list(period_orders.values_list('id', flat=True))
+
+    stats = OrderItem.objects.filter(order_id__in=active_order_ids).aggregate(
+        total_revenue=Coalesce(
+            Sum(F('unit_price') * F('quantity'), output_field=money_field), zero
+        ),
+        total_cost=Coalesce(
+            Sum(F('quantity') * F('cost_price'), output_field=money_field), zero
+        ),
+        sold_units=Coalesce(Sum('quantity'), 0),
+        total_count=Count('order_id', distinct=True),
+    )
+
+    all_sales = OrderItem.objects.filter(order__is_active=True).aggregate(
+        revenue=Coalesce(
+            Sum(F('unit_price') * F('quantity'), output_field=money_field), zero
+        ),
+        cost=Coalesce(
+            Sum(F('quantity') * F('cost_price'), output_field=money_field), zero
+        ),
+        units=Coalesce(Sum('quantity'), 0),
+        orders=Count('order_id', distinct=True),
+    )
+
+    def period_sales(start_date):
+        return OrderItem.objects.filter(
+            order__order_date__gte=start_date,
+            order__is_active=True,
+        ).aggregate(
+            revenue=Coalesce(
+                Sum(F('unit_price') * F('quantity'), output_field=money_field), zero
+            ),
+            cost=Coalesce(
+                Sum(F('quantity') * F('cost_price'), output_field=money_field), zero
+            ),
+            units=Coalesce(Sum('quantity'), 0),
+        )
+
+    week = period_sales(start_of_week)
+    month = period_sales(start_of_month)
+    year = period_sales(start_of_year)
+
+    debt_stats = CustomerDebt.objects.aggregate(
+        open_remaining=Coalesce(
+            Sum('remaining_balance', filter=~Q(status='Paid'), output_field=money_field),
+            zero,
+        ),
+        open_original=Coalesce(
+            Sum('original_amount', filter=~Q(status='Paid'), output_field=money_field),
+            zero,
+        ),
+        total_paid_on_debts=Coalesce(
+            Sum('paid_amount', output_field=money_field), zero
+        ),
+        open_count=Count('id', filter=~Q(status='Paid')),
+        paid_count=Count('id', filter=Q(status='Paid')),
+        all_count=Count('id'),
+    )
+    debt_collected = DebtPayment.objects.aggregate(
+        total=Coalesce(Sum('amount', output_field=money_field), zero),
+        count=Count('id'),
+    )['total']
+    debt_pay_qs = DebtPayment.objects.filter(paid_at__lte=end_dt)
+    if start_dt:
+        debt_pay_qs = debt_pay_qs.filter(paid_at__gte=start_dt)
+    debt_collected_period = debt_pay_qs.aggregate(
+        total=Coalesce(Sum('amount', output_field=money_field), zero)
+    )['total']
+    debt_collected_month = DebtPayment.objects.filter(
+        paid_at__gte=start_of_month
+    ).aggregate(
+        total=Coalesce(Sum('amount', output_field=money_field), zero)
+    )['total']
+
+    exp_all = Expense.objects.filter(is_active=True)
+    expense_total = exp_all.aggregate(
+        t=Coalesce(Sum('amount', output_field=money_field), zero)
+    )['t']
+    expense_month = exp_all.filter(expense_date__gte=start_of_month.date()).aggregate(
+        t=Coalesce(Sum('amount', output_field=money_field), zero)
+    )['t']
+    exp_period = exp_all.filter(expense_date__lte=end_d)
+    if start_d:
+        exp_period = exp_period.filter(expense_date__gte=start_d)
+    expense_period = exp_period.aggregate(
+        t=Coalesce(Sum('amount', output_field=money_field), zero)
+    )['t']
+    expense_count = exp_period.count()
+    top_expenses = exp_period.select_related('branch').order_by('-expense_date', '-id')[:8]
+
+    cash_received = CashPayment.objects.filter(
+        payment__order_id__in=active_order_ids,
+        payment__order__is_active=True,
+    ).aggregate(
+        total=Coalesce(Sum('cash_received', output_field=money_field), zero)
+    )['total']
+
+    payments = OrderItem.objects.filter(order_id__in=active_order_ids).aggregate(
+        cash=Coalesce(
+            Sum(
+                F('unit_price') * F('quantity'),
+                filter=Q(order__payment_method='CASH'),
+                output_field=money_field,
+            ),
+            zero,
+        ),
+    )
+
+    branch_query = (
+        Order.objects.filter(id__in=active_order_ids)
+        .values('branch__name')
+        .annotate(total=Sum('total_amount'))
+        .order_by('-total')
+    )
+    branch_names = []
+    branch_totals = []
+    for data_row in branch_query:
+        branch_names.append(data_row['branch__name'] or "Asosiy do‘kon")
+        branch_totals.append(float(data_row['total'] or 0))
+
+    employee_sales = (
+        Order.objects.filter(id__in=active_order_ids)
+        .values('employee__name')
+        .annotate(total=Sum('total_amount'))
+        .order_by('-total')
+    )
+    employee_names = [
+        item['employee__name'] or "Tizim administratori" for item in employee_sales
+    ]
+    employee_totals = [float(item['total'] or 0) for item in employee_sales]
+
+    product_sales = (
+        OrderItem.objects.filter(order_id__in=active_order_ids)
+        .values('product__product_name')
+        .annotate(total=Sum('quantity'))
+        .order_by('-total')[:5]
+    )
+    product_name = [
+        item['product__product_name'] or "Noma’lum" for item in product_sales
+    ]
+    product_totals = [float(item['total'] or 0) for item in product_sales]
+
+    gross_revenue = stats['total_revenue'] or zero
+    cost = stats['total_cost'] or zero
+    total_count = stats['total_count'] or 0
+    sold_units = stats['sold_units'] or 0
+    net_profit = gross_revenue - cost
+    net_after_expenses = net_profit - (expense_period or zero)
+    summary_sof_foyda = (
+        (net_profit or zero)
+        - (debt_stats['open_remaining'] or zero)
+        - (expense_period or zero)
+    )
+    cash_total = payments['cash'] or zero
+    aov = (gross_revenue / total_count) if total_count > 0 else zero
+
+    top_debts = (
+        CustomerDebt.objects.exclude(status='Paid')
+        .select_related('customer', 'branch')
+        .order_by('-remaining_balance')[:8]
+    )
+
+    transactions = Order.objects.filter(
+        employee__is_active=True,
+        branch__is_active=True,
+        is_active=True,
+        order_date__lte=end_dt,
+    )
+    if start_dt:
+        transactions = transactions.filter(order_date__gte=start_dt)
+    transactions = (
+        transactions
+        .select_related('customer', 'branch', 'employee')
+        .prefetch_related('orderitem_set__product', 'debts')
+        .order_by('-order_date')
+    )
+
+    query_string = request.GET.urlencode()
+
+    partner_orders = period_orders.filter(partner__isnull=False)
+    partner_sales_total = partner_orders.aggregate(
+        t=Coalesce(Sum('total_amount'), zero)
+    )['t']
+    partner_discount_total = partner_orders.aggregate(
+        t=Coalesce(Sum('discount_amount'), zero)
+    )['t']
+    loyalty_discount_total = period_orders.filter(
+        discount_percent__gt=0
+    ).aggregate(t=Coalesce(Sum('discount_amount'), zero))['t']
+    top_partners = (
+        partner_orders.values('partner_id', 'partner__name', 'partner__phone')
+        .annotate(
+            orders=Count('id'),
+            total=Coalesce(Sum('total_amount'), zero),
+            discount=Coalesce(Sum('discount_amount'), zero),
+        )
+        .order_by('-total')[:10]
+    )
+    discount_kinds = list(
+        PriceTier.objects.exclude(kind=PriceTier.KIND_REGULAR)
+        .filter(is_active=True)
+        .values_list('kind', flat=True)
+    )
+    if not discount_kinds:
+        discount_kinds = [Customer.TYPE_LOYAL, Customer.TYPE_PARTNER]
+    customer_period_orders = period_orders.filter(customer__isnull=False)
+    top_loyal_customers = (
+        customer_period_orders.filter(customer__customer_type__in=discount_kinds)
+        .values(
+            'customer_id',
+            'customer__name',
+            'customer__phone',
+            'customer__customer_type',
+            'customer__bonus_discount_percent',
+        )
+        .annotate(
+            orders=Count('id'),
+            total=Coalesce(Sum('total_amount'), zero),
+            discount=Coalesce(Sum('discount_amount'), zero),
+        )
+        .order_by('-total')[:15]
+    )
+    tier_name_map = {
+        t.kind: t.name
+        for t in PriceTier.objects.filter(kind__in=discount_kinds)
+    }
+    top_loyal_rows = []
+    for i, row in enumerate(top_loyal_customers, start=1):
+        ctype = row['customer__customer_type']
+        top_loyal_rows.append({
+            'rank': i,
+            'customer_id': row['customer_id'],
+            'name': row['customer__name'],
+            'phone': row['customer__phone'] or '—',
+            'type_label': tier_name_map.get(ctype, ctype),
+            'orders': row['orders'],
+            'total': row['total'],
+            'discount': row['discount'],
+            'bonus': row['customer__bonus_discount_percent'] or zero,
+            'suggested_bonus': _suggest_bonus_percent(
+                row['total'], row['orders'], row['customer__bonus_discount_percent']
+            ),
+        })
+    loyal_count = Customer.objects.filter(is_active=True, customer_type=Customer.TYPE_LOYAL).count()
+    partner_count = Customer.objects.filter(is_active=True, customer_type=Customer.TYPE_PARTNER).count()
+    loyalty_customers_count = Customer.objects.filter(
+        is_active=True, customer_type__in=discount_kinds
+    ).count()
+
+    return {
+        'period_label': period['period_label'],
+        'period_preset': period['preset'],
+        'start_date_str': period['start_str'],
+        'end_date_str': period['end_str'],
+        'query_string': query_string,
+        'gross_revenue': gross_revenue,
+        'partner_sales_total': partner_sales_total,
+        'partner_discount_total': partner_discount_total,
+        'loyalty_discount_total': loyalty_discount_total,
+        'top_partners': top_partners,
+        'top_loyal_customers': top_loyal_rows,
+        'loyal_count': loyal_count,
+        'partner_count': partner_count,
+        'loyalty_customers_count': loyalty_customers_count,
+        'cost': cost,
+        'net_profit': net_profit,
+        'aov': aov,
+        'sold_units': sold_units,
+        'total_transactions': total_count,
+        'cash_total': cash_total,
+        'cash_received': cash_received,
+        'stock_units': stock_units,
+        'stock_cost_uzs': stock_cost_uzs,
+        'stock_retail_uzs': stock_retail_uzs,
+        'stock_potential_profit': stock_retail_uzs - stock_cost_uzs,
+        'low_stock_count': low_stock_count,
+        'all_revenue': all_sales['revenue'],
+        'all_cost': all_sales['cost'],
+        'all_profit': (all_sales['revenue'] or zero) - (all_sales['cost'] or zero),
+        'all_units': all_sales['units'],
+        'all_orders': all_sales['orders'],
+        'weekly_total': week['revenue'],
+        'weekly_cost': week['cost'],
+        'weekly_units': week['units'],
+        'monthly_total': month['revenue'],
+        'monthly_cost': month['cost'],
+        'monthly_units': month['units'],
+        'yearly_total': year['revenue'],
+        'yearly_cost': year['cost'],
+        'yearly_units': year['units'],
+        'outstanding_balance': debt_stats['open_remaining'],
+        'debt_open_original': debt_stats['open_original'],
+        'debt_total_paid': debt_stats['total_paid_on_debts'],
+        'debt_collected': debt_collected,
+        'debt_collected_period': debt_collected_period,
+        'debt_collected_month': debt_collected_month,
+        'debt_open_count': debt_stats['open_count'],
+        'debt_paid_count': debt_stats['paid_count'],
+        'debt_all_count': debt_stats['all_count'],
+        'top_debts': top_debts,
+        'expense_total': expense_total,
+        'expense_month': expense_month,
+        'expense_period': expense_period,
+        'expense_count': expense_count,
+        'net_after_expenses': net_after_expenses,
+        'summary_sof_foyda': summary_sof_foyda,
+        'top_expenses': top_expenses,
+        'transactions_qs': transactions,
+        'branch_names': json.dumps(branch_names, ensure_ascii=False),
+        'branch_totals': json.dumps(branch_totals),
+        'employee_names': json.dumps(employee_names, ensure_ascii=False),
+        'employee_totals': json.dumps(employee_totals),
+        'product_name': json.dumps(product_name, ensure_ascii=False),
+        'product_totals': json.dumps(product_totals),
+    }
+
+@login_required(login_url='login')
+def admin_reports(request):
+
+    context = _reports_build_context(request)
+    transactions = context.pop('transactions_qs')
+    context['page_obj'] = Paginator(transactions, 8).get_page(request.GET.get('page'))
+    return render(request, 'accounts/admin_reports.html', context)
+
+@login_required(login_url='login')
+def admin_reports_export_csv(request):
+
+    ctx = _reports_build_context(request)
+    response = HttpResponse(content_type='text/csv; charset=utf-8')
+    fname = f"hisobot_{ctx['start_date_str'] or 'all'}_{ctx['end_date_str']}.csv"
+    response['Content-Disposition'] = f'attachment; filename="{fname}"'
+    response.write('\ufeff')
+    writer = csv.writer(response)
+
+    writer.writerow(['Hisobot', ctx['period_label']])
+    writer.writerow(['Boshlanish', ctx['start_date_str'] or '—'])
+    writer.writerow(['Tugash', ctx['end_date_str']])
+    writer.writerow([])
+    writer.writerow(['Ko‘rsatkich', 'Summa'])
+    writer.writerow(['Sotuvlar', ctx['gross_revenue']])
+    writer.writerow(['Tannarx', ctx['cost']])
+    writer.writerow(['Foyda', ctx['net_profit']])
+    writer.writerow(['Ochiq qarz', ctx['outstanding_balance']])
+    writer.writerow(['Xarajat (davr)', ctx['expense_period']])
+    writer.writerow(['Sof foyda (foyda−qarz−xarajat)', ctx['summary_sof_foyda']])
+    writer.writerow(['Sotilgan dona', ctx['sold_units']])
+    writer.writerow(['Buyurtmalar', ctx['total_transactions']])
+    writer.writerow(['Naqd savdo', ctx['cash_total']])
+    writer.writerow(['Kassaga tushgan', ctx['cash_received']])
+    writer.writerow(['Ombor dona', ctx['stock_units']])
+    writer.writerow(['Ombor tannarx', ctx['stock_cost_uzs']])
+    writer.writerow(['Ombor sotish narxi', ctx['stock_retail_uzs']])
+    writer.writerow(['Davrda undirilgan qarz', ctx['debt_collected_period']])
+    writer.writerow([])
+    writer.writerow([
+        'Buyurtma ID', 'Sana', 'Mijoz', 'Xodim', 'Filial',
+        'Summa', 'Valyuta', 'Qarz qoldiq', 'Holat',
+    ])
+    for tx in ctx['transactions_qs'][:2000]:
+        debt = tx.get_primary_debt()
+        writer.writerow([
+            tx.id,
+            tx.order_date.strftime('%Y-%m-%d %H:%M') if tx.order_date else '',
+            tx.customer.name if tx.customer else '—',
+            tx.employee.name if tx.employee else '—',
+            tx.branch.name if tx.branch else '—',
+            tx.total_amount,
+            tx.currency,
+            debt.remaining_balance if debt and debt.remaining_balance > 0 else '',
+            tx.get_order_status_display(),
+        ])
+    return response
+
+@login_required(login_url='login')
+def emp_receipt(request, pk):
+
+    order = get_object_or_404(
+        Order.objects.select_related('branch', 'customer', 'employee__user')
+        .prefetch_related('debts', 'payment_set__cashpayment', 'orderitem_set__product'),
+        pk=pk,
+    )
+    if not is_app_manager(request.user):
+        emp = get_active_employee(request.user)
+        if not emp or order.employee_id != emp.id:
+            messages.error(request, 'Bu chek sizga tegishli emas.')
+            return redirect('sales_display')
+    invoice = Invoice.objects.filter(order=order).first()
+    grand_total = order.total_amount or Decimal('0.00')
+    if invoice:
+        vat_amount = invoice.vat_amount or Decimal('0.00')
+        subtotal = (grand_total - vat_amount).quantize(Decimal('0.01'))
+    else:
+        app_settings = AppSettings.get_solo()
+        factor = app_settings.vat_factor()
+        subtotal = (grand_total / factor).quantize(Decimal('0.01')) if factor else grand_total
+        vat_amount = (grand_total - subtotal).quantize(Decimal('0.01'))
+
+    vat_label = 'QQS'
+    if vat_amount > 0 and subtotal > 0:
+        pct = (vat_amount / subtotal * Decimal('100')).quantize(Decimal('0.01'))
+        vat_label = f'QQS {pct}%'
+
+    org = getattr(order.branch, 'organization', None) or Organization.get_default()
+    org_logo = None
+    if org and org.logo:
+        try:
+            org_logo = org.logo.url
+        except Exception:
+            org_logo = None
+
+    cash_received = order.get_cash_received()
+    if cash_received is None:
+        cash_received = grand_total
+    change_given = order.get_change_given()
+    debt = order.get_primary_debt()
+    debt_remaining = debt.remaining_balance if debt else Decimal('0.00')
+    debt_original = debt.original_amount if debt else Decimal('0.00')
+    has_debt = bool(debt and debt_remaining > 0)
+
+    context = {
+        'order': order,
+        'invoice': invoice,
+        'subtotal': subtotal,
+        'vat_amount': vat_amount,
+        'vat_label': vat_label,
+        'grand_total': grand_total,
+        'cash_received': cash_received,
+        'change_given': change_given,
+        'debt': debt,
+        'debt_remaining': debt_remaining,
+        'debt_original': debt_original,
+        'has_debt': has_debt,
+        'organization_name': order.branch.organization_name if order.branch_id else org.name,
+        'brand_name': org.brand_name if org else settings.COMPANY_BRAND,
+        'org_logo': org_logo,
+    }
+
+    return render(request, 'accounts/emp_receipt.html', context)
+
+@login_required(login_url='login')
+def home(request):
+
+    dest = post_login_redirect_name(request.user)
+    if dest == 'login':
+        logout(request)
+        messages.error(
+            request,
+            'Xodim profili topilmadi. Foydalanuvchini «Xodimlar» orqali yarating '
+            '(login + filial + lavozim).',
+        )
+        return redirect('login')
+    return redirect(dest)
+
+@unauthenticated_user
+def loginPage(request):
+    if request.method == 'POST':
+        username = request.POST.get('username')
+        password = request.POST.get('password')
+
+        user = authenticate(request, username=username, password=password)
+
+        if user is not None:
+            emp = get_active_employee(user)
+
+            if emp is None and not user.is_superuser:
+                messages.error(
+                    request,
+                    'Bu login uchun xodim profili yo‘q yoki faol emas. '
+                    'Menejer sifatida «Xodimlar» orqali (filial + lavozim) yarating — '
+                    'Superuser shart emas. Django /admin/ esa faqat superuser uchun.',
+                )
+                return render(request, 'accounts/login.html')
+
+            login(request, user)
+            if emp is not None:
+                try:
+                    emp.is_logged_in = True
+                    emp.last_login_time = timezone.now()
+                    emp.save(update_fields=['is_logged_in', 'last_login_time'])
+                except Exception:
+                    pass
+
+            dest = post_login_redirect_name(user)
+            if dest == 'login':
+                logout(request)
+                messages.error(
+                    request,
+                    'Xodim profili topilmadi. «Xodimlar» bo‘limidan qayta yarating.',
+                )
+                return render(request, 'accounts/login.html')
+            return redirect(dest)
+
+        messages.error(request, 'Login yoki parol noto‘g‘ri.')
+
+    return render(request, 'accounts/login.html')
+
+def logoutPage(request):
+    if request.user.is_authenticated:
+        try:
+            emp = request.user.employee
+            emp.is_logged_in = False
+            emp.last_logout_time = timezone.now()
+            emp.save()
+        except Exception as e:
+            print(f"Logout status update skipped: {e}")
+
+    logout(request)
+    return redirect('login')
+
+@login_required(login_url='login')
+def salesDisplay(request):
+    is_manager = is_app_manager(request.user)
+    emp = get_active_employee(request.user)
+    sales_prefetch = ('order__debts', 'order__payment_set__cashpayment')
+    if is_manager:
+        queryset = (
+            OrderItem.objects.filter(order__is_active=True)
+            .select_related('order', 'order__customer', 'product', 'order__employee', 'order__branch')
+            .prefetch_related(*sales_prefetch)
+        )
+        debt_base = CustomerDebt.objects.filter(order__is_active=True)
+        cash_base = Order.objects.filter(payment_method='CASH', is_active=True).exclude(
+            order_status__in=['AwaitingApproval', 'Cancelled']
+        )
+    elif emp:
+        queryset = (
+            OrderItem.objects.filter(order__employee=emp, order__is_active=True)
+            .select_related('order', 'order__customer', 'product', 'order__branch')
+            .prefetch_related(*sales_prefetch)
+        )
+        debt_base = CustomerDebt.objects.filter(order__employee=emp, order__is_active=True)
+        cash_base = Order.objects.filter(employee=emp, payment_method='CASH', is_active=True).exclude(
+            order_status__in=['AwaitingApproval', 'Cancelled']
+        )
+    else:
+        queryset = OrderItem.objects.none()
+        debt_base = CustomerDebt.objects.none()
+        cash_base = Order.objects.none()
+
+    queryset = queryset.annotate(
+        _await_rank=Case(
+            When(order__order_status='AwaitingApproval', then=Value(0)),
+            default=Value(1),
+            output_field=IntegerField(),
+        )
+    ).order_by('_await_rank', '-order__order_date')
+
+    myFilter = salesFilter(request.GET, queryset=queryset)
+    filtered_items = myFilter.qs
+    debt_order_count = debt_base.exclude(status='Paid').values('order_id').distinct().count()
+    cash_sales = cash_base.count()
+    result = filtered_items.aggregate(
+        total_revenue=Sum(ExpressionWrapper(F('unit_price') * F('quantity'), output_field=models.DecimalField()))
+    )
+    grand_total = result['total_revenue'] or 0
+    paginator = Paginator(filtered_items, 7)
+    page_obj = paginator.get_page(request.GET.get('page'))
+    return render(request, 'accounts/sales_display.html', {
+        'myFilter': myFilter,
+        'is_manager': is_manager,
+        'sales': page_obj,
+        'grand_total': grand_total,
+        'inst': debt_order_count,
+        'cash_sales': cash_sales,
+    })
+
+@login_required(login_url='login')
+def export_sales_csv(request):
+    is_manager = request.user.is_superuser or hasattr(request.user, 'employee') and request.user.employee.role == 'Manager'
+
+    if is_manager:
+        queryset = OrderItem.objects.filter(order__is_active=True).select_related('order', 'order__customer', 'product', 'order__employee')
+    else:
+        try:
+            assigned_branch = request.user.employee.branch
+
+            queryset = OrderItem.objects.filter(order__branch=assigned_branch, order__is_active=True).select_related('order', 'product')
+        except Employee.DoesNotExist:
+            queryset = OrderItem.objects.none
+
+    queryset = queryset.order_by('-order__order_date')
+
+    myFilter = salesFilter(request.GET, queryset=queryset)
+    filtered_items = myFilter.qs.select_related('order', 'order__customer', 'product', 'order__employee')
+
+    response = HttpResponse(content_type='text/csv')
+    response['Content-Disposition'] = 'attachment; filename="sales_data.csv"'
+    writer = csv.writer(response)
+    writer.writerow(
+        [
+            'Sana', 'Buyurtma ID', 'Mijoz', 'Mahsulot', 'Miqdor', 'Birlik narxi', 'Jami',
+            'To‘langan', 'Qarz qoldiq', 'To‘lov', 'Filial', 'Sotuvchi',
+        ]
+    )
+
+    filtered_items = filtered_items.prefetch_related('order__debts', 'order__payment_set__cashpayment')
+    for item in filtered_items:
+        paid = item.order.get_cash_received()
+        debt = item.order.get_primary_debt()
+        debt_left = debt.remaining_balance if debt else ''
+        writer.writerow(
+            [
+                item.order.order_date.strftime("%Y-%m-%d %H:%M"),
+                item.order.id,
+                item.order.customer.name if item.order.customer else 'Oddiy mijoz',
+                item.product.product_name,
+                item.quantity,
+                item.unit_price,
+                item.quantity * item.unit_price,
+                paid if paid is not None else '',
+                debt_left,
+                item.order.payment_summary_label(),
+                item.order.branch.name if item.order.branch else "Mavjud emas",
+                item.order.employee.name if item.order.employee else "Tizim",
+            ]
+        )
+
+    return response
+
+@login_required(login_url='login')
+def delete_product(request, pk):
+    product = get_object_or_404(Product, pk=pk)
+
+    product.soft_delete()
+
+    messages.success(request, f"{product.product_name} butunlay arxivlandi.")
+    return redirect('branch_inventory')
+
+@login_required(login_url='login')
+def branchInventory(request):
+    is_manager = request.user.is_superuser or hasattr(request.user, 'employee') and request.user.employee.role == 'Manager'
+
+    if is_manager:
+        items = BranchInventory.objects.filter(product__is_active=True).select_related('branch', 'product')
+        assigned_branch = 'Barcha filiallar'
+    else:
+        try:
+            login_employee = Employee.objects.get(user=request.user)
+            assigned_branch = login_employee.branch
+
+            items = BranchInventory.objects.filter(branch=assigned_branch, product__is_active=True).select_related('product', 'product__supplier')
+
+        except Employee.DoesNotExist:
+            items = BranchInventory.objects.none()
+            assigned_branch = 'Tayinlanmagan'
+
+    myFilter = InventoryFilter(request.GET, queryset=items)
+    filtered_items = myFilter.qs
+
+    paginator = Paginator(filtered_items, 8)
+
+    page_number = request.GET.get('page')
+    page_obj = paginator.get_page(page_number)
+
+    return render(request, 'accounts/branch_inventory.html', {
+        'myFilter': myFilter,
+        'items':page_obj,
+        'assigned_branch':assigned_branch,
+        'is_manager':is_manager,}
+        )
+
+@login_required(login_url='login')
+def export_branch_inventory_csv(request):
+    is_manager = request.user.is_superuser or hasattr(request.user, 'employee') and request.user.employee.role == 'Manager'
+
+    if is_manager:
+        items = BranchInventory.objects.filter(product__is_active=True).select_related('branch', 'product')
+        assigned_branch = 'Barcha filiallar'
+    else:
+        try:
+            login_employee = Employee.objects.get(user=request.user)
+            assigned_branch = login_employee.branch
+
+            items = BranchInventory.objects.filter(branch=assigned_branch, product__is_active=True).select_related('product', 'product__supplier')
+
+        except Employee.DoesNotExist:
+            items = BranchInventory.objects.none()
+            assigned_branch = 'Tayinlanmagan'
+
+    myFilter = InventoryFilter(request.GET, queryset=items)
+    filtered_items = myFilter.qs.select_related('branch', 'product', 'product__supplier')
+
+    response = HttpResponse(content_type='text/csv')
+    response['Content-Disposition'] = 'attachment; filename="branch_inventory.csv"'
+
+    writer = csv.writer(response)
+    writer.writerow(
+        ['Filial', 'Yetkazib beruvchi', 'Mahsulot nomi', 'Kategoriya', 'Miqdor', 'Narx', 'Shtrix-kod', 'Holat']
+    )
+
+    for item in filtered_items:
+        if item.quantity > 3:
+            status = "Mavjud"
+        elif item.quantity > 0 and item.quantity <= 3:
+            status = "Kam qoldiq"
+        else:
+            status = "Tugagan"
+
+        writer.writerow(
+            [
+                item.branch.name if item.branch else "Mavjud emas",
+                item.product.supplier.name if item.product.supplier else "Mavjud emas",
+                item.product.product_name,
+                item.product.get_category_display(),
+                item.quantity,
+                item.product.base_price,
+                item.product.barcode,
+                status
+            ]
+        )
+
+    return response
+
+def employeeProfile(request):
+    sales_agent = request.user.employee
+    form = EmployeeForm(instance=sales_agent)
+
+    if request.method == 'POST':
+        form = EmployeeForm(request.POST, request.FILES, instance=sales_agent)
+
+        if form.is_valid():
+            form.save()
+            return redirect('employee_profile')
+
+    context = {'form':form, 'sales_agent':sales_agent}
+    return render(request, 'accounts/employee_profile.html', context)
+
+@login_required(login_url='login')
+def employee_list_export_csv(request):
+    employees = Employee.objects.filter(is_active=True).order_by('-hire_date')
+
+    response = HttpResponse(content_type='text/csv')
+    response['Content-Disposition'] = 'attachment; filename="employee_list.csv"'
+    writer = csv.writer(response)
+    writer.writerow(
+        ['Xodim ismi', 'Filial', 'Lavozim', 'Aloqa', 'Holat', 'Ishga kirgan sana']
+    )
+
+    for emp in employees:
+        if emp:
+            status = "Faol xodim"
+        else:
+            status = "Faol emas"
+
+        writer.writerow(
+            [
+                emp.name,
+                emp.branch.name if emp.branch else "Mavjud emas",
+                emp.role,
+                emp.phone,
+                status,
+                emp.hire_date.strftime("%Y-%m-%d"),
+            ]
+        )
+
+    return response
+
+class EmployeeList(ListView):
+    model = Employee
+    template_name = 'accounts/employee_list.html'
+    context_object_name = 'employees'
+    paginate_by = 10
+
+    def get_queryset(self):
+        return Employee.objects.filter(is_active=True).select_related('user', 'branch').order_by('-hire_date')
+
+@login_required(login_url='login')
+@user_passes_test(is_app_manager, login_url='home')
+def employee_toggle_block(request, pk):
+    if request.method != 'POST':
+        return redirect('employee_list')
+
+    employee = get_object_or_404(Employee, pk=pk, is_active=True)
+    if employee.user_id == request.user.id:
+        messages.error(request, "O‘zingizni bloklay olmaysiz.")
+        return redirect('employee_list')
+
+    user = employee.user
+    if user.is_active:
+        user.is_active = False
+        user.save(update_fields=['is_active'])
+        Employee.objects.filter(pk=employee.pk).update(is_logged_in=False)
+        messages.success(request, f"{employee.name} bloklandi — tizimga kira olmaydi.")
+    else:
+        user.is_active = True
+        user.save(update_fields=['is_active'])
+        messages.success(request, f"{employee.name} blokdan chiqarildi.")
+
+    return redirect('employee_list')
+
+@login_required(login_url='login')
+@user_passes_test(is_app_manager, login_url='home')
+def employee_delete(request, pk):
+    if request.method != 'POST':
+        return redirect('employee_list')
+
+    employee = get_object_or_404(Employee, pk=pk, is_active=True)
+    if employee.user_id == request.user.id:
+        messages.error(request, "O‘zingizni o‘chira olmaysiz.")
+        return redirect('employee_list')
+
+    name = employee.name
+    employee.delete()
+    messages.success(request, f"{name} o‘chirildi (arxivlandi).")
+    return redirect('employee_list')
+
+class EmployeeCreate(SuccessMessageMixin, CreateView):
+    model = Employee
+    form_class = EmployeeAdminForm
+    success_url = reverse_lazy('employee_list')
+    template_name = 'accounts/employee_form.html'
+    success_message = "%(name)s xodimi muvaffaqiyatli yaratildi!"
+
+    def form_valid(self, form):
+        custom_username = form.cleaned_data.get('username')
+        custom_password = form.cleaned_data.get('password')
+        email = form.cleaned_data.get('email')
+
+        if User.objects.filter(username=custom_username).exists():
+            form.add_error('username', 'Bu login allaqachon band.')
+            return self.form_invalid(form)
+
+        user = User.objects.create_user(
+            username=custom_username,
+            email=email,
+            password=custom_password,
+        )
+
+        user.is_staff = False
+        user.is_superuser = False
+        user.save(update_fields=['is_staff', 'is_superuser'])
+
+        employee = form.save(commit=False)
+        employee.user = user
+        employee.save()
+
+        return redirect(self.success_url)
+
+def manageEmployee(request, pk):
+
+    employee = get_object_or_404(Employee, pk=pk)
+    if request.method == 'POST':
+        form = EmployeeAdminForm(request.POST, request.FILES, instance=employee)
+
+        if form.is_valid():
+            employee = form.save(commit=False)
+            user = employee.user
+
+            user.email = form.cleaned_data.get('email')
+
+            new_password = form.cleaned_data.get('password')
+            if new_password:
+                user.set_password(new_password)
+
+            user.save()
+            employee.save()
+
+            return redirect('employee_list')
+
+    else:
+        form = EmployeeAdminForm(instance=employee)
+
+    context = {'employee':employee, 'form':form}
+    return render(request, 'accounts/employee_form.html', context)
+
+@login_required(login_url='login')
+def posTerminal(request):
+    employee = get_active_employee(request.user)
+    if employee is None:
+        if request.user.is_superuser:
+            return redirect('dashboard')
+        messages.error(
+            request,
+            'Kassa uchun faol xodim profili kerak. «Xodimlar» orqali qo‘shing (Superuser shart emas).',
+        )
+        logout(request)
+        return redirect('login')
+    branch_products = BranchInventory.objects.filter(branch=employee.branch).select_related('product')
+
+    query = request.GET.get('q')
+    if query:
+        branch_products = branch_products.filter(
+            Q(product__product_name__icontains=query)
+        )
+
+    app_settings = AppSettings.get_solo()
+    tiers_qs = list(PriceTier.objects.filter(is_active=True).order_by('kind'))
+    tier_map = {t.kind: float(t.discount_percent) for t in tiers_qs}
+    tier_meta = {
+        t.kind: {'name': t.name, 'code': t.code, 'percent': float(t.discount_percent)}
+        for t in tiers_qs
+    }
+    context = {
+        'employee': employee,
+        'branch_products': branch_products,
+        'vat_enabled': app_settings.vat_enabled,
+        'vat_percent': str(app_settings.vat_percent),
+        'loyalty_tiers_json': json.dumps(tier_map),
+        'loyalty_meta_json': json.dumps(tier_meta, ensure_ascii=False),
+        'is_consultant': employee.role == ROLE_CONSULTANT,
+        'can_complete_sale': can_complete_sale(request.user),
+        'secret_discount_code': (app_settings.pos_secret_code or '').strip(),
+        'secret_discount_percent': str(app_settings.pos_secret_discount_percent or 0),
+    }
+
+    return render(request, 'accounts/pos_terminal.html', context)
+
+@login_required(login_url='login')
+@user_passes_test(is_app_manager, login_url='home')
+def pos_vat_settings(request):
+
+    if request.method != 'POST':
+        return JsonResponse({'success': False, 'message': 'POST kerak'}, status=405)
+
+    try:
+        data = json.loads(request.body or '{}')
+    except json.JSONDecodeError:
+        return JsonResponse({'success': False, 'message': 'Noto‘g‘ri JSON'}, status=400)
+
+    settings_obj = AppSettings.get_solo()
+    if 'vat_enabled' in data:
+        settings_obj.vat_enabled = bool(data.get('vat_enabled'))
+
+    if 'vat_percent' in data:
+        rate = parse_decimal(data.get('vat_percent'))
+        if rate < 0 or rate > 100:
+            return JsonResponse({'success': False, 'message': 'QQS 0–100 oralig‘ida bo‘lishi kerak'}, status=400)
+        settings_obj.vat_percent = rate
+
+    settings_obj.save()
+    return JsonResponse({
+        'success': True,
+        'vat_enabled': settings_obj.vat_enabled,
+        'vat_percent': str(settings_obj.vat_percent),
+        'message': 'QQS sozlamasi saqlandi',
+    })
+
+@login_required(login_url='login')
+def scanProduct(request):
+    barcode = request.GET.get('barcode')
+
+    employee = get_object_or_404(Employee, user=request.user)
+
+    inventory_item = BranchInventory.objects.filter(
+        product__barcode__iexact=barcode,
+        branch=employee.branch
+    ).select_related('product').first()
+
+    if not inventory_item:
+        return JsonResponse({'error': 'Mahsulot topilmadi'}, status=404)
+
+    product = inventory_item.product
+    image_url = product.image.url if product.image else ''
+
+    return JsonResponse({
+        'id': product.id,
+        'name': product.product_name,
+        'price': str(product.base_price),
+        'currency': product.currency,
+        'stock': inventory_item.quantity,
+        'category': product.get_category_display(),
+        'image': image_url,
+    })
+
+@login_required(login_url='login')
+def product_scan_info(request):
+
+    barcode = (request.GET.get('barcode') or '').strip()
+    if not barcode:
+        return JsonResponse({'error': 'Shtrix-kod kiritilmagan', 'found': False}, status=400)
+
+    product = Product.objects.filter(barcode__iexact=barcode, is_active=True).first()
+    if not product:
+        return JsonResponse({
+            'found': False,
+            'barcode': barcode,
+            'message': 'Mahsulot katalogda yo‘q — Ombor orqali yangi kiriting',
+        })
+
+    stock = None
+    branch_name = ''
+    in_branch = False
+    employee = getattr(request.user, 'employee', None)
+    if employee and employee.branch_id:
+        inv = BranchInventory.objects.filter(branch=employee.branch, product=product).first()
+        stock = inv.quantity if inv else 0
+        branch_name = employee.branch.name
+        in_branch = inv is not None
+
+    image_url = product.image.url if product.image else ''
+    return JsonResponse({
+        'found': True,
+        'barcode': product.barcode or barcode,
+        'id': product.id,
+        'name': product.product_name,
+        'price': str(product.base_price),
+        'currency': product.currency,
+        'stock': stock,
+        'category': product.get_category_display(),
+        'image': image_url,
+        'branch_name': branch_name,
+        'in_branch': in_branch,
+    })
+
+def _is_inventory_manager(user):
+    return user.is_superuser or (
+        hasattr(user, 'employee') and user.employee.role == 'Manager'
+    )
+
+def _resolve_intake_branch(request, branch_id=None):
+\
+\
+\
+\
+
+    is_manager = _is_inventory_manager(request.user)
+    employee_branch = None
+    if hasattr(request.user, 'employee') and request.user.employee.branch_id:
+        employee_branch = request.user.employee.branch
+
+    if not is_manager:
+        return employee_branch
+
+    if branch_id:
+        return get_object_or_404(Branch, pk=branch_id, is_active=True)
+
+    if employee_branch:
+        return employee_branch
+
+    return Branch.objects.filter(is_active=True).first()
+
+def _ensure_product_categories():
+
+    defaults = [label for _, label in Product.CATEGORIES]
+    for name in defaults:
+        ProductCategory.objects.get_or_create(name=name)
+
+    key_to_label = dict(Product.CATEGORIES)
+    for key, label in key_to_label.items():
+        Product.objects.filter(category=key).update(category=label)
+
+    for name in (
+        Product.objects.exclude(category='')
+        .values_list('category', flat=True)
+        .distinct()
+    ):
+        if name:
+            ProductCategory.objects.get_or_create(name=name)
+
+def _product_payload(product, branch):
+    inventory_item = BranchInventory.objects.filter(branch=branch, product=product).first()
+    stock = inventory_item.quantity if inventory_item else 0
+    min_stock = product.min_stock_level or 0
+    image_url = product.image.url if product.image else ''
+    return {
+        'id': product.id,
+        'name': product.product_name,
+        'barcode': product.barcode,
+        'price': str(product.base_price),
+        'cost_price': str(product.cost_price),
+        'currency': product.currency,
+        'category': product.get_category_display(),
+        'supplier_id': product.supplier_id,
+        'supplier': product.supplier.name if product.supplier else '',
+        'image': image_url,
+        'stock': stock,
+        'min_stock_level': min_stock,
+        'warranty_days': product.warranty_days,
+        'replacement_days': product.replacement_days,
+        'service_warranty_days': product.service_warranty_days,
+        'is_low_stock': stock <= min_stock,
+        'branch_id': branch.id,
+        'branch_name': branch.name,
+        'in_branch': inventory_item is not None,
+        'exists': True,
+    }
+
+@login_required(login_url='login')
+def inventory_intake(request):
+    is_manager = _is_inventory_manager(request.user)
+    branch = _resolve_intake_branch(request)
+    branches = Branch.objects.filter(is_active=True).order_by('name') if is_manager else Branch.objects.none()
+
+    _ensure_product_categories()
+    settings_obj = AppSettings.get_solo()
+    categories = list(
+        ProductCategory.objects.filter(is_active=True).order_by('name').values_list('name', flat=True)
+    )
+    suppliers = Supplier.objects.filter(is_active=True).order_by('name')
+
+    context = {
+        'is_manager': is_manager,
+        'branch': branch,
+        'branches': branches,
+        'categories': categories,
+        'suppliers': suppliers,
+        'usd_rate': str(settings_obj.usd_to_uzs),
+    }
+    return render(request, 'accounts/inventory_intake.html', context)
+
+@login_required(login_url='login')
+def inventory_lookup(request):
+    barcode = (request.GET.get('barcode') or '').strip()
+    branch_id = request.GET.get('branch_id')
+
+    if not barcode:
+        return JsonResponse({'error': 'Shtrix-kod kiritilmagan'}, status=400)
+
+    branch = _resolve_intake_branch(request, branch_id)
+    if not branch:
+        return JsonResponse({'error': 'Filial topilmadi'}, status=400)
+
+    product = Product.objects.filter(barcode__iexact=barcode, is_active=True).select_related('supplier').first()
+    if not product:
+        return JsonResponse({
+            'exists': False,
+            'barcode': barcode,
+            'branch_id': branch.id,
+            'branch_name': branch.name,
+            'message': 'Katalogda yo‘q — yangi mahsulot sifatida kiriting',
+        }, status=404)
+
+    return JsonResponse(_product_payload(product, branch))
+
+@login_required(login_url='login')
+@transaction.atomic
+def inventory_stock_in(request):
+    if request.method != 'POST':
+        return JsonResponse({'error': 'Noto‘g‘ri so‘rov'}, status=405)
+
+    try:
+        data = json.loads(request.body)
+    except json.JSONDecodeError:
+        return JsonResponse({'error': 'Noto‘g‘ri JSON'}, status=400)
+
+    barcode = (data.get('barcode') or '').strip()
+    note = (data.get('note') or '').strip()[:200]
+    undo = bool(data.get('undo'))
+    try:
+        qty = int(data.get('qty', 1))
+    except (TypeError, ValueError):
+        qty = 0
+
+    branch_id = data.get('branch_id')
+
+    if not barcode:
+        return JsonResponse({'error': 'Shtrix-kod kiritilmagan'}, status=400)
+    if qty < 1:
+        return JsonResponse({'error': 'Miqdor kamida 1 bo‘lishi kerak'}, status=400)
+
+    branch = _resolve_intake_branch(request, branch_id)
+    if not branch:
+        return JsonResponse({'error': 'Filial topilmadi'}, status=400)
+
+    product = Product.objects.filter(barcode__iexact=barcode, is_active=True).select_related('supplier').first()
+    if not product:
+        return JsonResponse({'error': 'Mahsulot katalogda topilmadi'}, status=404)
+
+    inventory_item, created = BranchInventory.objects.select_for_update().get_or_create(
+        branch=branch,
+        product=product,
+        defaults={'quantity': 0},
+    )
+
+    current = inventory_item.quantity or 0
+    if undo:
+        if qty > current:
+            return JsonResponse({
+                'error': f"Bekor qilib bo‘lmaydi: omborda faqat {current} dona bor",
+            }, status=400)
+        inventory_item.quantity = current - qty
+        action_qty = -qty
+        message = f"{product.product_name}: {qty} dona bekor qilindi"
+    else:
+        inventory_item.quantity = current + qty
+        action_qty = qty
+        message = f"{product.product_name}: +{qty} qo‘shildi"
+
+    inventory_item.save(update_fields=['quantity'])
+
+    return JsonResponse({
+        'success': True,
+        'message': message,
+        'id': product.id,
+        'name': product.product_name,
+        'barcode': product.barcode,
+        'qty_added': action_qty,
+        'stock': inventory_item.quantity,
+        'min_stock_level': product.min_stock_level or 0,
+        'is_low_stock': inventory_item.quantity <= (product.min_stock_level or 0),
+        'supplier': product.supplier.name if product.supplier else '',
+        'price': str(product.base_price),
+        'cost_price': str(product.cost_price),
+        'currency': product.currency,
+        'branch_id': branch.id,
+        'branch_name': branch.name,
+        'created': created,
+        'undo': undo,
+        'note': note,
+        'time': timezone.localtime().strftime('%H:%M:%S'),
+    })
+
+@login_required(login_url='login')
+@transaction.atomic
+def inventory_product_save(request):
+
+    if request.method != 'POST':
+        return JsonResponse({'error': 'Noto‘g‘ri so‘rov'}, status=405)
+
+    data = request.POST
+    barcode = (data.get('barcode') or '').strip()
+    product_name = (data.get('product_name') or '').strip()
+    category = (data.get('category') or '').strip()
+    note = (data.get('note') or '').strip()[:200]
+    store_currency = (data.get('store_currency') or CURRENCY_UZS).upper()
+    entry_currency = (data.get('entry_currency') or store_currency).upper()
+
+    if store_currency not in (CURRENCY_UZS, CURRENCY_USD):
+        store_currency = CURRENCY_UZS
+    if entry_currency not in (CURRENCY_UZS, CURRENCY_USD):
+        entry_currency = store_currency
+
+    try:
+        qty = int(data.get('qty', 1))
+    except (TypeError, ValueError):
+        qty = 0
+
+    try:
+        min_stock = int(data.get('min_stock_level', 3))
+    except (TypeError, ValueError):
+        min_stock = 3
+
+    def _pos_int(key, default):
+        try:
+            return max(0, int(data.get(key, default)))
+        except (TypeError, ValueError):
+            return default
+
+    warranty_days = _pos_int('warranty_days', 365)
+    replacement_days = _pos_int('replacement_days', 7)
+    service_warranty_days = _pos_int('service_warranty_days', 90)
+
+    if not barcode:
+        return JsonResponse({'error': 'Shtrix-kod kiritilmagan'}, status=400)
+    if not product_name:
+        return JsonResponse({'error': 'Mahsulot nomi majburiy'}, status=400)
+    if not category:
+        return JsonResponse({'error': 'Kategoriya tanlang yoki yarating'}, status=400)
+    if qty < 1:
+        return JsonResponse({'error': 'Miqdor kamida 1 bo‘lishi kerak'}, status=400)
+
+    branch = _resolve_intake_branch(request, data.get('branch_id'))
+    if not branch:
+        return JsonResponse({'error': 'Filial topilmadi'}, status=400)
+
+    supplier_id = data.get('supplier_id')
+    supplier = None
+    if supplier_id:
+        supplier = Supplier.objects.filter(pk=supplier_id, is_active=True).first()
+    if not supplier:
+        supplier = Supplier.objects.filter(is_active=True).order_by('name').first()
+    if not supplier:
+        return JsonResponse({
+            'error': 'Yetkazib beruvchi topilmadi. Avval admin panelda yetkazib beruvchi yarating.',
+        }, status=400)
+
+    settings_obj = AppSettings.get_solo()
+    rate = parse_decimal(data.get('usd_rate') or settings_obj.usd_to_uzs)
+    if rate <= 0:
+        return JsonResponse({'error': 'Valyuta kursi noto‘g‘ri'}, status=400)
+
+    if data.get('save_rate') in ('1', 'true', 'True', 'on'):
+        settings_obj.usd_to_uzs = rate
+        settings_obj.save(update_fields=['usd_to_uzs', 'updated_at'])
+
+    try:
+        cost_entered = parse_decimal(data.get('cost_price'))
+        sell_entered = parse_decimal(data.get('base_price'))
+        cost_price = convert_amount(cost_entered, entry_currency, store_currency, rate)
+        base_price = convert_amount(sell_entered, entry_currency, store_currency, rate)
+    except ValueError as exc:
+        return JsonResponse({'error': str(exc)}, status=400)
+
+    if cost_price < 0 or base_price < 0:
+        return JsonResponse({'error': 'Narxlar manfiy bo‘lishi mumkin emas'}, status=400)
+
+    ProductCategory.objects.get_or_create(name=category, defaults={'is_active': True})
+
+    product = Product.objects.filter(barcode__iexact=barcode).select_related('supplier').first()
+    created_product = False
+    if product:
+        if not product.is_active:
+            product.is_active = True
+            product.deleted_at = None
+        product.product_name = product_name
+        product.category = category
+        product.supplier = supplier
+        product.currency = store_currency
+        product.cost_price = cost_price
+        product.base_price = base_price
+        product.min_stock_level = max(0, min_stock)
+        product.warranty_days = warranty_days
+        product.replacement_days = replacement_days
+        product.service_warranty_days = service_warranty_days
+        if request.FILES.get('image'):
+            product.image = request.FILES['image']
+        product.save()
+    else:
+        created_product = True
+        product = Product(
+            barcode=barcode,
+            product_name=product_name,
+            category=category,
+            supplier=supplier,
+            currency=store_currency,
+            cost_price=cost_price,
+            base_price=base_price,
+            min_stock_level=max(0, min_stock),
+            warranty_days=warranty_days,
+            replacement_days=replacement_days,
+            service_warranty_days=service_warranty_days,
+            is_active=True,
+        )
+        if request.FILES.get('image'):
+            product.image = request.FILES['image']
+        product.save()
+
+    inventory_item, inv_created = BranchInventory.objects.select_for_update().get_or_create(
+        branch=branch,
+        product=product,
+        defaults={'quantity': 0},
+    )
+    inventory_item.quantity = (inventory_item.quantity or 0) + qty
+    inventory_item.save(update_fields=['quantity'])
+
+    cost_alt = convert_amount(cost_price, store_currency, CURRENCY_USD if store_currency == CURRENCY_UZS else CURRENCY_UZS, rate)
+    sell_alt = convert_amount(base_price, store_currency, CURRENCY_USD if store_currency == CURRENCY_UZS else CURRENCY_UZS, rate)
+
+    return JsonResponse({
+        'success': True,
+        'message': (
+            f"{'Yangi mahsulot yaratildi va' if created_product else 'Mahsulot yangilandi va'}"
+            f" +{qty} omborga qo‘shildi"
+        ),
+        'id': product.id,
+        'name': product.product_name,
+        'barcode': product.barcode,
+        'qty_added': qty,
+        'stock': inventory_item.quantity,
+        'min_stock_level': product.min_stock_level or 0,
+        'is_low_stock': inventory_item.quantity <= (product.min_stock_level or 0),
+        'supplier': product.supplier.name if product.supplier else '',
+        'price': str(product.base_price),
+        'cost_price': str(product.cost_price),
+        'currency': product.currency,
+        'category': product.get_category_display(),
+        'image': product.image.url if product.image else '',
+        'branch_id': branch.id,
+        'branch_name': branch.name,
+        'created': created_product or inv_created,
+        'product_created': created_product,
+        'note': note,
+        'usd_rate': str(rate),
+        'converted_hint': (
+            f"Saqlangan: tannarx {format_money(cost_price, store_currency)}, "
+            f"sotish {format_money(base_price, store_currency)} "
+            f"(≈ {format_money(cost_alt, CURRENCY_USD if store_currency == CURRENCY_UZS else CURRENCY_UZS)} / "
+            f"{format_money(sell_alt, CURRENCY_USD if store_currency == CURRENCY_UZS else CURRENCY_UZS)})"
+        ),
+        'time': timezone.localtime().strftime('%H:%M:%S'),
+        'undo': False,
+    })
+
+@login_required(login_url='login')
+def inventory_add_category(request):
+    if request.method != 'POST':
+        return JsonResponse({'error': 'Noto‘g‘ri so‘rov'}, status=405)
+
+    try:
+        data = json.loads(request.body)
+    except json.JSONDecodeError:
+        data = request.POST
+
+    name = (data.get('name') or '').strip()
+    if not name:
+        return JsonResponse({'error': 'Kategoriya nomi bo‘sh'}, status=400)
+    if len(name) > 100:
+        return JsonResponse({'error': 'Kategoriya nomi juda uzun'}, status=400)
+
+    cat, created = ProductCategory.objects.get_or_create(
+        name=name,
+        defaults={'is_active': True},
+    )
+    if not cat.is_active:
+        cat.is_active = True
+        cat.save(update_fields=['is_active'])
+
+    categories = list(
+        ProductCategory.objects.filter(is_active=True).order_by('name').values_list('name', flat=True)
+    )
+    return JsonResponse({
+        'success': True,
+        'created': created,
+        'name': cat.name,
+        'categories': categories,
+        'message': 'Kategoriya qo‘shildi' if created else 'Kategoriya allaqachon mavjud',
+    })
+
+@login_required(login_url='login')
+def inventory_save_rate(request):
+    if request.method != 'POST':
+        return JsonResponse({'error': 'Noto‘g‘ri so‘rov'}, status=405)
+
+    try:
+        data = json.loads(request.body)
+    except json.JSONDecodeError:
+        data = request.POST
+
+    rate = parse_decimal(data.get('usd_rate'))
+    if rate <= 0:
+        return JsonResponse({'error': 'Kurs 0 dan katta bo‘lishi kerak'}, status=400)
+
+    settings_obj = AppSettings.get_solo()
+    settings_obj.usd_to_uzs = rate
+    settings_obj.save(update_fields=['usd_to_uzs', 'updated_at'])
+    return JsonResponse({
+        'success': True,
+        'usd_rate': str(settings_obj.usd_to_uzs),
+        'message': f'Kurs saqlandi: 1 USD = {settings_obj.usd_to_uzs} so‘m',
+    })
+
+@transaction.atomic
+def checkout_cash(request):
+        if request.method == 'POST':
+            try:
+                data = json.loads(request.body)
+
+                cart = data.get('cart', [])
+                cash_raw = data.get('cashReceived')
+                customer_data = data.get('customerData', {}) or {}
+
+                if not cart:
+                    return JsonResponse({'success': False, 'message': 'Savat bo‘sh'}, status=400)
+
+                try:
+                    employee = request.user.employee
+                    branch = employee.branch
+                except Exception:
+                    return JsonResponse({'success': False, 'message': 'Foydalanuvchi vakolatli xodim emas'}, status=403)
+
+                if not can_complete_sale(request.user):
+                    return JsonResponse({
+                        'success': False,
+                        'message': 'Maslahatchi sotuvni yakunlay olmaydi. «Tasdiqlashga yuborish»dan foydalaning.',
+                        'use_quote': True,
+                    }, status=403)
+
+                name = (customer_data.get('name') or '').strip()
+                phone = (customer_data.get('phone') or '').strip()
+                email = (customer_data.get('email') or '').strip()
+                address = (customer_data.get('address') or '').strip()
+                cust_type = (customer_data.get('customer_type') or Customer.TYPE_REGULAR).strip()
+                if not PriceTier.objects.filter(kind=cust_type, is_active=True).exists():
+                    cust_type = Customer.TYPE_REGULAR
+                partner_id = customer_data.get('partner_id')
+
+                customer = None
+                if phone:
+                    customer, _created = Customer.objects.get_or_create(
+                        phone=phone,
+                        defaults={
+                            'name': name or 'Oddiy mijoz',
+                            'email': email,
+                            'address': address,
+                            'customer_type': cust_type,
+                        }
+                    )
+                    updated = False
+                    if name and customer.name != name:
+                        customer.name = name
+                        updated = True
+                    if email and customer.email != email:
+                        customer.email = email
+                        updated = True
+                    if address and customer.address != address:
+                        customer.address = address
+                        updated = True
+
+                    if _created or customer.customer_type == Customer.TYPE_REGULAR:
+                        if cust_type != customer.customer_type:
+                            customer.customer_type = cust_type
+                            customer.price_tier = (
+                                PriceTier.objects.filter(kind=cust_type, is_active=True).first()
+                                or PriceTier.objects.filter(code=cust_type, is_active=True).first()
+                            )
+                            updated = True
+                    if updated:
+                        customer.save()
+
+                partner = None
+                if partner_id:
+                    partner = Customer.objects.filter(
+                        pk=partner_id, is_active=True, customer_type=Customer.TYPE_PARTNER
+                    ).first()
+
+                discount_percent = _checkout_discount_percent(
+                    customer, data.get('secretCode')
+                )
+
+                priced_lines = []
+                list_total = Decimal('0.00')
+                net_total = Decimal('0.00')
+                for item in cart:
+                    product = Product.objects.get(id=item['id'])
+                    qty = int(item['qty'])
+                    list_price = money_dec(item.get('price', product.base_price))
+                    unit_price = apply_discount(list_price, discount_percent)
+                    priced_lines.append((product, qty, list_price, unit_price))
+                    list_total += list_price * qty
+                    net_total += unit_price * qty
+                list_total = money_dec(list_total)
+                net_total = money_dec(net_total)
+                discount_amount = money_dec(list_total - net_total)
+                total_amount = net_total
+
+                if cash_raw is None or str(cash_raw).strip() == '':
+                    cash_received = total_amount
+                else:
+                    cash_received = parse_decimal(cash_raw)
+                if cash_received < 0:
+                    return JsonResponse({'success': False, 'message': 'Naqd summa manfiy bo‘lishi mumkin emas'}, status=400)
+
+                debt_amount = max(Decimal('0.00'), total_amount - cash_received)
+                if debt_amount > 0 and (not name or not phone):
+                    return JsonResponse({
+                        'success': False,
+                        'message': 'Qarz uchun mijoz ismi va telefon majburiy',
+                    }, status=400)
+
+                order_currency = (data.get('currency') or 'UZS').upper()
+                if order_currency not in ('UZS', 'USD'):
+                    order_currency = 'UZS'
+
+                payment_method = 'CASH'
+                order_status = Order.ORDER_STATUS[1][0]
+                change_given = max(Decimal('0.00'), cash_received - total_amount)
+
+                order = Order.objects.create(
+                    employee=employee,
+                    branch=branch,
+                    customer=customer,
+                    partner=partner,
+                    total_amount=total_amount,
+                    list_total=list_total,
+                    discount_percent=discount_percent,
+                    discount_amount=discount_amount,
+                    currency=order_currency,
+                    payment_method=payment_method,
+                    order_status=order_status,
+                )
+
+                for product, qty, list_price, unit_price in priced_lines:
+                    OrderItem.objects.create(
+                        order=order,
+                        product=product,
+                        quantity=qty,
+                        list_unit_price=list_price,
+                        unit_price=unit_price,
+                        discount_percent=discount_percent,
+                        cost_price=product.cost_price,
+                        warranty_days=product.warranty_days,
+                        replacement_days=product.replacement_days,
+                        service_warranty_days=product.service_warranty_days,
+                    )
+
+                    try:
+                        inventory = BranchInventory.objects.get(branch=branch, product=product)
+                    except BranchInventory.DoesNotExist:
+                        raise ValueError(f"{product.product_name} mahsuloti ushbu filialda ro‘yxatdan o‘tmagan.")
+
+                    if inventory.quantity < qty:
+                        raise ValueError("Tugagan")
+
+                    inventory.quantity -= qty
+                    inventory.save()
+
+                payment = Payment.objects.create(
+                    order=order,
+                    amount_paid=cash_received,
+                    payment_type=payment_method,
+                    date_paid=order.order_date
+                )
+
+                CashPayment.objects.create(
+                    payment=payment,
+                    cash_received=cash_received,
+                    change_given=change_given,
+                )
+
+                debt = None
+                if debt_amount > 0 and customer:
+                    debt = CustomerDebt.objects.create(
+                        customer=customer,
+                        order=order,
+                        branch=branch,
+                        created_by=employee,
+                        currency=order_currency,
+                        original_amount=debt_amount,
+                        paid_amount=Decimal('0.00'),
+                        remaining_balance=debt_amount,
+                        status='Open',
+                        note=f'Buyurtma #{order.id} bo‘yicha qarz',
+                    )
+
+                app_settings = AppSettings.get_solo()
+                vat_enabled = bool(app_settings.vat_enabled)
+                vat_percent = app_settings.vat_percent or Decimal('0')
+                if vat_percent < 0:
+                    vat_percent = Decimal('0')
+                if vat_percent > 100:
+                    vat_percent = Decimal('100')
+
+                cart_subtotal = total_amount
+                if vat_enabled and vat_percent > 0:
+                    vat_amount = (cart_subtotal * vat_percent / Decimal('100')).quantize(Decimal('0.01'))
+                else:
+                    vat_amount = Decimal('0.00')
+
+                invoice = Invoice.objects.create(
+                    order=order,
+                    or_number=f"OR-{uuid.uuid4().hex[:8].upper()}",
+                    vat_amount=vat_amount,
+                    grand_total=order.total_amount,
+                    issued_by=order.employee,
+                    invoice_date=order.order_date
+                )
+
+                try:
+                    agent_profile = order.employee.salesagent
+                    agent_profile.total_sales += order.total_amount
+                    commission_for_this_order = order.total_amount * agent_profile.commission_rate
+                    agent_profile.total_commission_earned += commission_for_this_order
+                    agent_profile.save()
+                except Exception:
+                    pass
+
+                if order.customer and order.customer.email:
+                    try:
+                        email_subtotal = (order.total_amount - vat_amount).quantize(Decimal('0.01'))
+                        if vat_amount > 0 and email_subtotal > 0:
+                            email_vat_label = f"QQS {(vat_amount / email_subtotal * Decimal('100')).quantize(Decimal('0.01'))}%"
+                        else:
+                            email_vat_label = 'QQS'
+                        org = order.branch.organization or Organization.get_default()
+                        context = {
+                            'order': order,
+                            'invoice': invoice,
+                            'subtotal': email_subtotal,
+                            'vat_amount': vat_amount,
+                            'vat_label': email_vat_label,
+                            'cash_received': cash_received,
+                            'change_given': change_given,
+                            'debt': debt,
+                            'debt_remaining': debt.remaining_balance if debt else Decimal('0.00'),
+                            'debt_original': debt.original_amount if debt else Decimal('0.00'),
+                            'has_debt': bool(debt and debt.remaining_balance > 0),
+                            'brand_name': org.brand_name,
+                            'organization_name': order.branch.organization_name,
+                        }
+
+                        html_content = render_to_string('emails/cash_receipt.html', context)
+
+                        email_msg = EmailMessage(
+                            subject=f"Naqd chek - {invoice.or_number}",
+                            body=html_content,
+                            from_email=settings.DEFAULT_FROM_EMAIL,
+                            to=[order.customer.email],
+                        )
+                        email_msg.content_subtype = "html"
+                        email_msg.send(fail_silently=False)
+                    except Exception as email_err:
+                        print(f"❌ HTML Email Error: {email_err}")
+
+                payload = {
+                    'success': True,
+                    'order_id': order.id,
+                }
+                if debt:
+                    payload['debt_id'] = debt.id
+                    payload['debt_amount'] = str(debt.remaining_balance)
+                    payload['message'] = f'Qarz yozildi: {debt.remaining_balance} {debt.currency}'
+                return JsonResponse(payload)
+
+            except Exception as e:
+                return JsonResponse({'success': False, 'message': str(e)}, status=400)
+
+        return JsonResponse({'success': False, 'message': 'Noto‘g‘ri so‘rov'}, status=405)
+
+@login_required(login_url='login')
+@transaction.atomic
+def checkout_quote(request):
+
+    if request.method != 'POST':
+        return JsonResponse({'success': False, 'message': 'Noto‘g‘ri so‘rov'}, status=405)
+    try:
+        data = json.loads(request.body)
+        cart = data.get('cart', [])
+        customer_data = data.get('customerData', {}) or {}
+        if not cart:
+            return JsonResponse({'success': False, 'message': 'Savat bo‘sh'}, status=400)
+        emp = get_active_employee(request.user)
+        if emp is None or emp.role != ROLE_CONSULTANT:
+            return JsonResponse({'success': False, 'message': 'Faqat maslahatchi buyurtma yuboradi.'}, status=403)
+        branch = emp.branch
+        name = (customer_data.get('name') or '').strip()
+        phone = (customer_data.get('phone') or '').strip()
+        email = (customer_data.get('email') or '').strip()
+        address = (customer_data.get('address') or '').strip()
+        cust_type = (customer_data.get('customer_type') or Customer.TYPE_REGULAR).strip()
+        if not PriceTier.objects.filter(kind=cust_type, is_active=True).exists():
+            cust_type = Customer.TYPE_REGULAR
+        partner_id = customer_data.get('partner_id')
+
+        customer = None
+        if phone:
+            customer, created = Customer.objects.get_or_create(
+                phone=phone,
+                defaults={'name': name or 'Oddiy mijoz', 'email': email, 'address': address, 'customer_type': cust_type},
+            )
+            if name and customer.name != name:
+                customer.name = name
+            if email:
+                customer.email = email
+            if address:
+                customer.address = address
+            if created or customer.customer_type == Customer.TYPE_REGULAR:
+                customer.customer_type = cust_type
+                customer.price_tier = (
+                    PriceTier.objects.filter(kind=cust_type, is_active=True).first()
+                    or PriceTier.objects.filter(code=cust_type, is_active=True).first()
+                )
+            customer.save()
+        elif name:
+            customer = Customer.objects.create(name=name, email=email, address=address, customer_type=cust_type)
+
+        partner = None
+        if partner_id:
+            partner = Customer.objects.filter(pk=partner_id, is_active=True, customer_type=Customer.TYPE_PARTNER).first()
+
+        discount_percent = _checkout_discount_percent(
+            customer, data.get('secretCode')
+        )
+        priced_lines = []
+        list_total = Decimal('0.00')
+        net_total = Decimal('0.00')
+        for item in cart:
+            product = Product.objects.get(id=item['id'])
+            qty = int(item['qty'])
+            list_price = money_dec(item.get('price', product.base_price))
+            unit_price = apply_discount(list_price, discount_percent)
+            priced_lines.append((product, qty, list_price, unit_price))
+            list_total += list_price * qty
+            net_total += unit_price * qty
+        list_total = money_dec(list_total)
+        net_total = money_dec(net_total)
+        discount_amount = money_dec(list_total - net_total)
+
+        for product, qty, _lp, _up in priced_lines:
+            inv = BranchInventory.objects.filter(branch=branch, product=product).first()
+            if not inv:
+                raise ValueError(f"{product.product_name} ushbu filialda yo‘q.")
+            if inv.quantity < qty:
+                raise ValueError(f"{product.product_name}: omborda yetarli emas (qoldiq {inv.quantity})")
+
+        order_currency = (data.get('currency') or 'UZS').upper()
+        if order_currency not in ('UZS', 'USD'):
+            order_currency = 'UZS'
+
+        order = Order.objects.create(
+            employee=emp,
+            branch=branch,
+            customer=customer,
+            partner=partner,
+            total_amount=net_total,
+            list_total=list_total,
+            discount_percent=discount_percent,
+            discount_amount=discount_amount,
+            currency=order_currency,
+            payment_method='CASH',
+            order_status='AwaitingApproval',
+        )
+        for product, qty, list_price, unit_price in priced_lines:
+            OrderItem.objects.create(
+                order=order,
+                product=product,
+                quantity=qty,
+                list_unit_price=list_price,
+                unit_price=unit_price,
+                discount_percent=discount_percent,
+                cost_price=product.cost_price,
+                warranty_days=product.warranty_days,
+                replacement_days=product.replacement_days,
+                service_warranty_days=product.service_warranty_days,
+            )
+
+        app_settings = AppSettings.get_solo()
+        vat_percent = app_settings.vat_percent or Decimal('0')
+        if app_settings.vat_enabled and vat_percent > 0:
+            vat_amount = (net_total * vat_percent / Decimal('100')).quantize(Decimal('0.01'))
+        else:
+            vat_amount = Decimal('0.00')
+        Invoice.objects.create(
+            order=order,
+            or_number=f"QT-{uuid.uuid4().hex[:8].upper()}",
+            vat_amount=vat_amount,
+            grand_total=order.total_amount,
+            issued_by=order.employee,
+            invoice_date=order.order_date,
+        )
+        return JsonResponse({
+            'success': True,
+            'order_id': order.id,
+            'awaiting_approval': True,
+            'message': 'Buyurtma menejerga yuborildi — tasdiqlash kutilmoqda.',
+        })
+    except Exception as e:
+        return JsonResponse({'success': False, 'message': str(e)}, status=400)
+
+@manager_required
+@transaction.atomic
+def order_approve(request, pk):
+    if request.method != 'POST':
+        return redirect('sales_display')
+    order = get_object_or_404(
+        Order.objects.select_related('branch', 'employee').prefetch_related('orderitem_set__product'),
+        pk=pk, is_active=True,
+    )
+    if order.order_status != 'AwaitingApproval':
+        messages.error(request, 'Bu buyurtma tasdiqlash holatida emas.')
+        return redirect('sales_display')
+    for item in order.orderitem_set.all():
+        try:
+            inventory = BranchInventory.objects.select_for_update().get(branch=order.branch, product=item.product)
+        except BranchInventory.DoesNotExist:
+            messages.error(request, f'{item.product.product_name} omborda topilmadi.')
+            return redirect('sales_display')
+        if inventory.quantity < item.quantity:
+            messages.error(request, f'{item.product.product_name}: yetarli emas.')
+            return redirect('sales_display')
+        inventory.quantity -= item.quantity
+        inventory.save(update_fields=['quantity'])
+    payment = Payment.objects.create(
+        order=order, amount_paid=order.total_amount, payment_type='CASH', date_paid=timezone.now(),
+    )
+    CashPayment.objects.create(payment=payment, cash_received=order.total_amount, change_given=Decimal('0.00'))
+    order.order_status = 'Completed'
+    order.save(update_fields=['order_status'])
+    try:
+        agent = order.employee.salesagent
+        agent.total_sales += order.total_amount
+        agent.total_commission_earned += order.total_amount * agent.commission_rate
+        agent.save()
+    except Exception:
+        pass
+    messages.success(request, f'Buyurtma #{order.id} tasdiqlandi.')
+    return redirect('emp_receipt', pk=order.id)
+
+@manager_required
+@transaction.atomic
+def order_reject(request, pk):
+    if request.method != 'POST':
+        return redirect('sales_display')
+    order = get_object_or_404(Order, pk=pk, is_active=True)
+    if order.order_status != 'AwaitingApproval':
+        messages.error(request, 'Bu buyurtma bekor qilinadigan holatda emas.')
+        return redirect('sales_display')
+    order.order_status = 'Cancelled'
+    order.save(update_fields=['order_status'])
+    messages.success(request, f'Buyurtma #{order.id} bekor qilindi.')
+    return redirect('sales_display')
+
+@login_required(login_url='login')
+def warranty(request, pk):
+
+    sales = get_object_or_404(Order, pk=pk)
+
+    is_manager = request.user.is_superuser or hasattr(request.user, 'employee') and request.user.employee.role == 'Manager'
+
+    if not is_manager:
+        raise PermissionDenied
+
+    if request.method == 'POST':
+        item_id =  request.POST.get('order_item_id')
+        order_item = get_object_or_404(OrderItem, order=sales, id=item_id)
+        product = order_item.product
+        claim_type = request.POST.get('claim_type')
+
+        if request.user.is_superuser:
+            inventory_item = BranchInventory.objects.filter(product=product).first()
+            if not inventory_item:
+                messages.error(request, 'Mahsulot hech qaysi filial omborida topilmadi')
+                return redirect('warranty', pk=pk)
+
+            branch = inventory_item.branch
+            handle_by_profile = getattr(request.user, 'employee', None)
+        else:
+            try:
+                employee_profile = request.user.employee
+                branch = employee_profile.branch
+                inventory_item = BranchInventory.objects.filter(branch=branch, product=product).first()
+                handle_by_profile = employee_profile
+            except AttributeError:
+                messages.error(request, "Sizga bog‘langan xodim profili yo‘q.")
+                return redirect('warranty', pk=pk)
+
+        faulty_serial = request.POST.get(f'faulty_serial_{item_id}')
+        issue_description = request.POST.get('issue_description')
+        days_since_purchase = (timezone.localdate() - sales.order_date.date()).days
+        warranty_limit = order_item.effective_warranty_days()
+        replacement_limit = order_item.effective_replacement_days()
+
+        prior_service = (
+            WarrantyClaims.objects.filter(
+                order_item=order_item,
+                claim_type='Repair',
+                service_warranty_until__isnull=False,
+                service_warranty_until__gte=timezone.localdate(),
+            )
+            .order_by('-service_warranty_until')
+            .first()
+        )
+        under_service_warranty = prior_service is not None
+
+        if claim_type == 'Replacement' and days_since_purchase > replacement_limit:
+            messages.error(
+                request,
+                f"Almashtirish rad etildi. Mahsulot {days_since_purchase} kunlik "
+                f"(Limit: {replacement_limit} kun).",
+            )
+            return redirect('warranty', pk=pk)
+
+        if claim_type == 'Repair' and days_since_purchase > warranty_limit and not under_service_warranty:
+            messages.error(
+                request,
+                f"Mahsulot kafolati tugagan. {days_since_purchase} kun o‘tgan "
+                f"(Limit: {warranty_limit} kun). Ish kafolati ham amal qilmaydi.",
+            )
+            return redirect('warranty', pk=pk)
+
+        if claim_type == 'Replacement':
+            cost_impact = order_item.product.cost_price
+            if inventory_item is None:
+                messages.error(request, "Filialda bu mahsulot yo‘q.")
+                return redirect('warranty', pk=pk)
+            elif inventory_item.quantity < 1:
+                messages.error(request, "Mahsulot omborda tugagan.")
+                return redirect('warranty', pk=pk)
+        elif claim_type == 'Repair':
+            cost_impact = 1500.00
+        else:
+            cost_impact = 0.00
+
+        existing_claim = WarrantyClaims.objects.filter(order_item=order_item, status__in=['Completed', 'Released']).exists()
+        if existing_claim:
+            messages.error(request, "Kafolat arizasi allaqachon berilgan.")
+            return redirect('warranty', pk=pk)
+
+        try:
+            with transaction.atomic():
+                claim = WarrantyClaims.objects.create(
+                    order_item=order_item,
+                    claim_type=claim_type,
+                    faulty_serial=faulty_serial if faulty_serial else "Mavjud emas",
+                    handled_by=handle_by_profile,
+                    issue_description=issue_description,
+                    cost_impact=cost_impact,
+                    status='Completed' if claim_type == 'Replacement' else 'Pending'
+                )
+
+                if claim_type == 'Replacement':
+                    inventory_item.refresh_from_db()
+                    inventory_item.quantity = F('quantity') - 1
+                    inventory_item.save()
+
+                    DefectiveInventory.objects.create(
+                        product=product,
+                        branch=branch,
+                        faulty_serial=faulty_serial,
+                        reason=issue_description,
+                        is_disposed=False
+                    )
+
+                    new_serial_input = request.POST.get(f'new_serial_{item_id}', 'Mavjud emas')
+
+                    ReplacementRecord.objects.create(
+                        warranty_claims=claim,
+                        old_serial=faulty_serial,
+                        new_serial=new_serial_input,
+                    )
+        except Exception as e:
+            messages.error(request, f"Ma’lumotlar bazasi xatosi: {e}")
+            return redirect('warranty', pk=pk)
+
+        if claim_type == 'Repair' and under_service_warranty:
+            messages.success(
+                request,
+                f'Muvaffaqiyatli! Ish kafolati doirasida qabul qilindi '
+                f'(gacha: {prior_service.service_warranty_until}).',
+            )
+        else:
+            messages.success(request, 'Kafolat arizasi muvaffaqiyatli yaratildi.')
+        return redirect('warranty_list')
+
+    items_info = []
+    today = timezone.localdate()
+    for item in sales.orderitem_set.select_related('product').all():
+        days = (today - sales.order_date.date()).days
+        w = item.effective_warranty_days()
+        r = item.effective_replacement_days()
+        s = item.effective_service_warranty_days()
+        prior = (
+            WarrantyClaims.objects.filter(
+                order_item=item,
+                claim_type='Repair',
+                service_warranty_until__isnull=False,
+            )
+            .order_by('-service_warranty_until')
+            .first()
+        )
+        items_info.append({
+            'item': item,
+            'days_since': days,
+            'warranty_days': w,
+            'replacement_days': r,
+            'service_warranty_days': s,
+            'repair_left': max(w - days, 0),
+            'replace_left': max(r - days, 0),
+            'service_until': prior.service_warranty_until if prior else None,
+            'under_service': bool(prior and prior.service_warranty_until and prior.service_warranty_until >= today),
+        })
+
+    context = {
+        'sales': sales,
+        'items_info': items_info,
+    }
+    return render(request, 'accounts/warranty.html', context)
+
+@login_required(login_url='login')
+def dashboard(request):
+
+    now = timezone.localtime(timezone.now())
+
+    start_of_week = (now - timedelta(days=now.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
+    start_of_month = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    start_of_year = now.replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
+
+    def get_total(start_date):
+        return OrderItem.objects.filter(
+            order__order_date__gte=start_date,
+            order__is_active=True,
+            product__is_active=True
+        ).aggregate(
+            total=Coalesce(
+                Sum(F('unit_price') * F('quantity')),
+                Decimal('0.00'),
+                output_field=DecimalField()
+            )
+        )['total']
+
+    weekly_total = get_total(start_of_week)
+    monthly_total = get_total(start_of_month)
+    yearly_total = get_total(start_of_year)
+
+    pending_claims = WarrantyClaims.objects.filter(
+        status='Pending',
+    ).count()
+
+    in_progress_claims = WarrantyClaims.objects.filter(
+        status='In-Progress',
+    ).count()
+
+    completed_claims = WarrantyClaims.objects.filter(
+        status='Completed',
+    ).count()
+
+    released_claims = WarrantyClaims.objects.filter(
+        status='Released',
+    ).count()
+
+    repair = WarrantyClaims.objects.filter(
+        claim_type='Repair',
+    ).count()
+
+    replacement = WarrantyClaims.objects.filter(
+        claim_type='Replacement',
+    ).count()
+
+    claims = WarrantyClaims.objects.select_related('order_item__product','order_item__order__customer').all()
+
+    total_cost_impact = claims.aggregate(
+        total=Coalesce(Sum('cost_impact'), Decimal('0.00'))
+    )['total']
+
+    repair_cost_impact = claims.filter(
+        claim_type='Repair',
+    ).aggregate(
+        total=Coalesce(Sum('cost_impact'), Decimal('0.00'))
+    )['total']
+
+    replacement_cost_impact = claims.filter(
+        claim_type='Replacement',
+    ).aggregate(
+        total=Coalesce(Sum('cost_impact'), Decimal('0.00'))
+    )['total']
+
+    low_stock = BranchInventory.objects.filter(quantity__lte=F('product__min_stock_level'), quantity__gt=0, product__is_active=True).count()
+
+    out_of_stocks = BranchInventory.objects.filter(quantity=0, product__is_active=True).count()
+
+    healthy_stocks = BranchInventory.objects.filter(quantity__gt=F('product__min_stock_level'), product__is_active=True).count()
+
+    last_24_hrs = timezone.now() - timedelta(days=1)
+
+    recent_stock = BranchInventory.objects.filter(date_added__gte=last_24_hrs).count()
+
+    today = timezone.localtime(timezone.now()).date()
+
+    yesterday = timezone.localtime(timezone.now()).date() - timedelta(days=1)
+
+    today_total = OrderItem.objects.filter(order__order_date=today, order__is_active=True).aggregate(
+        total=Coalesce(Sum(F('order__total_amount') * F('quantity')), Decimal('0.00'))
+    )['total']
+
+    yesterday_total = OrderItem.objects.filter(order__order_date=yesterday, order__is_active=True).aggregate(
+        total=Coalesce(Sum(F('unit_price') * F('quantity')), Decimal('0.00'))
+    )['total']
+
+    if yesterday_total > 0:
+        growth_percent = ((today_total - yesterday_total) / yesterday_total) * 100
+    elif today_total > 0:
+        growth_percent = 100.0
+    else:
+        growth_percent = 0.0
+
+    active_staff = Employee.objects.filter(is_logged_in=True)
+
+    context = {
+        'active_staff': active_staff,
+        'weekly_total': weekly_total,
+        'monthly_total': monthly_total,
+        'yearly_total': yearly_total,
+        'pending_claims': pending_claims,
+        'in_progress_claims': in_progress_claims,
+        'completed_claims': completed_claims,
+        'released_claims': released_claims,
+        'repair': repair,
+        'replacement': replacement,
+        'total_cost_impact': total_cost_impact,
+        'repair_cost_impact': repair_cost_impact,
+        'replacement_cost_impact': replacement_cost_impact,
+        'low_stock': low_stock,
+        'out_of_stocks': out_of_stocks,
+        'healthy_stocks': healthy_stocks,
+        'recent_stock': recent_stock,
+        'growth_percent': growth_percent,
+        'today_total': today_total,
+        'yesterday_total': yesterday_total
+    }
+
+    return render(request, 'accounts/dashboard.html', context)
+
+@login_required(login_url='login')
+def warranty_list(request):
+
+    status_filter = request.GET.get('status')
+    if status_filter and status_filter != 'All':
+        claims = WarrantyClaims.objects.filter(status=status_filter).select_related('order_item__product', 'order_item__order__customer').order_by('-date_filed')
+    else:
+        claims = WarrantyClaims.objects.all().select_related('order_item__product', 'order_item__order__customer').order_by('-date_filed')
+
+    search_query = request.GET.get('q')
+    if search_query:
+        claims = claims.filter(
+            Q(faulty_serial__icontains=search_query) |
+            Q(order_item__order__customer__name__icontains=search_query)
+        )
+
+    total_cost_impact = claims.aggregate(
+        total=Coalesce(Sum('cost_impact'), Decimal('0.00'))
+    )['total']
+
+    repair_cost_impact = claims.filter(
+        claim_type='Repair',
+    ).aggregate(
+        total=Coalesce(Sum('cost_impact'), Decimal('0.00'))
+    )['total']
+
+    replacement_cost_impact = claims.filter(
+        claim_type='Replacement',
+    ).aggregate(
+        total=Coalesce(Sum('cost_impact'), Decimal('0.00'))
+    )['total']
+
+    paginator = Paginator(claims, 5)
+
+    page_number = request.GET.get('page')
+    page_obj = paginator.get_page(page_number)
+
+    context = {'claims': claims, 'total_cost_impact': total_cost_impact, 'repair_cost_impact': repair_cost_impact, 'replacement_cost_impact': replacement_cost_impact, 'page_obj': page_obj}
+
+    return render(request, 'accounts/warranty_list.html', context)
+
+@login_required(login_url='login')
+def warranty_list_export_csv(request):
+    status_filter = request.GET.get('status')
+    search_query = request.GET.get('q')
+
+    claims = WarrantyClaims.objects.all().select_related('order_item__product', 'order_item__order__customer').order_by('-date_filed')
+
+    if status_filter and status_filter != 'All':
+        claims = claims.filter(status=status_filter)
+
+    if search_query:
+        claims = claims.filter(
+            Q(faulty_serial__icontains=search_query) |
+            Q(order_item__order__customer__name__icontains=search_query)
+        )
+
+    response = HttpResponse(content_type='text/csv')
+    response['Content-Disposition'] = 'attachment; filename="warranty_list.csv"'
+    writer = csv.writer(response)
+    writer.writerow(
+        ['Ariza ID', 'Mijoz', 'Mahsulot', 'Tur', 'Holat', 'Ariza sanasi']
+    )
+
+    for claim in claims:
+        try:
+            customer_name = claim.order_item.order.customer.name if claim.order_item.order.customer else "Oddiy mijoz"
+        except AttributeError:
+            customer_name = "Mavjud emas"
+
+        product_name = claim.order_item.product.product_name if claim.order_item.product else "Noma’lum"
+
+        writer.writerow(
+            [
+                claim.pk,
+                customer_name,
+                product_name,
+                claim.get_claim_type_display(),
+                claim.get_status_display(),
+                claim.date_filed.strftime("%Y-%m-%d %H:%M") if claim.date_filed else "Mavjud emas"
+            ]
+        )
+
+    return response
+
+@login_required(login_url='login')
+def update_claim_status(request, pk):
+    if request.method == 'POST':
+        claim = get_object_or_404(
+            WarrantyClaims.objects.select_related('order_item', 'order_item__product'),
+            pk=pk,
+        )
+        new_status = request.POST.get('status')
+
+        if new_status:
+            claim.status = new_status
+
+            if new_status in ['Released', 'Completed'] and not claim.resolution_date:
+                claim.resolution_date = timezone.now()
+
+            if (
+                claim.claim_type == 'Repair'
+                and new_status in ['Released', 'Completed']
+                and not claim.service_warranty_until
+            ):
+                claim.activate_service_warranty()
+
+            claim.save()
+            status_labels = {
+                "Pending": "Kutilmoqda",
+                "In-Progress": "Jarayonda",
+                "Completed": "Yakunlangan",
+                "Released": "Berilgan",
+            }
+            msg = f"Ariza #{claim.id} holati {status_labels.get(new_status, new_status)} ga yangilandi"
+            if claim.service_warranty_until and new_status in ['Released', 'Completed']:
+                msg += f". Ish kafolati: {claim.service_warranty_until} gacha"
+            messages.success(request, msg)
+
+    return redirect('warranty_list')
+
+@login_required(login_url='login')
+@user_passes_test(is_app_manager, login_url='home')
+def audit_logs(request):
+
+    start_date_str = request.GET.get('start_date')
+    end_date_str = request.GET.get('end_date')
+    action_type = request.GET.get('action_type')
+
+    logs = AuditTrail.objects.all().order_by('-timestamp')
+
+    if start_date_str:
+        start_date = parse_date(start_date_str)
+        if start_date:
+            logs = logs.filter(timestamp__date__gte=start_date)
+
+    if end_date_str:
+        end_date = parse_date(end_date_str)
+        if end_date:
+            logs = logs.filter(timestamp__date__lte=end_date)
+
+    if action_type:
+        logs = logs.filter(action=action_type)
+
+    paginator = Paginator(logs, 5)
+    page_number = request.GET.get('page')
+    page_obj = paginator.get_page(page_number)
+
+    context = {
+        'logs': page_obj,
+        'start_date_str': start_date_str,
+        'end_date_str': end_date_str,
+        'action_type': action_type,
+    }
+
+    return render(request, 'accounts/audit_logs.html', context)
+
+@login_required(login_url='login')
+def audit_logs_export_csv(request):
+    start_date_str = request.GET.get('start_date')
+    end_date_str = request.GET.get('end_date')
+    action_type = request.GET.get('action_type')
+
+    logs = AuditTrail.objects.all().order_by('-timestamp')
+
+    if start_date_str:
+        start_date = parse_date(start_date_str)
+        if start_date:
+            logs = logs.filter(timestamp__date__gte=start_date)
+
+    if end_date_str:
+        end_date = parse_date(end_date_str)
+        if end_date:
+            logs = logs.filter(timestamp__date__lte=end_date)
+
+    if action_type:
+        logs = logs.filter(action=action_type)
+
+    response = HttpResponse(content_type='text/csv')
+    response['Content-Disposition'] = 'attachment; filename="audit_logs.csv"'
+    writer = csv.writer(response)
+    writer.writerow(
+        ['Vaqt', 'Foydalanuvchi', 'Amal', 'Model', 'IP manzil', 'Tavsif']
+    )
+
+    for log in logs:
+        description = ""
+        if isinstance(log.change_log, dict):
+            description = ", ".join([f"{k}: {v}" for k, v in log.change_log.items()])
+        else:
+            description = str(log.change_log)
+
+        writer.writerow(
+            [
+                log.timestamp,
+                log.user.name,
+                log.action,
+                log.content_type.model,
+                log.ip_address,
+                description
+            ]
+        )
+
+    return response
+
+@login_required(login_url='login')
+def debtors_list(request):
+    is_manager = request.user.is_superuser or (
+        hasattr(request.user, 'employee') and request.user.employee.role == 'Manager'
+    )
+    debts = CustomerDebt.objects.select_related('customer', 'branch', 'order', 'created_by').all()
+
+    if not is_manager and hasattr(request.user, 'employee'):
+        debts = debts.filter(branch=request.user.employee.branch)
+
+    status = request.GET.get('status') or 'Active'
+    if status == 'All':
+        pass
+    elif status == 'Active':
+        debts = debts.exclude(status='Paid')
+    else:
+        debts = debts.filter(status=status)
+
+    q = (request.GET.get('q') or '').strip()
+    if q:
+        debts = debts.filter(
+            Q(customer__name__icontains=q) |
+            Q(customer__phone__icontains=q) |
+            Q(note__icontains=q)
+        )
+
+    debts = debts.order_by('-created_at')
+
+    open_qs = CustomerDebt.objects.exclude(status='Paid')
+    if not is_manager and hasattr(request.user, 'employee'):
+        open_qs = open_qs.filter(branch=request.user.employee.branch)
+
+    total_remaining = open_qs.aggregate(
+        total=Coalesce(Sum('remaining_balance'), Decimal('0.00'))
+    )['total']
+    open_count = open_qs.count()
+
+    paginator = Paginator(debts, 15)
+    page_obj = paginator.get_page(request.GET.get('page'))
+
+    return render(request, 'accounts/debtors_list.html', {
+        'page_obj': page_obj,
+        'debts': page_obj,
+        'is_manager': is_manager,
+        'total_remaining': total_remaining,
+        'open_count': open_count,
+        'status_filter': status,
+        'q': q,
+    })
+
+@login_required(login_url='login')
+@transaction.atomic
+def debt_pay(request, pk):
+    if request.method != 'POST':
+        return redirect('debtors_list')
+
+    debt = get_object_or_404(CustomerDebt, pk=pk)
+    is_manager = request.user.is_superuser or (
+        hasattr(request.user, 'employee') and request.user.employee.role == 'Manager'
+    )
+    if not is_manager and hasattr(request.user, 'employee'):
+        if debt.branch_id != request.user.employee.branch_id:
+            raise PermissionDenied
+
+    amount = parse_decimal(request.POST.get('amount'))
+    note = (request.POST.get('note') or '').strip()
+
+    if amount <= 0:
+        messages.error(request, 'To‘lov summasi 0 dan katta bo‘lishi kerak.')
+        return redirect('debtors_list')
+
+    if amount > debt.remaining_balance:
+        amount = debt.remaining_balance
+
+    employee = getattr(request.user, 'employee', None)
+    DebtPayment.objects.create(
+        debt=debt,
+        amount=amount,
+        received_by=employee,
+        note=note,
+    )
+    debt.paid_amount = (debt.paid_amount or Decimal('0')) + amount
+    debt.remaining_balance = (debt.remaining_balance or Decimal('0')) - amount
+    debt.refresh_status()
+    debt.save()
+
+    messages.success(request, f'{debt.customer.name}: {amount} {debt.currency} qabul qilindi.')
+    return redirect('/debtors/?status=Active')
+
+@login_required(login_url='login')
+def debtors_export_csv(request):
+    is_manager = request.user.is_superuser or (
+        hasattr(request.user, 'employee') and request.user.employee.role == 'Manager'
+    )
+    debts = CustomerDebt.objects.select_related('customer', 'branch').all()
+    if not is_manager and hasattr(request.user, 'employee'):
+        debts = debts.filter(branch=request.user.employee.branch)
+
+    status = request.GET.get('status') or 'Active'
+    if status == 'All':
+        pass
+    elif status == 'Active':
+        debts = debts.exclude(status='Paid')
+    else:
+        debts = debts.filter(status=status)
+
+    response = HttpResponse(content_type='text/csv')
+    response['Content-Disposition'] = 'attachment; filename="qarzdorlar.csv"'
+    writer = csv.writer(response)
+    writer.writerow([
+        'ID', 'Mijoz', 'Telefon', 'Filial', 'Valyuta',
+        'Dastlabki', 'To‘langan', 'Qoldiq', 'Holat', 'Sana',
+    ])
+    for d in debts.order_by('-created_at'):
+        writer.writerow([
+            d.id,
+            d.customer.name,
+            d.customer.phone,
+            d.branch.name if d.branch else '',
+            d.currency,
+            d.original_amount,
+            d.paid_amount,
+            d.remaining_balance,
+            d.get_status_display(),
+            d.created_at.strftime('%Y-%m-%d %H:%M'),
+        ])
+    return response
+
+def _expense_queryset_for(request):
+    is_manager = request.user.is_superuser or (
+        hasattr(request.user, 'employee') and request.user.employee.role == 'Manager'
+    )
+    qs = Expense.objects.filter(is_active=True).select_related('branch', 'created_by')
+    if not is_manager and hasattr(request.user, 'employee'):
+        qs = qs.filter(branch=request.user.employee.branch)
+    return qs, is_manager
+
+@login_required(login_url='login')
+def expenses_list(request):
+
+    qs, is_manager = _expense_queryset_for(request)
+
+    if request.method == 'POST':
+        title = (request.POST.get('title') or '').strip()
+        category = request.POST.get('category') or 'other'
+        amount = parse_decimal(request.POST.get('amount'))
+        currency = (request.POST.get('currency') or CURRENCY_UZS).upper()
+        note = (request.POST.get('note') or '').strip()
+        date_raw = (request.POST.get('expense_date') or '').strip()
+        expense_date = parse_date(date_raw) or timezone.localdate()
+
+        if currency not in (CURRENCY_UZS, CURRENCY_USD):
+            currency = CURRENCY_UZS
+        if category not in dict(Expense.CATEGORY_CHOICES):
+            category = 'other'
+
+        if not title:
+            messages.error(request, 'Xarajat nomini kiriting.')
+            return redirect('expenses_list')
+        if amount <= 0:
+            messages.error(request, 'Summa 0 dan katta bo‘lishi kerak.')
+            return redirect('expenses_list')
+
+        branch = None
+        if is_manager:
+            branch_id = request.POST.get('branch')
+            if branch_id:
+                branch = Branch.objects.filter(pk=branch_id, is_active=True).first()
+            if not branch:
+                branch = Branch.objects.filter(is_active=True).first()
+        else:
+            emp = getattr(request.user, 'employee', None)
+            branch = emp.branch if emp else None
+
+        if not branch:
+            messages.error(request, 'Filial topilmadi.')
+            return redirect('expenses_list')
+
+        Expense.objects.create(
+            branch=branch,
+            category=category,
+            title=title,
+            amount=amount,
+            currency=currency,
+            expense_date=expense_date,
+            note=note,
+            created_by=getattr(request.user, 'employee', None),
+        )
+        messages.success(request, f'Xarajat qo‘shildi: {title}')
+        return redirect('expenses_list')
+
+    category = request.GET.get('category') or ''
+    q = (request.GET.get('q') or '').strip()
+    if category and category in dict(Expense.CATEGORY_CHOICES):
+        qs = qs.filter(category=category)
+    if q:
+        qs = qs.filter(Q(title__icontains=q) | Q(note__icontains=q))
+
+    qs = qs.order_by('-expense_date', '-created_at')
+
+    now = timezone.localtime(timezone.now())
+    start_month = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0).date()
+    month_qs = qs.filter(expense_date__gte=start_month)
+
+    total_all = qs.aggregate(t=Coalesce(Sum('amount'), Decimal('0.00')))['t']
+    total_month = month_qs.aggregate(t=Coalesce(Sum('amount'), Decimal('0.00')))['t']
+    count_all = qs.count()
+
+    by_category = (
+        qs.values('category')
+        .annotate(total=Sum('amount'), cnt=Count('id'))
+        .order_by('-total')
+    )
+
+    branches = Branch.objects.filter(is_active=True).order_by('name') if is_manager else []
+    page_obj = Paginator(qs, 15).get_page(request.GET.get('page'))
+
+    return render(request, 'accounts/expenses_list.html', {
+        'page_obj': page_obj,
+        'is_manager': is_manager,
+        'branches': branches,
+        'categories': Expense.CATEGORY_CHOICES,
+        'category_filter': category,
+        'q': q,
+        'total_all': total_all,
+        'total_month': total_month,
+        'count_all': count_all,
+        'by_category': by_category,
+        'today': timezone.localdate().isoformat(),
+    })
+
+@login_required(login_url='login')
+def expense_delete(request, pk):
+    if request.method != 'POST':
+        return redirect('expenses_list')
+
+    qs, is_manager = _expense_queryset_for(request)
+    expense = get_object_or_404(qs, pk=pk)
+    expense.soft_delete()
+    messages.success(request, f'Xarajat o‘chirildi: {expense.title}')
+    return redirect('expenses_list')
+
+@login_required(login_url='login')
+def customer_lookup(request):
+
+    phone = (request.GET.get('phone') or '').strip()
+    if len(phone) < 5:
+        return JsonResponse({'found': False, 'message': 'Telefon qisqa'})
+    customer = Customer.objects.filter(phone__iexact=phone, is_active=True).first()
+    if not customer:
+
+        customer = Customer.objects.filter(phone__icontains=phone[-9:], is_active=True).first()
+    if not customer:
+        return JsonResponse({'found': False})
+    return JsonResponse({'found': True, 'customer': customer_payload(customer)})
+
+def _make_price_tier_kind(name):
+    base = slugify(name) or ''
+    if not base:
+        chars = ''.join(ch for ch in name.lower() if ch.isascii() and ch.isalnum())
+        base = chars[:28] if chars else 'tur'
+    base = base[:28]
+    kind = base
+    n = 2
+    while PriceTier.objects.filter(Q(kind=kind) | Q(code=kind)).exists():
+        kind = f'{base[:26]}-{n}'
+        n += 1
+    return kind
+
+
+@login_required(login_url='login')
+@user_passes_test(is_app_manager, login_url='home')
+def app_settings(request):
+    app = AppSettings.get_solo()
+    tiers_list = list(
+        PriceTier.objects.exclude(kind=PriceTier.KIND_REGULAR).order_by('kind')
+    )
+
+    if request.method == 'POST':
+        action = (request.POST.get('action') or 'save_all').strip()
+
+        if action == 'add_tier':
+            name = (request.POST.get('new_tier_name') or '').strip()
+            pct_raw = (request.POST.get('new_tier_percent') or '').strip().replace(',', '.')
+            if not name:
+                messages.error(request, 'Yangi tur uchun nom majburiy.')
+                return redirect('app_settings')
+            if pct_raw == '':
+                pct = Decimal('0.00')
+            else:
+                try:
+                    pct = Decimal(pct_raw)
+                except Exception:
+                    messages.error(request, f'Noto‘g‘ri foiz: {pct_raw}')
+                    return redirect('app_settings')
+                if pct < 0 or pct > 100:
+                    messages.error(request, 'Chegirma 0–100% oralig‘ida bo‘lishi kerak.')
+                    return redirect('app_settings')
+            kind = _make_price_tier_kind(name)
+            PriceTier.objects.create(
+                kind=kind,
+                code=kind,
+                name=name,
+                discount_percent=pct,
+                is_active=True,
+            )
+            messages.success(request, f'Yangi tur qo‘shildi: {name}')
+            return redirect('app_settings')
+
+        if action == 'delete_tier':
+            tier_id = request.POST.get('tier_id')
+            tier = get_object_or_404(PriceTier, pk=tier_id)
+            if tier.kind in PriceTier.SYSTEM_KINDS:
+                messages.error(request, 'Tizim turlarini o‘chirib bo‘lmaydi.')
+                return redirect('app_settings')
+            in_use = Customer.objects.filter(customer_type=tier.kind).exists()
+            if in_use:
+                messages.error(
+                    request,
+                    f'«{tier.name}» turida mijozlar bor — avval ularning turini o‘zgartiring.',
+                )
+                return redirect('app_settings')
+            label = tier.name
+            tier.delete()
+            messages.success(request, f'Tur o‘chirildi: {label}')
+            return redirect('app_settings')
+
+        vat_enabled = request.POST.get('vat_enabled') == '1'
+        vat_raw = (request.POST.get('vat_percent') or '').strip()
+        if vat_raw == '':
+            vat_pct = app.vat_percent
+        else:
+            vat_pct = parse_decimal(vat_raw)
+            if vat_pct < 0 or vat_pct > 100:
+                messages.error(request, 'QQS 0–100 oralig‘ida bo‘lishi kerak.')
+                return redirect('app_settings')
+        secret_code = (request.POST.get('pos_secret_code') or '').strip()
+        if secret_code and not any(ch.isalpha() for ch in secret_code):
+            messages.error(
+                request,
+                'Maxfiy kodda kamida bitta harf bo‘lishi shart (faqat raqam bo‘lishi mumkin emas).',
+            )
+            return redirect('app_settings')
+        secret_raw = (request.POST.get('pos_secret_discount_percent') or '').strip()
+        if secret_raw == '':
+            secret_pct = app.pos_secret_discount_percent
+        else:
+            secret_pct = parse_decimal(secret_raw)
+            if secret_pct < 0 or secret_pct > 100:
+                messages.error(request, 'Chegirma 0–100% oralig‘ida bo‘lishi kerak.')
+                return redirect('app_settings')
+        theme_mode = (request.POST.get('theme_mode') or AppSettings.THEME_SYSTEM).strip()
+        if theme_mode not in dict(AppSettings.THEME_MODE_CHOICES):
+            theme_mode = AppSettings.THEME_SYSTEM
+        day_raw = (request.POST.get('theme_day_start') or '').strip()
+        night_raw = (request.POST.get('theme_night_start') or '').strip()
+        if theme_mode == AppSettings.THEME_AUTO:
+            try:
+                day_start = int(day_raw)
+                night_start = int(night_raw)
+            except (TypeError, ValueError):
+                messages.error(request, 'Tema soatlari noto‘g‘ri.')
+                return redirect('app_settings')
+            if day_start < 0 or day_start > 23 or night_start < 0 or night_start > 23:
+                messages.error(request, 'Soatlar 0–23 oralig‘ida bo‘lishi kerak.')
+                return redirect('app_settings')
+        else:
+            day_start = app.theme_day_start
+            night_start = app.theme_night_start
+
+        for tier in tiers_list:
+            prefix = f'tier_{tier.id}_'
+            name = (request.POST.get(prefix + 'name') or '').strip()
+            pct_raw = (request.POST.get(prefix + 'percent') or '').strip().replace(',', '.')
+            if not name:
+                messages.error(request, f'«{tier.get_kind_display()}» uchun nom majburiy.')
+                return redirect('app_settings')
+            if pct_raw == '':
+                pct = tier.discount_percent
+            else:
+                try:
+                    pct = Decimal(pct_raw)
+                except Exception:
+                    messages.error(request, f'Noto‘g‘ri foiz: {pct_raw}')
+                    return redirect('app_settings')
+                if pct < 0 or pct > 100:
+                    messages.error(request, 'Chegirma 0–100% oralig‘ida bo‘lishi kerak.')
+                    return redirect('app_settings')
+            tier.name = name
+            tier.code = tier.kind
+            tier.discount_percent = pct
+            tier.save(update_fields=['name', 'code', 'discount_percent'])
+
+        app.vat_enabled = vat_enabled
+        app.vat_percent = vat_pct
+        app.pos_secret_code = secret_code
+        app.pos_secret_discount_percent = secret_pct
+        app.theme_mode = theme_mode
+        app.theme_day_start = day_start
+        app.theme_night_start = night_start
+        app.save()
+        messages.success(request, 'Sozlamalar saqlandi.')
+        return redirect('app_settings')
+
+    return render(request, 'accounts/app_settings.html', {
+        'app': app,
+        'tiers_list': tiers_list,
+        'theme_choices': AppSettings.THEME_MODE_CHOICES,
+        'system_kinds': PriceTier.SYSTEM_KINDS,
+    })
+
+
+def _normalize_customer_phone(phone):
+    phone = (phone or '').strip()
+    phone_digits = ''.join(ch for ch in phone if ch.isdigit())
+    if phone_digits.startswith('998'):
+        phone_digits = phone_digits[3:]
+    if len(phone_digits) < 9:
+        return None, phone_digits
+    if not phone.startswith('+'):
+        phone = '+998' + phone_digits
+    elif not phone.startswith('+998'):
+        phone = '+998' + phone_digits
+    return phone, phone_digits
+
+
+@login_required(login_url='login')
+@user_passes_test(is_app_manager, login_url='home')
+def customers_loyalty(request):
+    allowed_types = list(
+        PriceTier.objects.exclude(kind=PriceTier.KIND_REGULAR)
+        .filter(is_active=True)
+        .values_list('kind', flat=True)
+    )
+    if not allowed_types:
+        allowed_types = [Customer.TYPE_LOYAL, Customer.TYPE_PARTNER]
+    default_type = (
+        Customer.TYPE_LOYAL if Customer.TYPE_LOYAL in allowed_types else allowed_types[0]
+    )
+
+    if request.method == 'POST':
+        pk = request.POST.get('customer_id')
+        name = (request.POST.get('name') or '').strip()
+        phone, phone_digits = _normalize_customer_phone(request.POST.get('phone'))
+        cust_type = request.POST.get('customer_type') or default_type
+        if cust_type not in allowed_types:
+            cust_type = default_type
+        if not name or not phone:
+            messages.error(request, 'Ism va to‘liq telefon (+998…) majburiy.')
+            return redirect('customers_loyalty')
+        bonus_raw = (request.POST.get('bonus_discount_percent') or '').strip().replace(',', '.')
+        try:
+            bonus_pct = Decimal(bonus_raw) if bonus_raw != '' else Decimal('0.00')
+        except Exception:
+            messages.error(request, 'Shaxsiy aksiya foizi noto‘g‘ri.')
+            return redirect('customers_loyalty')
+        if bonus_pct < 0 or bonus_pct > 100:
+            messages.error(request, 'Shaxsiy aksiya 0–100% oralig‘ida bo‘lishi kerak.')
+            return redirect('customers_loyalty')
+
+        tier = PriceTier.objects.filter(kind=cust_type, is_active=True).first()
+        if pk:
+            customer = get_object_or_404(Customer, pk=pk)
+            customer.name = name
+            customer.phone = phone
+            customer.customer_type = cust_type
+            customer.price_tier = tier
+            customer.bonus_discount_percent = bonus_pct
+            customer.is_active = True
+            customer.save()
+            messages.success(request, f'Yangilandi: {customer.name}')
+        else:
+            existing = Customer.objects.filter(phone=phone).first()
+            if existing:
+                existing.name = name
+                existing.customer_type = cust_type
+                existing.price_tier = tier
+                existing.bonus_discount_percent = bonus_pct
+                existing.is_active = True
+                existing.save()
+                messages.success(request, f'Mavjud mijoz yangilandi: {existing.name}')
+            else:
+                customer = Customer.objects.create(
+                    name=name,
+                    phone=phone,
+                    customer_type=cust_type,
+                    price_tier=tier,
+                    bonus_discount_percent=bonus_pct,
+                )
+                messages.success(request, f'Qo‘shildi: {customer.name}')
+        return redirect('customers_loyalty')
+
+    type_filter = request.GET.get('type') or ''
+    q = (request.GET.get('q') or '').strip()
+    sort = request.GET.get('sort') or 'spend'
+
+    active_orders = Q(
+        order__is_active=True,
+        order__deleted_at__isnull=True,
+    ) & ~Q(order__order_status__in=['AwaitingApproval', 'Cancelled'])
+    qs = Customer.objects.filter(
+        is_active=True,
+        customer_type__in=allowed_types,
+    ).select_related('price_tier').annotate(
+        orders_count=Coalesce(Count('order', filter=active_orders), 0),
+        total_spent=Coalesce(Sum('order__total_amount', filter=active_orders), _ZERO_MONEY),
+        last_purchase=Max('order__order_date', filter=active_orders),
+    )
+    if type_filter in allowed_types:
+        qs = qs.filter(customer_type=type_filter)
+    if q:
+        qs = qs.filter(Q(name__icontains=q) | Q(phone__icontains=q))
+    if sort == 'orders':
+        qs = qs.order_by('-orders_count', '-total_spent', 'name')
+    elif sort == 'name':
+        qs = qs.order_by('name')
+    else:
+        qs = qs.order_by('-total_spent', '-orders_count', 'name')
+    page_obj = Paginator(qs, 20).get_page(request.GET.get('page'))
+    loyalty_type_choices = PriceTier.discount_type_choices()
+
+    ranking = list(
+        Customer.objects.filter(is_active=True, customer_type__in=allowed_types)
+        .annotate(
+            orders_count=Coalesce(Count('order', filter=active_orders), 0),
+            total_spent=Coalesce(Sum('order__total_amount', filter=active_orders), _ZERO_MONEY),
+        )
+        .filter(orders_count__gt=0)
+        .order_by('-total_spent')[:10]
+    )
+
+    return render(request, 'accounts/customers_loyalty.html', {
+        'page_obj': page_obj,
+        'type_filter': type_filter,
+        'q': q,
+        'sort': sort,
+        'type_choices': loyalty_type_choices,
+        'ranking': ranking,
+        'loyal_count': Customer.objects.filter(is_active=True, customer_type=Customer.TYPE_LOYAL).count(),
+        'partner_count': Customer.objects.filter(is_active=True, customer_type=Customer.TYPE_PARTNER).count(),
+        'loyalty_customers_count': Customer.objects.filter(
+            is_active=True, customer_type__in=allowed_types
+        ).count(),
+    })
+
+
+@login_required(login_url='login')
+@user_passes_test(is_app_manager, login_url='home')
+def customer_detail(request, pk):
+    customer = get_object_or_404(
+        Customer.objects.select_related('price_tier'),
+        pk=pk,
+    )
+    allowed_types = list(
+        PriceTier.objects.exclude(kind=PriceTier.KIND_REGULAR)
+        .filter(is_active=True)
+        .values_list('kind', flat=True)
+    )
+    if not allowed_types:
+        allowed_types = [Customer.TYPE_LOYAL, Customer.TYPE_PARTNER]
+
+    if request.method == 'POST':
+        action = (request.POST.get('action') or 'save').strip()
+        if action == 'apply_suggested':
+            stats = _customer_purchase_stats(customer)
+            suggested = _suggest_bonus_percent(
+                stats['total_spent'], stats['orders_count'], customer.bonus_discount_percent
+            )
+            if suggested is None:
+                messages.info(request, 'Hozircha yuqoriroq aksiya tavsiya qilinmaydi.')
+            else:
+                customer.bonus_discount_percent = suggested
+                customer.save(update_fields=['bonus_discount_percent'])
+                messages.success(request, f'Shaxsiy aksiya −{suggested}% qilib belgiladi.')
+            return redirect('customer_detail', pk=customer.pk)
+
+        name = (request.POST.get('name') or '').strip()
+        phone, _digits = _normalize_customer_phone(request.POST.get('phone'))
+        cust_type = request.POST.get('customer_type') or customer.customer_type
+        if cust_type not in allowed_types and cust_type != Customer.TYPE_REGULAR:
+            cust_type = customer.customer_type
+        notes = (request.POST.get('notes') or '').strip()
+        bonus_raw = (request.POST.get('bonus_discount_percent') or '').strip().replace(',', '.')
+        try:
+            bonus_pct = Decimal(bonus_raw) if bonus_raw != '' else Decimal('0.00')
+        except Exception:
+            messages.error(request, 'Shaxsiy aksiya foizi noto‘g‘ri.')
+            return redirect('customer_detail', pk=customer.pk)
+        if bonus_pct < 0 or bonus_pct > 100:
+            messages.error(request, 'Shaxsiy aksiya 0–100% oralig‘ida bo‘lishi kerak.')
+            return redirect('customer_detail', pk=customer.pk)
+        if not name or not phone:
+            messages.error(request, 'Ism va telefon majburiy.')
+            return redirect('customer_detail', pk=customer.pk)
+
+        tier = PriceTier.objects.filter(kind=cust_type, is_active=True).first()
+        customer.name = name
+        customer.phone = phone
+        customer.customer_type = cust_type
+        customer.price_tier = tier
+        customer.bonus_discount_percent = bonus_pct
+        customer.notes = notes
+        customer.is_active = True
+        customer.save()
+        messages.success(request, 'Mijoz ma’lumotlari saqlandi.')
+        return redirect('customer_detail', pk=customer.pk)
+
+    stats = _customer_purchase_stats(customer)
+    suggested = _suggest_bonus_percent(
+        stats['total_spent'], stats['orders_count'], customer.bonus_discount_percent
+    )
+    orders = (
+        _active_order_stats_qs()
+        .filter(customer=customer)
+        .select_related('branch', 'employee')
+        .prefetch_related('orderitem_set__product')
+        .order_by('-order_date')
+    )
+    page_obj = Paginator(orders, 15).get_page(request.GET.get('page'))
+    type_choices = [(Customer.TYPE_REGULAR, 'Oddiy mijoz')] + list(
+        PriceTier.discount_type_choices()
+    )
+
+    return render(request, 'accounts/customer_detail.html', {
+        'customer': customer,
+        'stats': stats,
+        'suggested_bonus': suggested,
+        'page_obj': page_obj,
+        'type_choices': type_choices,
+        'effective_discount': customer.get_discount_percent(),
+        'tier_discount': customer.get_tier_discount_percent(),
+    })

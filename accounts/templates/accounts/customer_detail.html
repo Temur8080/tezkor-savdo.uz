@@ -1,0 +1,171 @@
+{% extends 'accounts/main.html' %}
+{% load humanize money_tags %}
+
+{% block content %}
+<div class="space-y-6 pb-8">
+    <div class="flex flex-wrap items-center justify-between gap-3">
+        <div>
+            <a href="{% url 'customers_loyalty' %}" class="text-sm font-semibold text-blue-600 hover:underline">← Mijozlar bazasi</a>
+            <h1 class="text-xl font-bold text-gray-900 mt-1">{{ customer.name }}</h1>
+            <p class="text-sm text-gray-500">{{ customer.phone|default:"—" }} · {{ customer.get_customer_type_display }}</p>
+        </div>
+        <a href="{% url 'admin_reports' %}" class="text-sm font-semibold text-gray-600 hover:underline">Hisobotlar →</a>
+    </div>
+
+    {% if messages %}
+    <div class="space-y-2">
+        {% for message in messages %}
+        <div class="px-4 py-2 rounded-md text-sm {% if message.tags == 'error' %}bg-red-50 text-red-800{% elif message.tags == 'success' %}bg-emerald-50 text-emerald-800{% else %}bg-blue-50 text-blue-800{% endif %}">
+            {{ message }}
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <div class="bg-white border border-gray-200 rounded-lg p-4">
+            <p class="text-xs uppercase text-gray-500 font-semibold">Buyurtmalar</p>
+            <p class="text-2xl font-bold text-gray-900 mt-1 tabular-nums">{{ stats.orders_count }}</p>
+        </div>
+        <div class="bg-white border border-gray-200 rounded-lg p-4">
+            <p class="text-xs uppercase text-gray-500 font-semibold">Jami xarid</p>
+            <p class="text-2xl font-bold text-emerald-700 mt-1 tabular-nums">{{ stats.total_spent|money }}</p>
+        </div>
+        <div class="bg-white border border-gray-200 rounded-lg p-4">
+            <p class="text-xs uppercase text-gray-500 font-semibold">Berilgan chegirma</p>
+            <p class="text-2xl font-bold text-amber-700 mt-1 tabular-nums">{{ stats.total_discount|money }}</p>
+        </div>
+        <div class="bg-white border border-gray-200 rounded-lg p-4">
+            <p class="text-xs uppercase text-gray-500 font-semibold">Oxirgi xarid</p>
+            <p class="text-lg font-bold text-gray-900 mt-1">
+                {% if stats.last_purchase %}{{ stats.last_purchase|date:"d.m.Y H:i" }}{% else %}—{% endif %}
+            </p>
+        </div>
+    </div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <div class="lg:col-span-1 bg-white border border-gray-200 rounded-lg shadow-sm overflow-hidden">
+            <div class="p-4 bg-gray-50 border-b border-gray-200">
+                <h2 class="text-base font-bold text-gray-900">Profil va aksiya</h2>
+                <p class="text-xs text-gray-500 mt-0.5">
+                    Kassa chegirmasi: <span class="font-semibold text-emerald-700">−{{ effective_discount }}%</span>
+                    <span class="text-gray-400">(tur {{ tier_discount }}% · shaxsiy {{ customer.bonus_discount_percent }}%)</span>
+                </p>
+            </div>
+            <form method="post" class="p-4 space-y-3">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="save">
+                <div>
+                    <label class="block text-xs font-semibold text-gray-600 mb-1">Ism</label>
+                    <input name="name" value="{{ customer.name }}" required
+                           class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm">
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-gray-600 mb-1">Telefon</label>
+                    <input name="phone" value="{{ customer.phone }}" required
+                           class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm">
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-gray-600 mb-1">Turi</label>
+                    <select name="customer_type" class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm">
+                        {% for value, label in type_choices %}
+                        <option value="{{ value }}" {% if customer.customer_type == value %}selected{% endif %}>{{ label }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-gray-600 mb-1">Shaxsiy aksiya %</label>
+                    <input type="number" name="bonus_discount_percent" value="{{ customer.bonus_discount_percent }}"
+                           min="0" max="100" step="0.01"
+                           class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm">
+                    <p class="mt-1 text-xs text-gray-500">Tur foizidan katta bo‘lsa — kassada shu qo‘llanadi.</p>
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-gray-600 mb-1">Izoh</label>
+                    <input name="notes" value="{{ customer.notes }}" maxlength="255"
+                           class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm" placeholder="Masalan: VIP, doimiy…">
+                </div>
+                <button type="submit" class="w-full px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold rounded-md">
+                    Saqlash
+                </button>
+            </form>
+            {% if suggested_bonus %}
+            <form method="post" class="px-4 pb-4">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="apply_suggested">
+                <button type="submit"
+                        class="w-full px-4 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 text-sm font-semibold rounded-md">
+                    Tavsiya: −{{ suggested_bonus }}% aksiya berish
+                </button>
+            </form>
+            {% endif %}
+        </div>
+
+        <div class="lg:col-span-2 bg-white border border-gray-200 rounded-lg shadow-sm overflow-hidden">
+            <div class="p-4 bg-gray-50 border-b border-gray-200">
+                <h2 class="text-base font-bold text-gray-900">Xarid tarixi</h2>
+                <p class="text-xs text-gray-500 mt-0.5">Kassada telefon bilan bog‘langan barcha sotuvlar</p>
+                <p class="text-[11px] text-gray-400 mt-1 sm:hidden">Jadvalni yon tomonga surib ko‘ring →</p>
+            </div>
+            <div class="overflow-x-auto">
+                <table class="min-w-full text-sm">
+                    <thead class="bg-gray-50 text-xs uppercase text-gray-500">
+                        <tr>
+                            <th class="px-4 py-2 text-left">Sana</th>
+                            <th class="px-4 py-2 text-left">Mahsulotlar</th>
+                            <th class="px-4 py-2 text-right">Chegirma</th>
+                            <th class="px-4 py-2 text-right">Jami</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-gray-100">
+                        {% for order in page_obj %}
+                        <tr>
+                            <td class="px-4 py-3 whitespace-nowrap align-top">
+                                <div class="font-medium text-gray-900">{{ order.order_date|date:"d.m.Y H:i" }}</div>
+                                <div class="text-xs text-gray-500">{{ order.branch.name }} · {{ order.employee.user.get_full_name|default:order.employee.user.username }}</div>
+                            </td>
+                            <td class="px-4 py-3 align-top">
+                                <ul class="space-y-0.5 text-gray-700">
+                                    {% for item in order.orderitem_set.all %}
+                                    <li>
+                                        {{ item.product.product_name }}
+                                        <span class="text-gray-400">×{{ item.quantity }}</span>
+                                    </li>
+                                    {% empty %}
+                                    <li class="text-gray-400">—</li>
+                                    {% endfor %}
+                                </ul>
+                            </td>
+                            <td class="px-4 py-3 text-right align-top tabular-nums text-amber-700">
+                                {% if order.discount_percent %}−{{ order.discount_percent }}%{% else %}—{% endif %}
+                                {% if order.discount_amount %}
+                                <div class="text-xs">{{ order.discount_amount|money }}</div>
+                                {% endif %}
+                            </td>
+                            <td class="px-4 py-3 text-right align-top font-semibold tabular-nums">
+                                {{ order.total_amount|money }}
+                            </td>
+                        </tr>
+                        {% empty %}
+                        <tr>
+                            <td colspan="4" class="px-4 py-10 text-center text-gray-500">Hali xarid yo‘q</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% if page_obj.has_other_pages %}
+            <div class="p-4 flex justify-center gap-2 border-t border-gray-100">
+                {% if page_obj.has_previous %}
+                <a class="px-3 py-1 border rounded text-sm" href="?page={{ page_obj.previous_page_number }}">←</a>
+                {% endif %}
+                <span class="px-3 py-1 text-sm text-gray-600">{{ page_obj.number }} / {{ page_obj.paginator.num_pages }}</span>
+                {% if page_obj.has_next %}
+                <a class="px-3 py-1 border rounded text-sm" href="?page={{ page_obj.next_page_number }}">→</a>
+                {% endif %}
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}
