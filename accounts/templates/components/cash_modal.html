@@ -2,7 +2,7 @@
 
 <div id="cash-modal" class="hidden relative w-full max-w-4xl max-h-[100dvh] sm:max-h-[92vh]
             bg-white border border-gray-200 rounded-t-2xl sm:rounded-lg shadow-lg
-            overflow-hidden flex flex-col md:flex-row">
+            overflow-x-auto overflow-y-hidden flex flex-col md:flex-row">
 
     <button type="button" onclick="closeCheckoutModal()"
             class="absolute top-3 right-3 z-20 p-2.5 rounded-full text-gray-500 hover:text-gray-800 hover:bg-gray-100 transition bg-white/90 shadow-sm"
@@ -12,17 +12,13 @@
         </svg>
     </button>
 
-    <div class="w-full md:w-[58%] border-b md:border-b-0 md:border-r border-gray-200 overflow-y-auto overscroll-contain">
+    <div class="cash-modal-left w-full md:w-[58%] min-w-[280px] border-b md:border-b-0 md:border-r border-gray-200 overflow-y-auto overflow-x-auto overscroll-contain">
         <div class="p-4 bg-gray-50 border-b border-gray-200 pr-14">
             <h3 id="cash-modal-title" class="text-lg font-bold text-gray-900">Naqd to‘lov</h3>
             <p id="cash-modal-subtitle" class="text-sm text-gray-500 mt-0.5">Mijoz ma’lumotlari va qabul qilingan summa</p>
-            <p id="cash-quote-banner" class="hidden mt-2 text-xs font-semibold text-amber-800 bg-amber-50 border border-amber-200 rounded-md px-3 py-2">
-                Maslahatchi rejimi: sotuv yakunlanmaydi. Buyurtma menejerga «Tasdiqlash kutilmoqda» holatida yuboriladi.
-            </p>
         </div>
 
         <div class="p-4 space-y-4 pb-6">
-            {# Yashirin: sodiq/hamkor turi (telefon lookup to‘ldiradi) #}
             <input type="hidden" id="cash-cust-type" value="regular">
             <input type="hidden" id="cash-partner-id" value="">
 
@@ -35,7 +31,8 @@
                 </div>
                 <div>
                     <label class="block text-xs font-semibold text-gray-600 mb-1">Telefon</label>
-                    <input type="text" id="cash-cust-phone" name="phone" class="phone-uz w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-blue-500 focus:border-blue-500 outline-none"
+                    <input type="text" id="cash-cust-phone" name="phone"
+                           class="phone-uz w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-blue-500 focus:border-blue-500 outline-none"
                            placeholder="+998 XX XXX XX XX" autocomplete="tel" inputmode="tel" value="+998">
                     <p id="cash-cust-lookup-hint" class="mt-1 text-[11px] text-gray-400 hidden"></p>
                 </div>
@@ -51,9 +48,9 @@
                 <label class="block text-xs font-semibold text-gray-600 mb-1">To‘lov valyutasi</label>
                 <div class="flex gap-2">
                     <button type="button" id="cash-currency-uzs"
-                            class="flex-1 py-2 rounded-md text-sm font-semibold bg-blue-600 text-white">So‘m</button>
+                            class="flex-1 py-2 rounded-md text-sm font-semibold bg-blue-600 text-white touch-manipulation">So‘m</button>
                     <button type="button" id="cash-currency-usd"
-                            class="flex-1 py-2 rounded-md text-sm font-semibold bg-gray-100 text-gray-600">Dollar</button>
+                            class="flex-1 py-2 rounded-md text-sm font-semibold bg-gray-100 text-gray-600 touch-manipulation">Dollar</button>
                 </div>
             </div>
 
@@ -70,20 +67,20 @@
                     <span id="change-label" class="text-xs font-semibold text-gray-500 uppercase">Qaytim</span>
                     <span id="change-display" class="text-xl font-bold text-emerald-700">0 so‘m</span>
                 </div>
-            <p id="debt-hint" class="hidden mt-2 text-xs font-semibold text-amber-700">
-                Kam to‘lov — mijoz ismi va telefon to‘ldirilsa, farq qarzdorlar ro‘yxatiga yoziladi.
-            </p>
+                <p id="debt-hint" class="hidden mt-2 text-xs font-semibold text-amber-700">
+                    Kam to‘lov — mijoz ismi va telefon to‘ldirilsa, farq qarzdorlar ro‘yxatiga yoziladi.
+                </p>
             </div>
         </div>
     </div>
 
-    <div class="w-full md:w-[42%] flex flex-col bg-white min-h-0 shrink-0 md:min-h-0">
+    <div class="cash-modal-right w-full md:w-[42%] min-w-[260px] flex flex-col bg-white min-h-0 shrink-0">
         <div class="p-4 bg-gray-50 border-b border-gray-200">
             <h4 class="text-base font-bold text-gray-900">Mahsulotlar</h4>
             <p class="text-xs text-gray-500 mt-0.5">Tanlangan valyutadagi savat</p>
         </div>
 
-        <div id="cash-modal-image" class="flex-grow space-y-2 overflow-y-auto max-h-[28vh] md:max-h-[320px] p-4 overscroll-contain">
+        <div id="cash-modal-image" class="flex-grow space-y-2 overflow-y-auto overflow-x-auto max-h-[28vh] md:max-h-[320px] p-4 overscroll-contain">
         </div>
 
         <div class="p-4 border-t border-gray-200 bg-gray-50 mt-auto sticky bottom-0 pb-safe">

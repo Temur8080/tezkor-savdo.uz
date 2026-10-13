@@ -14,12 +14,6 @@
                 <img src="{% static 'images/tezkor-logo.jpg' %}" alt="{{ brand_name }}" class="mx-auto h-16 w-auto object-contain mb-3">
             {% endif %}
             <h1 class="text-2xl font-black text-gray-900 tracking-tight">{{ brand_name|upper }} CHEKI</h1>
-            {% if awaiting_approval %}
-            <p class="mt-3 inline-block px-3 py-1.5 text-sm font-black tracking-wide text-amber-900 bg-amber-100 border-2 border-amber-400 rounded">
-                TASDIQLASH KUTILMOQDA
-            </p>
-            <p class="text-xs text-amber-700 mt-1">Bu oldindan hisob-kitob. Sotuv menejer tasdiqlagach yakunlanadi.</p>
-            {% endif %}
             <p class="text-sm font-bold text-teal-800 mt-2">{{ organization_name|upper }}</p>
             <p class="text-sm text-gray-600 mt-1">Filial: {{ order.branch.name }}</p>
             {% if order.branch.address %}
@@ -43,9 +37,6 @@
             <div class="text-right">
                 <p><span class="font-bold">BUYURTMA:</span> {{ order.id }}</p>
                 <p><span class="font-bold">KASSIR:</span> {{ order.employee.user.username|upper }}</p>
-                {% if order.discount_percent and order.discount_percent > 0 %}
-                <p><span class="font-bold">CHEGIRMA:</span> −{{ order.discount_percent }}%</p>
-                {% endif %}
             </div>
         </div>
 
@@ -62,10 +53,12 @@
                 <tr>
                     <td class="py-3">
                         <p class="font-bold text-gray-800">{{ item.product.product_name }}</p>
-                        <p class="text-xs text-gray-500">@ {{ item.product.base_price|money:item.product.currency }}</p>
+                        <p class="text-xs text-gray-500">
+                            @ {% if item.list_unit_price %}{{ item.list_unit_price|money:order.currency }}{% else %}{{ item.product.base_price|money:item.product.currency }}{% endif %}
+                        </p>
                     </td>
                     <td class="text-center py-3">{{ item.quantity }}</td>
-                    <td class="text-right py-3 font-bold">{{ item.line_total|money:order.currency }}</td>
+                    <td class="text-right py-3 font-bold">{{ item.list_line_total|money:order.currency }}</td>
                 </tr>
                 {% endfor %}
             </tbody>
@@ -74,22 +67,25 @@
         <div class="space-y-2 border-t-2 border-gray-800 pt-4">
             <div class="flex justify-between text-sm">
                 <span>ORALIQ</span>
-                <span>{{ subtotal|money:order.currency }}</span>
+                <span>{{ list_total|money:order.currency }}</span>
             </div>
+            {% if discount_amount and discount_amount > 0 %}
+            <div class="flex justify-between text-sm text-emerald-800 font-bold">
+                <span>CHEGIRMA{% if discount_percent and discount_percent > 0 %} {{ discount_percent }}%{% endif %}</span>
+                <span>−{{ discount_amount|money:order.currency }}</span>
+            </div>
+            {% endif %}
+            {% if vat_amount and vat_amount > 0 %}
             <div class="flex justify-between text-sm">
                 <span>{{ vat_label|default:"QQS" }}</span>
                 <span>{{ vat_amount|money:order.currency }}</span>
             </div>
+            {% endif %}
             <div class="flex justify-between text-lg font-black">
-                <span>UMUMIY JAMI</span>
+                <span>UMUMIY</span>
                 <span>{{ grand_total|money:order.currency }}</span>
             </div>
-            {% if awaiting_approval %}
-            <div class="flex justify-between text-sm mt-2 text-amber-800 font-bold">
-                <span>TO‘LOV HOLATI</span>
-                <span>TASDIQLASH KUTILMOQDA</span>
-            </div>
-            {% else %}
+            {% if not awaiting_approval %}
             <div class="flex justify-between text-sm mt-2">
                 <span>TO‘LANGAN (NAQD)</span>
                 <span class="font-semibold">{{ cash_received|money:order.currency }}</span>
@@ -109,7 +105,7 @@
                 <span>QAYTIM</span>
                 <span>{{ change_given|money:order.currency }}</span>
             </div>
-            {% else %}
+            {% elif is_paid %}
             <div class="flex justify-between text-sm italic text-emerald-700">
                 <span>TO‘LOV HOLATI</span>
                 <span>TO‘LIQ TO‘LANGAN</span>

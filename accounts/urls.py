@@ -46,6 +46,7 @@ urlpatterns = [
     path('admin_reports/export/', views.admin_reports_export_csv, name='admin_reports_export_csv'),
     path('delete-order/<int:pk>/', views.delete_order, name='delete_order'),
     path('delete-product/<int:pk>/', views.delete_product, name='delete_product'),
+    path('restore-product/<int:pk>/', views.restore_product, name='restore_product'),
     path('warranty/<int:pk>/', views.warranty, name='warranty'),
     path('dashboard/', views.dashboard, name='dashboard'),
     path('warrnty_list/', views.warranty_list, name='warranty_list'),

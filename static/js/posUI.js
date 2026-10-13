@@ -25,12 +25,48 @@ function getCartCurrency() {
     return normalizeCurrency(cart[0].currency)
 }
 
+function parseStockLimit(value) {
+    if (value === null || value === undefined || value === '') return null
+    const n = parseInt(value, 10)
+    return isNaN(n) ? null : Math.max(0, n)
+}
+
+function stockLimitMessage(stock) {
+    if (stock <= 0) return 'Mahsulot omborda tugagan'
+    return `Omborda faqat ${stock} dona bor`
+}
+
+function syncCartStockFromGrid() {
+    if (!Array.isArray(cart) || !cart.length) return
+    const grid = document.getElementById('inventory-grid')
+    if (!grid) return
+    let changed = false
+    cart.forEach((item) => {
+        const card = grid.querySelector(`.product-card[data-id="${item.id}"]`)
+        if (!card) return
+        const stock = parseStockLimit(card.getAttribute('data-stock'))
+        if (stock === null) return
+        if (parseStockLimit(item.stock) !== stock) {
+            item.stock = stock
+            changed = true
+        }
+        const qty = parseInt(item.qty, 10) || 1
+        if (stock > 0 && qty > stock) {
+            item.qty = stock
+            changed = true
+        }
+    })
+    if (changed && typeof cartKey !== 'undefined') {
+        localStorage.setItem(cartKey, JSON.stringify(cart))
+    }
+}
+
 function selectProductFromCard(card) {
     if (!card || card.disabled) return
 
-    const stock = parseInt(card.getAttribute('data-stock'), 10) || 0
-    if (stock <= 0) {
-        alert('Mahsulot omborda tugagan')
+    const stock = parseStockLimit(card.getAttribute('data-stock'))
+    if (stock !== null && stock <= 0) {
+        alert(stockLimitMessage(stock))
         return
     }
 
@@ -55,6 +91,59 @@ function getCartTotalsByCurrency() {
     return totals
 }
 
+function syncMobileCartBar() {
+    const countEl = document.getElementById('pos-mobile-count')
+    const totalEl = document.getElementById('pos-mobile-total')
+    const payBtn = document.getElementById('pos-mobile-pay')
+    const count = (cart || []).reduce((n, item) => n + (parseInt(item.qty, 10) || 0), 0)
+    if (countEl) countEl.textContent = String(count)
+    if (payBtn) payBtn.disabled = count === 0
+
+    const totals = typeof getCartTotalsByCurrency === 'function'
+        ? getCartTotalsByCurrency()
+        : (currentTotalsByCurrency || { UZS: 0, USD: 0 })
+    const uzs = (totals.UZS || 0) + (typeof calcTax === 'function' ? calcTax(totals.UZS || 0) : 0)
+    const usd = (totals.USD || 0) + (typeof calcTax === 'function' ? calcTax(totals.USD || 0) : 0)
+    let label = '0'
+    if (uzs > 0 && usd > 0) label = `${formatMoney(uzs, 'UZS')} + ${formatMoney(usd, 'USD')}`
+    else if (usd > 0) label = formatMoney(usd, 'USD')
+    else label = formatMoney(uzs, 'UZS')
+    if (totalEl) totalEl.textContent = label
+}
+
+function setMobileCartOpen(open) {
+    const panel = document.getElementById('pos-cart-panel')
+    const backdrop = document.getElementById('pos-cart-backdrop')
+    if (!panel) return
+    const isMobile = window.matchMedia('(max-width: 1023px)').matches
+    if (!isMobile) {
+        panel.classList.remove('translate-y-[110%]', 'pos-cart-open')
+        if (backdrop) {
+            backdrop.classList.add('opacity-0', 'pointer-events-none')
+            backdrop.setAttribute('aria-hidden', 'true')
+        }
+        document.body.classList.remove('pos-cart-open')
+        return
+    }
+    if (open) {
+        panel.classList.remove('translate-y-[110%]')
+        panel.classList.add('pos-cart-open')
+        if (backdrop) {
+            backdrop.classList.remove('opacity-0', 'pointer-events-none')
+            backdrop.setAttribute('aria-hidden', 'false')
+        }
+        document.body.classList.add('pos-cart-open')
+    } else {
+        panel.classList.add('translate-y-[110%]')
+        panel.classList.remove('pos-cart-open')
+        if (backdrop) {
+            backdrop.classList.add('opacity-0', 'pointer-events-none')
+            backdrop.setAttribute('aria-hidden', 'true')
+        }
+        document.body.classList.remove('pos-cart-open')
+    }
+}
+
 function renderCart(){
     const cartContainer = document.getElementById('cart-items')
     const totalContainer = document.getElementById('total-container')
@@ -71,36 +160,45 @@ function renderCart(){
         if (totalContainer) totalContainer.innerHTML = ''
         currentGrandTotal = 0
         renderHeldOrders()
+        syncMobileCartBar()
         return;
     }
 
     cart.forEach(item => {
         item.currency = normalizeCurrency(item.currency)
-        const qty = Math.max(1, parseInt(item.qty, 10) || 1)
-        item.qty = qty
+        let qty = Math.max(1, parseInt(item.qty, 10) || 1)
+        const stock = parseStockLimit(item.stock)
+        if (stock !== null && qty > stock) {
+            qty = Math.max(1, stock)
+            item.qty = qty
+        } else {
+            item.qty = qty
+        }
+        const atStockLimit = stock !== null && qty >= stock
         let subTotal = item.price * qty
         const imgHtml = item.img
-            ? `<img src="${item.img}" class="h-11 w-11 object-cover rounded-md border border-sky-200 bg-white">`
-            : `<div class="h-11 w-11 rounded-md border border-sky-200 bg-white flex items-center justify-center text-xs text-sky-400 font-semibold">N/A</div>`
+            ? `<img src="${item.img}" class="h-12 w-12 object-cover rounded-md border border-sky-200 bg-white">`
+            : `<div class="h-12 w-12 rounded-md border border-sky-200 bg-white flex items-center justify-center text-xs text-sky-400 font-semibold">N/A</div>`
 
         cartContainer.innerHTML += `
-                    <div class="flex items-center gap-3 bg-white/90 p-2.5 rounded-md border border-sky-200 shadow-sm">
+                    <div class="flex items-center gap-3 bg-white/90 p-2.5 rounded-xl border border-sky-200 shadow-sm">
                         ${imgHtml}
                         <div class="flex-grow min-w-0">
                             <h4 class="font-semibold text-sm text-sky-950 truncate">${item.name}</h4>
-                            <p class="text-xs text-sky-700/70">${formatMoney(item.price, item.currency)} · ${item.currency === 'USD' ? 'USD' : 'UZS'}</p>
-                            <div class="flex items-center gap-1.5 mt-1.5">
+                            <p class="text-xs text-sky-700/70">${formatMoney(item.price, item.currency)} · ${item.currency === 'USD' ? 'USD' : 'UZS'}${stock !== null ? ` · max ${stock}` : ''}</p>
+                            <div class="flex items-center gap-2 mt-1.5">
                                 <button type="button" onclick="changeCartQty(${item.id}, -1)"
-                                        class="w-7 h-7 rounded-md border border-sky-200 bg-sky-50 text-sky-800 text-sm font-bold hover:bg-sky-100">-</button>
-                                <span class="min-w-[2rem] h-7 px-2 inline-flex items-center justify-center rounded-md border border-sky-200 text-sky-950 font-semibold text-sm bg-white select-none">${qty}</span>
+                                        class="w-10 h-10 rounded-lg border border-sky-200 bg-sky-50 text-sky-800 text-lg font-bold hover:bg-sky-100 touch-manipulation">-</button>
+                                <span class="min-w-[2.25rem] h-10 px-2 inline-flex items-center justify-center rounded-lg border border-sky-200 text-sky-950 font-semibold text-sm bg-white select-none">${qty}</span>
                                 <button type="button" onclick="changeCartQty(${item.id}, 1)"
-                                        class="w-7 h-7 rounded-md border border-sky-200 bg-sky-50 text-sky-800 text-sm font-bold hover:bg-sky-100">+</button>
+                                        class="w-10 h-10 rounded-lg border border-sky-200 bg-sky-50 text-sky-800 text-lg font-bold hover:bg-sky-100 touch-manipulation disabled:opacity-40 disabled:cursor-not-allowed"
+                                        ${atStockLimit ? 'disabled' : ''}>+</button>
                             </div>
                         </div>
                         <div class="self-stretch flex flex-col items-end justify-between shrink-0">
                             <p class="font-bold text-sm text-sky-900">${formatMoney(subTotal, item.currency)}</p>
                             <button type="button" onclick="removeFromCart(${item.id})"
-                                    class="w-7 h-7 inline-flex items-center justify-center rounded-md text-red-600 hover:text-red-700 hover:bg-red-50 transition-colors text-2xl font-black leading-none"
+                                    class="w-10 h-10 inline-flex items-center justify-center rounded-lg text-red-600 hover:text-red-700 hover:bg-red-50 transition-colors text-2xl font-black leading-none touch-manipulation"
                                     title="O‘chirish" aria-label="O‘chirish">
                                 &times;
                             </button>
@@ -161,6 +259,7 @@ function renderCart(){
     }
 
     renderHeldOrders()
+    syncMobileCartBar()
 }
 
 function addItemToCart(scannedItem) {
@@ -175,18 +274,53 @@ function addItemToCart(scannedItem) {
 
     const itemCurrency = normalizeCurrency(scannedItem.currency)
     const qtyToAdd = Math.max(1, parseInt(scannedItem.qty, 10) || 1)
-    const itemExist = cart.find(item => item.id === scannedItem.id);
+    const itemExist = cart.find(item => item.id === scannedItem.id)
+    const stock = parseStockLimit(
+        scannedItem.stock !== undefined && scannedItem.stock !== null
+            ? scannedItem.stock
+            : (itemExist ? itemExist.stock : null)
+    )
 
-    if (itemExist){
-        itemExist.qty = (parseInt(itemExist.qty, 10) || 0) + qtyToAdd
-        itemExist.currency = itemCurrency
+    if (stock !== null && stock <= 0) {
+        alert(stockLimitMessage(stock))
+        return
+    }
+
+    if (itemExist) {
+        const currentQty = parseInt(itemExist.qty, 10) || 0
+        if (stock !== null) itemExist.stock = stock
+        const limit = parseStockLimit(itemExist.stock)
+        if (limit !== null && currentQty + qtyToAdd > limit) {
+            if (currentQty >= limit) {
+                alert(stockLimitMessage(limit))
+                return
+            }
+            itemExist.qty = limit
+            itemExist.currency = itemCurrency
+            alert(stockLimitMessage(limit))
+        } else {
+            itemExist.qty = currentQty + qtyToAdd
+            itemExist.currency = itemCurrency
+        }
     } else {
-        cart.push({
-            ...scannedItem,
-            qty: qtyToAdd,
-            price: parseFloat(scannedItem.price),
-            currency: itemCurrency,
-        })
+        if (stock !== null && qtyToAdd > stock) {
+            alert(stockLimitMessage(stock))
+            cart.push({
+                ...scannedItem,
+                qty: stock,
+                price: parseFloat(scannedItem.price),
+                currency: itemCurrency,
+                stock: stock,
+            })
+        } else {
+            cart.push({
+                ...scannedItem,
+                qty: qtyToAdd,
+                price: parseFloat(scannedItem.price),
+                currency: itemCurrency,
+                stock: stock,
+            })
+        }
     }
 
     if (!cart.some((item) => normalizeCurrency(item.currency) === normalizeCurrency(checkoutCurrency))) {
@@ -257,35 +391,76 @@ function restoreHeldOrder(heldId) {
 }
 
 function deleteHeldOrder(heldId) {
+    const held = heldOrders.find((h) => String(h.id) === String(heldId))
+    const label = held ? held.label : 'buyurtma'
+    if (!confirm(`«${label}» zahirasini o‘chirasizmi?`)) return
+
     heldOrders = heldOrders.filter((h) => String(h.id) !== String(heldId))
     saveHeldOrders()
     renderHeldOrders()
 }
 
+function heldOrderTotals(held) {
+    const totals = { UZS: 0, USD: 0 }
+    ;(held.cart || []).forEach((item) => {
+        const cur = normalizeCurrency(item.currency)
+        const qty = parseInt(item.qty, 10) || 1
+        const price = parseFloat(item.price) || 0
+        totals[cur] += price * qty
+    })
+    return totals
+}
+
+function formatHeldTotal(totals) {
+    const parts = []
+    if (totals.UZS > 0) parts.push(Math.round(totals.UZS).toLocaleString('uz-UZ') + ' so‘m')
+    if (totals.USD > 0) parts.push('$' + totals.USD.toFixed(2))
+    return parts.join(' · ') || '0 so‘m'
+}
+
+function escapeHtml(text) {
+    return String(text || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+}
+
 function renderHeldOrders() {
     const panel = document.getElementById('held-orders-panel')
     const list = document.getElementById('held-orders-list')
+    const countEl = document.getElementById('held-orders-count')
     if (!panel || !list) return
 
     if (!heldOrders.length) {
         panel.classList.add('hidden')
         list.innerHTML = ''
+        if (countEl) countEl.textContent = ''
         return
     }
 
     panel.classList.remove('hidden')
+    if (countEl) countEl.textContent = String(heldOrders.length)
+
     list.innerHTML = heldOrders.map((held) => {
         const count = (held.cart || []).reduce((sum, item) => sum + (parseInt(item.qty, 10) || 1), 0)
-        const time = held.createdAt ? new Date(held.createdAt).toLocaleTimeString('uz-UZ', { hour: '2-digit', minute: '2-digit' }) : ''
+        const time = held.createdAt
+            ? new Date(held.createdAt).toLocaleTimeString('uz-UZ', { hour: '2-digit', minute: '2-digit' })
+            : ''
+        const totalLabel = formatHeldTotal(heldOrderTotals(held))
+        const names = (held.cart || []).slice(0, 2).map((i) => i.name).filter(Boolean).join(', ')
+        const more = (held.cart || []).length > 2 ? ` +${(held.cart || []).length - 2}` : ''
         return `
-            <div class="flex items-center gap-2 bg-white/80 border border-sky-300 rounded-md px-3 py-2">
+            <div class="flex items-center gap-2 bg-white/90 border border-sky-300 rounded-lg px-3 py-2.5 shadow-sm">
                 <button type="button" onclick="restoreHeldOrder(${held.id})"
-                        class="flex-grow text-left min-w-0">
-                    <p class="font-semibold text-sm text-sky-950 truncate">${held.label}</p>
-                    <p class="text-[10px] text-sky-700">${count} ta mahsulot · ${time}</p>
+                        class="flex-grow text-left min-w-0 touch-manipulation">
+                    <p class="font-semibold text-sm text-sky-950 truncate">${escapeHtml(held.label)}</p>
+                    <p class="text-[10px] text-sky-700 truncate">${count} dona · ${escapeHtml(totalLabel)}${time ? ' · ' + time : ''}</p>
+                    ${names ? `<p class="text-[10px] text-sky-600/80 truncate mt-0.5">${escapeHtml(names)}${more}</p>` : ''}
                 </button>
                 <button type="button" onclick="deleteHeldOrder(${held.id})"
-                        class="text-red-600 hover:text-red-700 font-black px-2" title="O‘chirish">&times;</button>
+                        class="shrink-0 inline-flex items-center justify-center w-8 h-8 rounded-md border border-red-200 text-red-600 bg-red-50 hover:bg-red-600 hover:text-white transition touch-manipulation"
+                        title="O‘chirish" aria-label="O‘chirish">&times;</button>
             </div>
         `
     }).join('')
@@ -301,6 +476,12 @@ function changeCartQty(id, delta) {
         return
     }
 
+    const stock = parseStockLimit(item.stock)
+    if (delta > 0 && stock !== null && next > stock) {
+        alert(stockLimitMessage(stock))
+        return
+    }
+
     item.qty = next
     localStorage.setItem(cartKey, JSON.stringify(cart))
     renderCart()
@@ -310,10 +491,16 @@ function setCartQty(id, value) {
     const item = cart.find(i => i.id === id)
     if (!item) return
 
-    const next = parseInt(value, 10)
+    let next = parseInt(value, 10)
     if (!next || next < 1) {
         removeFromCart(id)
         return
+    }
+
+    const stock = parseStockLimit(item.stock)
+    if (stock !== null && next > stock) {
+        next = stock
+        alert(stockLimitMessage(stock))
     }
 
     item.qty = next
@@ -579,6 +766,7 @@ function openCheckoutModal(type){
 
     modalContainer.classList.remove('hidden');
     cashModal.classList.remove('hidden');
+    document.body.classList.add('checkout-modal-open')
     if (cashModalImage) cashModalImage.innerHTML = cartRows
     syncCashCurrencyUI()
     refreshCheckoutTotalsUI()
@@ -586,6 +774,7 @@ function openCheckoutModal(type){
 
 function closeCheckoutModal(){
     document.getElementById('modal-container').classList.add('hidden');
+    document.body.classList.remove('checkout-modal-open')
 
     const cashRecieved = document.getElementById("cash-received");
     if (cashRecieved) {

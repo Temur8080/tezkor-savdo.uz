@@ -618,11 +618,17 @@ class Order(models.Model):
         return open_debts[0] if open_debts else debts[0]
 
     def payment_summary_label(self):
+        if self.order_status == 'AwaitingApproval':
+            return 'To‘lov yo‘q (kutilmoqda)'
+        if self.order_status == 'Cancelled':
+            return 'Bekor qilingan'
         debt = self.get_primary_debt()
         if debt and debt.remaining_balance > 0:
             return 'Naqd + Qarz'
         if debt:
             return 'Naqd (qarz yopilgan)'
+        if not self.payment_set.exists():
+            return 'To‘lov yo‘q'
         return self.get_payment_method_display()
 
 class OrderItem(models.Model):
@@ -647,6 +653,11 @@ class OrderItem(models.Model):
     @property
     def line_total(self):
         return self.quantity * self.unit_price
+
+    @property
+    def list_line_total(self):
+        price = self.list_unit_price if self.list_unit_price is not None else self.unit_price
+        return self.quantity * price
 
     def effective_warranty_days(self):
         if self.warranty_days:

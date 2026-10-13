@@ -442,8 +442,12 @@ body.nav-menu-open {
   touch-action: manipulation;
 }
 
-.overflow-x-auto {
+.overflow-x-auto,
+.table-scroll {
+  overflow-x: auto;
   -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
+  max-width: 100%;
 }
 
 input, select, textarea, button {
@@ -509,29 +513,98 @@ input, select, textarea, button {
     padding-bottom: max(1rem, env(safe-area-inset-bottom));
   }
 
-  /* Tables: hint that they scroll */
-  .overflow-x-auto {
+  /* Tables: horizontal scroll on mobile */
+  .overflow-x-auto,
+  .table-scroll {
     position: relative;
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-x: contain;
+    touch-action: pan-x pan-y;
+    max-width: 100%;
   }
 
-  .overflow-x-auto table {
+  .overflow-x-auto table,
+  .table-scroll table,
+  .page-main table {
     min-width: 640px;
+  }
+
+  /* Cards that wrap bare tables: allow swipe-right */
+  .page-main > .overflow-hidden,
+  .page-main > .bg-white.overflow-hidden,
+  .page-main .rounded-lg.overflow-hidden:has(> table),
+  .page-main .rounded-lg.overflow-hidden:has(> form + table),
+  .page-main .rounded-lg.overflow-hidden:has(> div + table) {
+    overflow-x: auto !important;
+    overflow-y: visible;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-x: contain;
+    touch-action: pan-x pan-y;
   }
 
   .page-main {
     max-width: 100vw;
-    overflow-x: clip;
+    overflow-x: hidden;
   }
 }
 
 @media (max-width: 480px) {
   #inventory-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
     gap: 0.5rem !important;
     padding: 0.5rem !important;
   }
+}
 
-  #inventory-grid .product-card {
-    padding: 0.5rem !important;
+body.checkout-modal-open {
+  overflow: hidden;
+}
+
+#modal-container:not(.hidden) {
+  z-index: 200 !important;
+}
+
+#cash-modal {
+  max-width: 56rem;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
+  touch-action: pan-x pan-y;
+}
+
+@media (max-width: 767px) {
+  #cash-modal {
+    flex-direction: row;
+    flex-wrap: nowrap;
+    width: max-content;
+    max-width: none;
+    min-width: 100%;
+  }
+
+  #cash-modal .cash-modal-left,
+  #cash-modal .cash-modal-right {
+    width: min(92vw, 22rem);
+    max-height: 88dvh;
+  }
+
+  #cash-modal .cash-modal-right {
+    border-left: 1px solid #e5e7eb;
+  }
+}
+
+/* Classic POS: allow horizontal swipe on narrow screens */
+.pos-shell {
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
+  touch-action: pan-x pan-y;
+}
+
+@media (max-width: 1023px) {
+  .pos-shell {
+    flex-wrap: nowrap;
+  }
+
+  .pos-shell .pos-products,
+  .pos-shell .pos-cart-wrap {
+    min-width: min(100%, 320px);
   }
 }

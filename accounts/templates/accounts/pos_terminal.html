@@ -3,18 +3,18 @@
 
 {% block content %}
 {% csrf_token %}
-<div class="pos-shell h-[calc(100dvh-5.5rem)] sm:h-[calc(100vh-110px)] flex flex-col lg:flex-row gap-3 sm:gap-4 overflow-hidden min-h-0 pb-safe">
-    <div class="flex-1 min-h-[180px] lg:min-h-0 min-w-0 overflow-hidden order-2 lg:order-1">
+<div class="pos-shell h-[calc(100dvh-5.5rem)] sm:h-[calc(100vh-110px)] flex flex-col lg:flex-row gap-3 sm:gap-4 min-h-0 pb-safe overflow-x-auto overflow-y-hidden">
+    <div class="pos-products flex-1 min-h-[180px] lg:min-h-0 min-w-0 lg:min-w-[320px] overflow-hidden order-2 lg:order-1">
         {% include 'components/pos_product_list.html' %}
     </div>
-    <div class="h-[46%] max-h-[480px] lg:h-full lg:max-h-none min-h-[240px] lg:min-h-0 shrink-0 order-1 lg:order-2 w-full lg:w-[400px]">
+    <div class="pos-cart-wrap h-[46%] max-h-[480px] lg:h-full lg:max-h-none min-h-[240px] lg:min-h-0 shrink-0 order-1 lg:order-2 w-full min-w-[280px] lg:w-[400px] overflow-hidden">
         {% include 'components/cart.html' %}
     </div>
 </div>
 
-<div id="modal-container" class="fixed inset-0 z-[100] hidden
+<div id="modal-container" class="fixed inset-0 z-[200] hidden
             bg-gray-900/45 backdrop-blur-sm
-            flex items-end sm:items-center justify-center p-0 sm:p-4 overflow-y-auto">
+            flex items-end sm:items-center justify-center p-0 sm:p-4 overflow-x-auto overflow-y-auto">
     {% include 'components/cash_modal.html' %}
 </div>
 
@@ -37,8 +37,8 @@
     const SECRET_DISCOUNT_PERCENT = parseFloat("{{ secret_discount_percent|default:'0' }}") || 0;
 </script>
 
-<script src="{% static 'js/moneyFormat.js' %}?v=40"></script>
-<script src="{% static 'js/posScanner.js' %}?v=40"></script>
-<script src="{% static 'js/posUI.js' %}?v=40"></script>
-<script src="{% static 'js/posInit.js' %}?v=40"></script>
+<script src="{% static 'js/moneyFormat.js' %}?v=46"></script>
+<script src="{% static 'js/posScanner.js' %}?v=46"></script>
+<script src="{% static 'js/posUI.js' %}?v=46"></script>
+<script src="{% static 'js/posInit.js' %}?v=46"></script>
 {% endblock %}

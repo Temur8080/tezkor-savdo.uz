@@ -62,6 +62,8 @@
         </div>
     </form>
 
+    <p class="px-4 py-2 text-[11px] text-gray-400 sm:hidden border-b border-gray-100">Jadvalni yon tomonga surib ko‘ring →</p>
+    <div class="table-scroll overflow-x-auto">
     <table class="w-full text-sm text-left text-gray-500">
         <thead class="text-xs text-gray-700 uppercase bg-gray-100 text-center">
             <tr>
@@ -104,9 +106,13 @@
                 <td class="px-6 py-4">{{ i.product.base_price|money:i.product.currency }}</td>
                 <td class="px-6 py-4">{{ i.line_total|money:i.order.currency }}</td>
                 <td class="px-6 py-4 font-semibold text-emerald-700">
+                    {% if i.order.order_status == 'AwaitingApproval' %}
+                        <span class="text-amber-700 text-xs font-bold">—</span>
+                    {% else %}
                     {% with paid=i.order.get_cash_received %}
                         {% if paid != None %}{{ paid|money:i.order.currency }}{% else %}—{% endif %}
                     {% endwith %}
+                    {% endif %}
                 </td>
                 <td class="px-6 py-4">
                     {% with debt=i.order.get_primary_debt %}
@@ -166,6 +172,7 @@
             {% endfor %}
         </tbody>
     </table>
+    </div>
 </div>
 
 <div class="flex items-center justify-between p-4 bg-white border-t border-gray-200">

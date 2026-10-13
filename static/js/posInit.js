@@ -6,16 +6,14 @@ function initPosTerminal() {
         if (title) title.textContent = 'Buyurtma (tasdiqlashga)'
         const sub = document.getElementById('cash-modal-subtitle')
         if (sub) sub.textContent = 'Mijoz ma’lumotlari va hisob-kitob'
-        const banner = document.getElementById('cash-quote-banner')
-        if (banner) banner.classList.remove('hidden')
         const payBlock = document.getElementById('cash-pay-block')
         if (payBlock) payBlock.classList.add('hidden')
         const placeLbl = document.getElementById('place-order-btn-label')
         if (placeLbl) placeLbl.textContent = 'Tasdiqlashga yuborish'
         const placeBtn = document.getElementById('place-order-btn')
         if (placeBtn) {
-            placeBtn.classList.remove('bg-blue-600', 'hover:bg-blue-700')
-            placeBtn.classList.add('bg-amber-600', 'hover:bg-amber-700')
+            placeBtn.classList.remove('bg-blue-600', 'hover:bg-blue-700', 'active:bg-blue-800')
+            placeBtn.classList.add('bg-amber-600', 'hover:bg-amber-700', 'active:bg-amber-800')
         }
     }
 
@@ -35,9 +33,7 @@ function initPosTerminal() {
     if (checkoutBtn && !checkoutBtn.dataset.posBound) {
         checkoutBtn.dataset.posBound = '1'
         checkoutBtn.addEventListener('click', () => {
-            if (cart.length === 0) {
-                return
-            }
+            if (cart.length === 0) return
             openCheckoutModal('CASH')
         })
     }
@@ -48,6 +44,7 @@ function initPosTerminal() {
         holdBtn.addEventListener('click', () => holdCurrentOrder())
     }
 
+    if (typeof syncCartStockFromGrid === 'function') syncCartStockFromGrid()
     renderCart()
     renderHeldOrders()
     consumePendingTerminalScan()

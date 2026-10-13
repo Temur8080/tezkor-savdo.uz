@@ -25,7 +25,7 @@ from .money import (
 from .filters import InventoryFilter, salesFilter
 from django.core.paginator import Paginator
 from django.views.generic.edit import UpdateView, CreateView
-from django.urls import reverse_lazy
+from django.urls import reverse, reverse_lazy
 from .forms import EmployeeForm, EmployeeAdminForm, InventoryEditForm
 from django.views.generic import ListView
 from django.contrib.messages.views import SuccessMessageMixin
@@ -120,6 +120,8 @@ def _checkout_discount_percent(customer, secret_code):
 
 @login_required(login_url='login')
 def inventory_update(request, pk):
+    if is_consultant(request.user):
+        return redirect('pos_terminal')
 
     inventory = get_object_or_404(
         BranchInventory.objects.select_related('product', 'product__supplier', 'branch'),
@@ -708,19 +710,34 @@ def emp_receipt(request, pk):
         except Exception:
             org_logo = None
 
+    awaiting_approval = order.order_status == 'AwaitingApproval'
     cash_received = order.get_cash_received()
-    if cash_received is None:
+    if cash_received is None and not awaiting_approval and order.order_status == 'Completed':
         cash_received = grand_total
+    if cash_received is None:
+        cash_received = Decimal('0.00')
     change_given = order.get_change_given()
     debt = order.get_primary_debt()
     debt_remaining = debt.remaining_balance if debt else Decimal('0.00')
     debt_original = debt.original_amount if debt else Decimal('0.00')
     has_debt = bool(debt and debt_remaining > 0)
+    is_paid = (not awaiting_approval) and order.payment_set.exists() and not has_debt
+
+    list_total = order.list_total or Decimal('0.00')
+    if list_total <= 0:
+        list_total = subtotal
+    discount_amount = order.discount_amount or Decimal('0.00')
+    if discount_amount <= 0 and list_total > subtotal:
+        discount_amount = (list_total - subtotal).quantize(Decimal('0.01'))
+    discount_percent = order.discount_percent or Decimal('0.00')
 
     context = {
         'order': order,
         'invoice': invoice,
         'subtotal': subtotal,
+        'list_total': list_total,
+        'discount_amount': discount_amount,
+        'discount_percent': discount_percent,
         'vat_amount': vat_amount,
         'vat_label': vat_label,
         'grand_total': grand_total,
@@ -730,6 +747,8 @@ def emp_receipt(request, pk):
         'debt_remaining': debt_remaining,
         'debt_original': debt_original,
         'has_debt': has_debt,
+        'is_paid': is_paid,
+        'awaiting_approval': awaiting_approval,
         'organization_name': order.branch.organization_name if order.branch_id else org.name,
         'brand_name': org.brand_name if org else settings.COMPANY_BRAND,
         'org_logo': org_logo,
@@ -919,48 +938,69 @@ def export_sales_csv(request):
 
 @login_required(login_url='login')
 def delete_product(request, pk):
-    product = get_object_or_404(Product, pk=pk)
+    if not _is_inventory_manager(request.user):
+        raise PermissionDenied('Mahsulotni o‘chirish uchun Manager huquqi kerak')
 
+    product = get_object_or_404(Product, pk=pk, is_active=True)
     product.soft_delete()
-
-    messages.success(request, f"{product.product_name} butunlay arxivlandi.")
+    messages.success(request, f"«{product.product_name}» o‘chirildi (arxivlandi).")
     return redirect('branch_inventory')
+
+
+@login_required(login_url='login')
+def restore_product(request, pk):
+    if not _is_inventory_manager(request.user):
+        raise PermissionDenied('Mahsulotni tiklash uchun Manager huquqi kerak')
+
+    product = get_object_or_404(Product, pk=pk, is_active=False)
+    product.is_active = True
+    product.deleted_at = None
+    product.save(update_fields=['is_active', 'deleted_at'])
+    messages.success(request, f"«{product.product_name}» qayta faollashtirildi.")
+    return redirect(f"{reverse('branch_inventory')}?archived=1")
+
 
 @login_required(login_url='login')
 def branchInventory(request):
+    if is_consultant(request.user):
+        return redirect('pos_terminal')
     is_manager = request.user.is_superuser or hasattr(request.user, 'employee') and request.user.employee.role == 'Manager'
+    show_archived = request.GET.get('archived') == '1' and is_manager
 
     if is_manager:
-        items = BranchInventory.objects.filter(product__is_active=True).select_related('branch', 'product')
+        items = BranchInventory.objects.filter(
+            product__is_active=(not show_archived),
+        ).select_related('branch', 'product', 'product__supplier')
         assigned_branch = 'Barcha filiallar'
     else:
         try:
             login_employee = Employee.objects.get(user=request.user)
             assigned_branch = login_employee.branch
-
-            items = BranchInventory.objects.filter(branch=assigned_branch, product__is_active=True).select_related('product', 'product__supplier')
-
+            items = BranchInventory.objects.filter(
+                branch=assigned_branch,
+                product__is_active=True,
+            ).select_related('product', 'product__supplier')
         except Employee.DoesNotExist:
             items = BranchInventory.objects.none()
             assigned_branch = 'Tayinlanmagan'
 
     myFilter = InventoryFilter(request.GET, queryset=items)
     filtered_items = myFilter.qs
-
     paginator = Paginator(filtered_items, 8)
-
-    page_number = request.GET.get('page')
-    page_obj = paginator.get_page(page_number)
+    page_obj = paginator.get_page(request.GET.get('page'))
 
     return render(request, 'accounts/branch_inventory.html', {
         'myFilter': myFilter,
-        'items':page_obj,
-        'assigned_branch':assigned_branch,
-        'is_manager':is_manager,}
-        )
+        'items': page_obj,
+        'assigned_branch': assigned_branch,
+        'is_manager': is_manager,
+        'show_archived': show_archived,
+    })
 
 @login_required(login_url='login')
 def export_branch_inventory_csv(request):
+    if is_consultant(request.user):
+        return redirect('pos_terminal')
     is_manager = request.user.is_superuser or hasattr(request.user, 'employee') and request.user.employee.role == 'Manager'
 
     if is_manager:
@@ -1175,7 +1215,10 @@ def posTerminal(request):
         )
         logout(request)
         return redirect('login')
-    branch_products = BranchInventory.objects.filter(branch=employee.branch).select_related('product')
+    branch_products = BranchInventory.objects.filter(
+        branch=employee.branch,
+        product__is_active=True,
+    ).select_related('product')
 
     query = request.GET.get('q')
     if query:
@@ -1243,7 +1286,8 @@ def scanProduct(request):
 
     inventory_item = BranchInventory.objects.filter(
         product__barcode__iexact=barcode,
-        branch=employee.branch
+        product__is_active=True,
+        branch=employee.branch,
     ).select_related('product').first()
 
     if not inventory_item:
@@ -1308,11 +1352,6 @@ def _is_inventory_manager(user):
     )
 
 def _resolve_intake_branch(request, branch_id=None):
-\
-\
-\
-\
-
     is_manager = _is_inventory_manager(request.user)
     employee_branch = None
     if hasattr(request.user, 'employee') and request.user.employee.branch_id:
@@ -1377,6 +1416,8 @@ def _product_payload(product, branch):
 
 @login_required(login_url='login')
 def inventory_intake(request):
+    if is_consultant(request.user):
+        return redirect('pos_terminal')
     is_manager = _is_inventory_manager(request.user)
     branch = _resolve_intake_branch(request)
     branches = Branch.objects.filter(is_active=True).order_by('name') if is_manager else Branch.objects.none()
@@ -1400,6 +1441,8 @@ def inventory_intake(request):
 
 @login_required(login_url='login')
 def inventory_lookup(request):
+    if is_consultant(request.user):
+        return JsonResponse({'error': 'Ruxsat yo‘q'}, status=403)
     barcode = (request.GET.get('barcode') or '').strip()
     branch_id = request.GET.get('branch_id')
 
@@ -1425,6 +1468,8 @@ def inventory_lookup(request):
 @login_required(login_url='login')
 @transaction.atomic
 def inventory_stock_in(request):
+    if is_consultant(request.user):
+        return JsonResponse({'error': 'Ruxsat yo‘q'}, status=403)
     if request.method != 'POST':
         return JsonResponse({'error': 'Noto‘g‘ri so‘rov'}, status=405)
 
@@ -1503,6 +1548,8 @@ def inventory_stock_in(request):
 @login_required(login_url='login')
 @transaction.atomic
 def inventory_product_save(request):
+    if is_consultant(request.user):
+        return JsonResponse({'error': 'Ruxsat yo‘q'}, status=403)
 
     if request.method != 'POST':
         return JsonResponse({'error': 'Noto‘g‘ri so‘rov'}, status=405)
@@ -1673,6 +1720,8 @@ def inventory_product_save(request):
 
 @login_required(login_url='login')
 def inventory_add_category(request):
+    if is_consultant(request.user):
+        return JsonResponse({'error': 'Ruxsat yo‘q'}, status=403)
     if request.method != 'POST':
         return JsonResponse({'error': 'Noto‘g‘ri so‘rov'}, status=405)
 
@@ -1708,6 +1757,8 @@ def inventory_add_category(request):
 
 @login_required(login_url='login')
 def inventory_save_rate(request):
+    if is_consultant(request.user):
+        return JsonResponse({'error': 'Ruxsat yo‘q'}, status=403)
     if request.method != 'POST':
         return JsonResponse({'error': 'Noto‘g‘ri so‘rov'}, status=405)
 
@@ -1879,7 +1930,9 @@ def checkout_cash(request):
                         raise ValueError(f"{product.product_name} mahsuloti ushbu filialda ro‘yxatdan o‘tmagan.")
 
                     if inventory.quantity < qty:
-                        raise ValueError("Tugagan")
+                        raise ValueError(
+                            f"{product.product_name}: omborda yetarli emas (qoldiq {inventory.quantity})"
+                        )
 
                     inventory.quantity -= qty
                     inventory.save()
@@ -2676,6 +2729,8 @@ def audit_logs_export_csv(request):
 
 @login_required(login_url='login')
 def debtors_list(request):
+    if is_consultant(request.user):
+        return redirect('pos_terminal')
     is_manager = request.user.is_superuser or (
         hasattr(request.user, 'employee') and request.user.employee.role == 'Manager'
     )
@@ -2727,6 +2782,8 @@ def debtors_list(request):
 @login_required(login_url='login')
 @transaction.atomic
 def debt_pay(request, pk):
+    if is_consultant(request.user):
+        return redirect('pos_terminal')
     if request.method != 'POST':
         return redirect('debtors_list')
 
@@ -2765,6 +2822,8 @@ def debt_pay(request, pk):
 
 @login_required(login_url='login')
 def debtors_export_csv(request):
+    if is_consultant(request.user):
+        return redirect('pos_terminal')
     is_manager = request.user.is_superuser or (
         hasattr(request.user, 'employee') and request.user.employee.role == 'Manager'
     )
