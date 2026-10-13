@@ -15,7 +15,7 @@
         <table style="width: 100%; font-size: 12px; margin-bottom: 20px;">
             <tr>
                 <td><strong>SANA:</strong> {{ order.order_date|date:"d.m.Y H:i" }}<br><strong>MIJOZ:</strong> {{ order.customer.name|upper|default:"NOMA'LUM MIJOZ" }}</td>
-                <td style="text-align: right;"><strong>BUYURTMA:</strong> {{ order.id }}<br><strong>KASSIR:</strong> {{ order.employee.user.username|upper }}</td>
+                <td style="text-align: right;"><strong>BUYURTMA:</strong> {{ order.id }}<br><strong>KASSIR:</strong> {{ order.employee.name|default:order.employee.user.get_full_name|default:order.employee.user.username|upper }}</td>
             </tr>
         </table>
 

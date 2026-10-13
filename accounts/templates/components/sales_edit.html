@@ -85,7 +85,7 @@
                     </div>
                     <div class="text-right">
                         <p><span class="font-bold">BUYURTMA:</span> {{ object.id }}</p>
-                        <p><span class="font-bold">KASSIR:</span> {{ object.employee.user.username|upper }}</p>
+                        <p><span class="font-bold">KASSIR:</span> {{ object.employee.name|default:object.employee.user.get_full_name|default:object.employee.user.username|upper }}</p>
                     </div>
                 </div>
 

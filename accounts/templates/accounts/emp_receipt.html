@@ -36,7 +36,7 @@
             </div>
             <div class="text-right">
                 <p><span class="font-bold">BUYURTMA:</span> {{ order.id }}</p>
-                <p><span class="font-bold">KASSIR:</span> {{ order.employee.user.username|upper }}</p>
+                <p><span class="font-bold">KASSIR:</span> {{ order.employee.name|default:order.employee.user.get_full_name|default:order.employee.user.username|upper }}</p>
             </div>
         </div>
 
