@@ -44,9 +44,16 @@ function initPosTerminal() {
         holdBtn.addEventListener('click', () => holdCurrentOrder())
     }
 
+    const reserveBtn = document.getElementById('reserve-order-btn')
+    if (reserveBtn && !reserveBtn.dataset.posBound) {
+        reserveBtn.dataset.posBound = '1'
+        reserveBtn.addEventListener('click', () => reserveCurrentOrder())
+    }
+
     if (typeof syncCartStockFromGrid === 'function') syncCartStockFromGrid()
     renderCart()
     renderHeldOrders()
+    if (typeof loadReservedOrders === 'function') loadReservedOrders()
     consumePendingTerminalScan()
 
     const cashInput = document.getElementById('cash-received-input')

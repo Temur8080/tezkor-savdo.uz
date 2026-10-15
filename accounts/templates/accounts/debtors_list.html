@@ -79,6 +79,7 @@
                     <th class="px-4 py-3">Holat</th>
                     <th class="px-4 py-3">Sana</th>
                     <th class="px-4 py-3">To‘lov</th>
+                    <th class="px-4 py-3">Amallar</th>
                 </tr>
             </thead>
             <tbody class="divide-y divide-gray-200">
@@ -123,10 +124,26 @@
                         <span class="text-xs text-gray-400">—</span>
                         {% endif %}
                     </td>
+                    <td class="px-4 py-3">
+                        <div class="inline-flex flex-wrap items-center justify-center gap-1.5">
+                            <a href="{% url 'debt_edit' debt.id %}"
+                               class="px-2.5 py-1.5 text-xs font-semibold rounded-md border border-blue-600 text-blue-600 hover:bg-blue-600 hover:text-white transition">
+                                Tahrirlash
+                            </a>
+                            <form method="post" action="{% url 'debt_delete' debt.id %}" class="inline">
+                                {% csrf_token %}
+                                <button type="submit"
+                                        onclick="return confirm('{{ debt.customer.name|escapejs }} qarzi o‘chirilsinmi?')"
+                                        class="px-2.5 py-1.5 text-xs font-semibold rounded-md border border-red-600 text-red-600 hover:bg-red-600 hover:text-white transition">
+                                    O‘chirish
+                                </button>
+                            </form>
+                        </div>
+                    </td>
                 </tr>
                 {% empty %}
                 <tr>
-                    <td colspan="9" class="px-4 py-10 text-center text-gray-500">Qarzdorlar topilmadi</td>
+                    <td colspan="10" class="px-4 py-10 text-center text-gray-500">Qarzdorlar topilmadi</td>
                 </tr>
                 {% endfor %}
             </tbody>

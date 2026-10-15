@@ -407,6 +407,140 @@ function holdCurrentOrder() {
     renderHeldOrders()
 }
 
+async function reserveCurrentOrder() {
+    if (!cart.length) {
+        alert('Bronlash uchun savatda mahsulot bo‘lishi kerak')
+        return
+    }
+    const name = prompt('Mijoz nomi (majburiy):', '')
+    if (name === null) return
+    const customerName = (name || '').trim()
+    if (!customerName) {
+        alert('Bronlash uchun mijoz nomi majburiy')
+        return
+    }
+    const phone = (prompt('Telefon (ixtiyoriy):', '') || '').trim()
+    const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]')?.value
+    if (!csrfToken) {
+        alert('CSRF token topilmadi — sahifani yangilang')
+        return
+    }
+    const btn = document.getElementById('reserve-order-btn')
+    if (btn) btn.disabled = true
+    try {
+        const response = await fetch('/checkout/reserve/', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+            body: JSON.stringify({
+                cart: cart.map((item) => ({
+                    id: item.id,
+                    qty: item.qty,
+                    price: item.price,
+                    currency: normalizeCurrency(item.currency),
+                    name: item.name,
+                })),
+                customerName,
+                phone,
+                currency: getCartCurrency(),
+            }),
+        })
+        const data = await response.json().catch(() => ({}))
+        if (!response.ok || !data.success) {
+            alert(data.message || 'Bronlash muvaffaqiyatsiz')
+            return
+        }
+        cart.length = 0
+        localStorage.removeItem(cartKey)
+        checkoutCurrency = 'UZS'
+        renderCart()
+        await loadReservedOrders()
+        alert(data.message || 'Mahsulotlar bronlandi')
+    } catch (err) {
+        alert('Bronlashda xatolik: ' + (err.message || err))
+    } finally {
+        if (btn) btn.disabled = false
+    }
+}
+
+async function loadReservedOrders() {
+    const panel = document.getElementById('reserved-orders-panel')
+    if (!panel) return
+    try {
+        const response = await fetch('/api/reservations/active/')
+        const data = await response.json().catch(() => ({}))
+        window._activeReservations = Array.isArray(data.reservations) ? data.reservations : []
+        renderReservedOrders()
+    } catch (err) {
+        window._activeReservations = []
+        renderReservedOrders()
+    }
+}
+
+async function cancelReservation(reservationId) {
+    if (!confirm('Bron bekor qilinsinmi? Ombordagi ushlab turilgan qoldiq qaytariladi.')) return
+    const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]')?.value
+    try {
+        const response = await fetch(`/reservations/${reservationId}/cancel/`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+        })
+        const data = await response.json().catch(() => ({}))
+        if (!response.ok || !data.success) {
+            alert(data.message || 'Bron bekor qilinmadi')
+            return
+        }
+        await loadReservedOrders()
+        if (typeof syncCartStockFromGrid === 'function') syncCartStockFromGrid()
+    } catch (err) {
+        alert('Xatolik: ' + (err.message || err))
+    }
+}
+
+function formatReserveMoney(amount, currency) {
+    const cur = normalizeCurrency(currency)
+    const n = Number(amount) || 0
+    if (cur === 'USD') return '$' + n.toFixed(2)
+    return Math.round(n).toLocaleString('uz-UZ') + ' so‘m'
+}
+
+function renderReservedOrders() {
+    const panel = document.getElementById('reserved-orders-panel')
+    const list = document.getElementById('reserved-orders-list')
+    const countEl = document.getElementById('reserved-orders-count')
+    if (!panel || !list) return
+
+    const rows = window._activeReservations || []
+    if (!rows.length) {
+        panel.classList.add('hidden')
+        list.innerHTML = ''
+        if (countEl) countEl.textContent = ''
+        return
+    }
+
+    panel.classList.remove('hidden')
+    if (countEl) countEl.textContent = String(rows.length)
+
+    list.innerHTML = rows.map((row) => {
+        const names = (row.items || []).slice(0, 2).map((i) => i.name).filter(Boolean).join(', ')
+        const more = (row.items || []).length > 2 ? ` +${(row.items || []).length - 2}` : ''
+        const time = row.created_at
+            ? new Date(row.created_at).toLocaleString('uz-UZ', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
+            : ''
+        return `
+            <div class="flex items-center gap-2 bg-amber-50 border border-amber-300 rounded-lg px-3 py-2.5 shadow-sm">
+                <div class="flex-grow text-left min-w-0">
+                    <p class="font-semibold text-sm text-amber-950 truncate">${escapeHtml(row.customer_name)}</p>
+                    <p class="text-[10px] text-amber-800 truncate">${row.unit_count || 0} dona · ${escapeHtml(formatReserveMoney(row.total_amount, row.currency))}${time ? ' · ' + time : ''}</p>
+                    ${names ? `<p class="text-[10px] text-amber-700/80 truncate mt-0.5">${escapeHtml(names)}${more}</p>` : ''}
+                </div>
+                <button type="button" onclick="cancelReservation(${row.id})"
+                        class="shrink-0 inline-flex items-center justify-center w-8 h-8 rounded-md border border-red-200 text-red-600 bg-white hover:bg-red-600 hover:text-white transition touch-manipulation"
+                        title="Bekor qilish" aria-label="Bekor qilish">&times;</button>
+            </div>
+        `
+    }).join('')
+}
+
 function restoreHeldOrder(heldId) {
     const held = heldOrders.find((h) => String(h.id) === String(heldId))
     if (!held) return

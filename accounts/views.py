@@ -19,7 +19,7 @@ from .decorators import (
 from .models import Product, Employee, Branch, BranchInventory, Customer, Order, OrderItem, Payment, CashPayment, \
     Invoice, WarrantyClaims, DefectiveInventory, ReplacementRecord, AuditTrail, \
     Organization, Supplier, ProductCategory, AppSettings, CustomerDebt, DebtPayment, Expense, PriceTier, \
-    SalesAgent
+    SalesAgent, ProductReservation, ProductReservationItem
 from .loyalty import apply_discount, apply_markup, customer_payload, money as money_dec
 from .money import (
     CURRENCY_UZS, CURRENCY_USD, parse_decimal, convert_amount, format_money,
@@ -537,6 +537,30 @@ def _reports_build_context(request):
         .order_by('-remaining_balance')[:8]
     )
 
+    active_reservations = ProductReservation.objects.filter(status='Active')
+    reservation_period = ProductReservation.objects.filter(created_at__lte=end_dt)
+    if start_dt:
+        reservation_period = reservation_period.filter(created_at__gte=start_dt)
+    reservation_stats = {
+        'active_count': active_reservations.count(),
+        'active_units': active_reservations.aggregate(
+            u=Coalesce(Sum('unit_count'), 0)
+        )['u'] or 0,
+        'active_items': active_reservations.aggregate(
+            i=Coalesce(Sum('item_count'), 0)
+        )['i'] or 0,
+        'active_total': sum_money_rows_uzs(active_reservations, 'total_amount'),
+        'period_count': reservation_period.count(),
+        'period_units': reservation_period.aggregate(
+            u=Coalesce(Sum('unit_count'), 0)
+        )['u'] or 0,
+        'period_total': sum_money_rows_uzs(reservation_period, 'total_amount'),
+    }
+    top_reservations = (
+        active_reservations.select_related('customer', 'branch', 'employee')
+        .order_by('-created_at')[:8]
+    )
+
     transactions = Order.objects.filter(
         employee__is_active=True,
         branch__is_active=True,
@@ -688,6 +712,14 @@ def _reports_build_context(request):
         'debt_paid_count': debt_stats['paid_count'],
         'debt_all_count': debt_stats['all_count'],
         'top_debts': top_debts,
+        'reservation_active_count': reservation_stats['active_count'],
+        'reservation_active_units': reservation_stats['active_units'],
+        'reservation_active_items': reservation_stats['active_items'],
+        'reservation_active_total': reservation_stats['active_total'],
+        'reservation_period_count': reservation_stats['period_count'],
+        'reservation_period_units': reservation_stats['period_units'],
+        'reservation_period_total': reservation_stats['period_total'],
+        'top_reservations': top_reservations,
         'expense_total': expense_total,
         'expense_month': expense_month,
         'expense_period': expense_period,
@@ -741,6 +773,11 @@ def admin_reports_export_csv(request):
     writer.writerow(['Ombor tannarx', ctx['stock_cost_uzs']])
     writer.writerow(['Ombor sotish narxi', ctx['stock_retail_uzs']])
     writer.writerow(['Davrda undirilgan qarz', ctx['debt_collected_period']])
+    writer.writerow(['Faol bronlar (soni)', ctx['reservation_active_count']])
+    writer.writerow(['Faol bronlar (dona)', ctx['reservation_active_units']])
+    writer.writerow(['Faol bronlar (summa)', ctx['reservation_active_total']])
+    writer.writerow(['Davr bronlari (soni)', ctx['reservation_period_count']])
+    writer.writerow(['Davr bronlari (summa)', ctx['reservation_period_total']])
     writer.writerow([])
     writer.writerow([
         'Buyurtma ID', 'Sana', 'Mijoz', 'Xodim', 'Filial',
@@ -2290,6 +2327,241 @@ def checkout_quote(request):
     except Exception as e:
         return JsonResponse({'success': False, 'message': str(e)}, status=400)
 
+
+def _release_reservation_stock(reservation):
+    if not reservation.stock_held or reservation.status != 'Active':
+        return
+    for item in reservation.items.select_related('product'):
+        inv = BranchInventory.objects.filter(
+            branch=reservation.branch, product=item.product
+        ).first()
+        if inv:
+            inv.quantity = int(inv.quantity or 0) + int(item.quantity or 0)
+            inv.save(update_fields=['quantity'])
+    reservation.stock_held = False
+
+
+@login_required(login_url='login')
+@transaction.atomic
+def checkout_reserve(request):
+    if request.method != 'POST':
+        return JsonResponse({'success': False, 'message': 'POST kerak'}, status=405)
+    try:
+        data = json.loads(request.body or '{}')
+        cart = data.get('cart') or []
+        customer_name = (data.get('customerName') or data.get('customer_name') or '').strip()
+        phone = (data.get('phone') or '').strip()
+        if not cart:
+            return JsonResponse({'success': False, 'message': 'Savat bo‘sh'}, status=400)
+        if not customer_name:
+            return JsonResponse({'success': False, 'message': 'Mijoz nomi majburiy'}, status=400)
+
+        employee = get_active_employee(request.user)
+        if employee is None:
+            return JsonResponse({'success': False, 'message': 'Faol xodim profili kerak'}, status=403)
+        branch = employee.branch
+
+        currency = (data.get('currency') or 'UZS').upper()
+        if currency not in ('UZS', 'USD'):
+            currency = 'UZS'
+
+        customer = None
+        if phone:
+            customer = Customer.objects.filter(phone__iexact=phone, is_active=True).first()
+            if customer is None:
+                customer = Customer.objects.create(
+                    name=customer_name,
+                    phone=phone,
+                    customer_type=Customer.TYPE_REGULAR,
+                    is_active=True,
+                )
+            elif customer_name and customer.name != customer_name:
+                customer.name = customer_name
+                customer.save(update_fields=['name'])
+
+        lines = []
+        total = Decimal('0.00')
+        unit_count = 0
+        for raw in cart:
+            product_id = raw.get('id')
+            qty = int(raw.get('qty') or 0)
+            if not product_id or qty <= 0:
+                continue
+            product = Product.objects.filter(pk=product_id, is_active=True).first()
+            if product is None:
+                raise ValueError(f'Mahsulot topilmadi (id={product_id})')
+            try:
+                inventory = BranchInventory.objects.select_for_update().get(
+                    branch=branch, product=product
+                )
+            except BranchInventory.DoesNotExist:
+                raise ValueError(f'{product.product_name} ushbu filialda yo‘q')
+            if inventory.quantity < qty:
+                raise ValueError(
+                    f'{product.product_name}: omborda yetarli emas (qoldiq {inventory.quantity})'
+                )
+            unit_price = parse_decimal(raw.get('price'))
+            if unit_price <= 0:
+                unit_price = product.base_price or Decimal('0.00')
+            line_total = (unit_price * qty).quantize(Decimal('0.01'))
+            lines.append((product, qty, unit_price, line_total, inventory))
+            total += line_total
+            unit_count += qty
+
+        if not lines:
+            return JsonResponse({'success': False, 'message': 'Bronlash uchun mahsulot yo‘q'}, status=400)
+
+        reservation = ProductReservation.objects.create(
+            branch=branch,
+            employee=employee,
+            customer=customer,
+            customer_name=customer_name,
+            phone=phone,
+            currency=currency,
+            total_amount=total,
+            item_count=len(lines),
+            unit_count=unit_count,
+            status='Active',
+            stock_held=True,
+        )
+        for product, qty, unit_price, line_total, inventory in lines:
+            ProductReservationItem.objects.create(
+                reservation=reservation,
+                product=product,
+                quantity=qty,
+                unit_price=unit_price,
+                line_total=line_total,
+            )
+            inventory.quantity -= qty
+            inventory.save(update_fields=['quantity'])
+
+        return JsonResponse({
+            'success': True,
+            'reservation_id': reservation.id,
+            'message': f'Bronlandi: {customer_name} — {unit_count} dona',
+        })
+    except Exception as e:
+        return JsonResponse({'success': False, 'message': str(e)}, status=400)
+
+
+@login_required(login_url='login')
+def reservations_active_api(request):
+    emp = get_active_employee(request.user)
+    qs = ProductReservation.objects.filter(status='Active').prefetch_related('items__product')
+    if is_app_manager(request.user):
+        pass
+    elif emp:
+        qs = qs.filter(branch=emp.branch)
+    else:
+        qs = qs.none()
+    rows = []
+    for r in qs.order_by('-created_at')[:30]:
+        rows.append({
+            'id': r.id,
+            'customer_name': r.customer_name,
+            'phone': r.phone or '',
+            'total_amount': float(r.total_amount or 0),
+            'currency': r.currency,
+            'item_count': r.item_count,
+            'unit_count': r.unit_count,
+            'created_at': r.created_at.isoformat() if r.created_at else '',
+            'items': [
+                {
+                    'name': it.product.product_name if it.product_id else '',
+                    'qty': it.quantity,
+                    'price': float(it.unit_price or 0),
+                }
+                for it in r.items.all()
+            ],
+        })
+    return JsonResponse({'reservations': rows})
+
+
+@login_required(login_url='login')
+def reservations_list(request):
+    is_manager = is_app_manager(request.user)
+    qs = ProductReservation.objects.select_related(
+        'branch', 'employee', 'customer'
+    ).prefetch_related('items__product')
+    if not is_manager:
+        emp = get_active_employee(request.user)
+        if emp:
+            qs = qs.filter(branch=emp.branch)
+        else:
+            qs = qs.none()
+
+    status = request.GET.get('status') or 'Active'
+    if status != 'All':
+        qs = qs.filter(status=status)
+    q = (request.GET.get('q') or '').strip()
+    if q:
+        qs = qs.filter(
+            Q(customer_name__icontains=q) |
+            Q(phone__icontains=q) |
+            Q(note__icontains=q)
+        )
+    qs = qs.order_by('-created_at')
+    active_qs = ProductReservation.objects.filter(status='Active')
+    if not is_manager:
+        emp = get_active_employee(request.user)
+        if emp:
+            active_qs = active_qs.filter(branch=emp.branch)
+    active_total = active_qs.aggregate(
+        total=Coalesce(Sum('total_amount'), Decimal('0.00'))
+    )['total']
+    active_units = active_qs.aggregate(
+        units=Coalesce(Sum('unit_count'), 0)
+    )['units']
+    page_obj = Paginator(qs, 15).get_page(request.GET.get('page'))
+    return render(request, 'accounts/reservations_list.html', {
+        'page_obj': page_obj,
+        'is_manager': is_manager,
+        'status_filter': status,
+        'q': q,
+        'active_count': active_qs.count(),
+        'active_total': active_total,
+        'active_units': active_units or 0,
+    })
+
+
+@login_required(login_url='login')
+@transaction.atomic
+def reservation_cancel(request, pk):
+    wants_json = (
+        request.headers.get('Content-Type', '').startswith('application/json')
+        or 'application/json' in (request.headers.get('Accept') or '')
+        or request.headers.get('X-Requested-With') == 'XMLHttpRequest'
+    )
+    if request.method != 'POST':
+        if wants_json:
+            return JsonResponse({'success': False, 'message': 'POST kerak'}, status=405)
+        return redirect('reservations_list')
+
+    reservation = get_object_or_404(
+        ProductReservation.objects.select_related('branch').prefetch_related('items__product'),
+        pk=pk,
+    )
+    emp = get_active_employee(request.user)
+    if not is_app_manager(request.user):
+        if emp is None or reservation.branch_id != emp.branch_id:
+            raise PermissionDenied
+    if reservation.status != 'Active':
+        msg = 'Bu bron allaqachon yopilgan.'
+        if wants_json:
+            return JsonResponse({'success': False, 'message': msg}, status=400)
+        messages.error(request, msg)
+        return redirect('reservations_list')
+
+    _release_reservation_stock(reservation)
+    reservation.status = 'Cancelled'
+    reservation.save(update_fields=['status', 'stock_held', 'updated_at'])
+
+    if wants_json:
+        return JsonResponse({'success': True, 'message': 'Bron bekor qilindi.'})
+    messages.success(request, f'Bron #{reservation.id} bekor qilindi.')
+    return redirect('reservations_list')
+
+
 @manager_required
 @transaction.atomic
 def order_approve(request, pk):
@@ -2930,6 +3202,79 @@ def debt_pay(request, pk):
 
     messages.success(request, f'{debt.customer.name}: {amount} {debt.currency} qabul qilindi.')
     return redirect('/debtors/?status=Active')
+
+
+@login_required(login_url='login')
+def debt_edit(request, pk):
+    if is_consultant(request.user):
+        return redirect('pos_terminal')
+    debt = get_object_or_404(
+        CustomerDebt.objects.select_related('customer', 'branch', 'order'),
+        pk=pk,
+    )
+    is_manager = is_app_manager(request.user)
+    if not is_manager and hasattr(request.user, 'employee'):
+        if debt.branch_id != request.user.employee.branch_id:
+            raise PermissionDenied
+
+    if request.method == 'POST':
+        note = (request.POST.get('note') or '').strip()
+        status = (request.POST.get('status') or debt.status).strip()
+        if status not in dict(CustomerDebt.STATUS_CHOICES):
+            status = debt.status
+        original = parse_decimal(request.POST.get('original_amount'))
+        paid = parse_decimal(request.POST.get('paid_amount'))
+        if original < 0 or paid < 0:
+            messages.error(request, 'Summalar manfiy bo‘lishi mumkin emas.')
+            return redirect('debt_edit', pk=debt.pk)
+        if paid > original:
+            paid = original
+        debt.original_amount = original
+        debt.paid_amount = paid
+        debt.remaining_balance = (original - paid).quantize(Decimal('0.01'))
+        debt.note = note
+        debt.status = status
+        debt.refresh_status()
+        debt.save()
+        messages.success(request, f'Qarz #{debt.id} yangilandi.')
+        return redirect('debtors_list')
+
+    return render(request, 'accounts/debt_edit.html', {
+        'debt': debt,
+        'is_manager': is_manager,
+        'status_choices': CustomerDebt.STATUS_CHOICES,
+    })
+
+
+@login_required(login_url='login')
+@transaction.atomic
+def debt_delete(request, pk):
+    if is_consultant(request.user):
+        return redirect('pos_terminal')
+    if request.method != 'POST':
+        return redirect('debtors_list')
+    debt = get_object_or_404(CustomerDebt, pk=pk)
+    is_manager = is_app_manager(request.user)
+    if not is_manager and hasattr(request.user, 'employee'):
+        if debt.branch_id != request.user.employee.branch_id:
+            raise PermissionDenied
+    name = debt.customer.name if debt.customer_id else f'#{debt.id}'
+    debt.delete()
+    messages.success(request, f'Qarz o‘chirildi: {name}')
+    return redirect('debtors_list')
+
+
+@login_required(login_url='login')
+@user_passes_test(is_app_manager, login_url='home')
+def customer_delete(request, pk):
+    if request.method != 'POST':
+        return redirect('customers_loyalty')
+    customer = get_object_or_404(Customer, pk=pk)
+    customer.is_active = False
+    customer.save(update_fields=['is_active'])
+    messages.success(request, f'Mijoz arxivlandi: {customer.name}')
+    return redirect('customers_loyalty')
+
 
 @login_required(login_url='login')
 def debtors_export_csv(request):

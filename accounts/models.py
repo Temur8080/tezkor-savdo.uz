@@ -933,3 +933,57 @@ class Expense(models.Model):
     def soft_delete(self):
         self.is_active = False
         self.save(update_fields=['is_active'])
+
+
+class ProductReservation(models.Model):
+    STATUS_CHOICES = (
+        ('Active', 'Faol'),
+        ('Cancelled', 'Bekor qilingan'),
+        ('Completed', 'Yakunlangan'),
+    )
+
+    branch = models.ForeignKey(Branch, on_delete=models.CASCADE, verbose_name='Filial')
+    employee = models.ForeignKey(
+        Employee, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='reservations', verbose_name='Xodim',
+    )
+    customer = models.ForeignKey(
+        Customer, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='reservations', verbose_name='Mijoz',
+    )
+    customer_name = models.CharField('Mijoz nomi', max_length=150)
+    phone = models.CharField('Telefon', max_length=30, blank=True)
+    currency = models.CharField('Valyuta', max_length=3, choices=CURRENCY_CHOICES, default=CURRENCY_UZS)
+    total_amount = models.DecimalField('Jami summa', max_digits=14, decimal_places=2, default=0)
+    item_count = models.PositiveIntegerField('Mahsulot soni', default=0)
+    unit_count = models.PositiveIntegerField('Jami dona', default=0)
+    status = models.CharField('Holat', max_length=20, choices=STATUS_CHOICES, default='Active')
+    note = models.CharField('Izoh', max_length=255, blank=True)
+    stock_held = models.BooleanField('Ombordan ushlab turilgan', default=True)
+    created_at = models.DateTimeField('Yaratilgan', auto_now_add=True)
+    updated_at = models.DateTimeField('Yangilangan', auto_now=True)
+
+    class Meta:
+        verbose_name = 'Bron'
+        verbose_name_plural = 'Bronlar'
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"Bron #{self.pk}: {self.customer_name} ({self.total_amount} {self.currency})"
+
+
+class ProductReservationItem(models.Model):
+    reservation = models.ForeignKey(
+        ProductReservation, on_delete=models.CASCADE, related_name='items', verbose_name='Bron',
+    )
+    product = models.ForeignKey(Product, on_delete=models.PROTECT, verbose_name='Mahsulot')
+    quantity = models.PositiveIntegerField('Miqdor', default=1)
+    unit_price = models.DecimalField('Narx', max_digits=14, decimal_places=2)
+    line_total = models.DecimalField('Qator jami', max_digits=14, decimal_places=2, default=0)
+
+    class Meta:
+        verbose_name = 'Bron qatori'
+        verbose_name_plural = 'Bron qatorlari'
+
+    def __str__(self):
+        return f"{self.product} × {self.quantity}"

@@ -113,8 +113,15 @@
         <li>
           <a href="{% url 'debtors_list' %}"
              class="nav-link block py-2.5 px-3 rounded-lg md:px-0 md:py-1 md:rounded-none border-b-2 transition
-             {% if url_name == 'debtors_list' or url_name == 'debt_pay' %}is-active{% endif %}">
+             {% if url_name == 'debtors_list' or url_name == 'debt_pay' or url_name == 'debt_edit' %}is-active{% endif %}">
             Qarzdorlar
+          </a>
+        </li>
+        <li>
+          <a href="{% url 'reservations_list' %}"
+             class="nav-link block py-2.5 px-3 rounded-lg md:px-0 md:py-1 md:rounded-none border-b-2 transition
+             {% if url_name == 'reservations_list' or url_name == 'reservation_cancel' %}is-active{% endif %}">
+            Bronlar
           </a>
         </li>
         <li>
@@ -180,11 +187,18 @@
         <li>
           <a href="{% url 'debtors_list' %}"
              class="nav-link block py-2.5 px-3 rounded-lg md:px-0 md:py-1 md:rounded-none border-b-2 transition
-             {% if url_name == 'debtors_list' or url_name == 'debt_pay' %}is-active{% endif %}">
+             {% if url_name == 'debtors_list' or url_name == 'debt_pay' or url_name == 'debt_edit' %}is-active{% endif %}">
             Qarzdorlar
           </a>
         </li>
         {% endif %}
+        <li>
+          <a href="{% url 'reservations_list' %}"
+             class="nav-link block py-2.5 px-3 rounded-lg md:px-0 md:py-1 md:rounded-none border-b-2 transition
+             {% if url_name == 'reservations_list' or url_name == 'reservation_cancel' %}is-active{% endif %}">
+            Bronlar
+          </a>
+        </li>
         <li>
           <a href="{% url 'employee_profile' %}"
              class="nav-link block py-2.5 px-3 rounded-lg md:px-0 md:py-1 md:rounded-none border-b-2 transition

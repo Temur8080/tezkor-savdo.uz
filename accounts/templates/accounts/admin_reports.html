@@ -362,6 +362,74 @@
         {% endif %}
     </div>
 
+    {# ── Bronlar ── #}
+    <div class="bg-white border border-gray-200 rounded-lg shadow-sm overflow-hidden">
+        <div class="flex flex-wrap items-start justify-between gap-3 p-4 bg-gray-50 border-b border-gray-200">
+            <div>
+                <h2 class="text-base font-bold text-gray-900">Bronlangan mahsulotlar</h2>
+                <p class="text-xs text-gray-500 mt-0.5">Faol bronlar va tanlangan davrdagi bronlashlar</p>
+            </div>
+            <a href="{% url 'reservations_list' %}"
+               class="px-3 py-1.5 bg-amber-600 text-white text-xs font-semibold rounded-md hover:bg-amber-700 transition">
+                Bronlar ro‘yxati
+            </a>
+        </div>
+        <div class="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 divide-y xl:divide-y-0 divide-x divide-gray-200 border-b border-gray-200">
+            <div class="p-4 text-center">
+                <p class="text-xs uppercase text-gray-500 font-semibold">Faol bronlar</p>
+                <p class="text-lg font-bold text-amber-700 mt-1">{{ reservation_active_count }}</p>
+            </div>
+            <div class="p-4 text-center">
+                <p class="text-xs uppercase text-gray-500 font-semibold">Faol dona</p>
+                <p class="text-lg font-bold text-gray-900 mt-1">{{ reservation_active_units }}</p>
+            </div>
+            <div class="p-4 text-center">
+                <p class="text-xs uppercase text-gray-500 font-semibold">Faol summa</p>
+                <p class="text-lg font-bold text-amber-700 mt-1">{{ reservation_active_total|money }}</p>
+            </div>
+            <div class="p-4 text-center">
+                <p class="text-xs uppercase text-gray-500 font-semibold">Davr bronlari</p>
+                <p class="text-lg font-bold text-gray-900 mt-1">{{ reservation_period_count }}</p>
+            </div>
+            <div class="p-4 text-center">
+                <p class="text-xs uppercase text-gray-500 font-semibold">Davr dona</p>
+                <p class="text-lg font-bold text-gray-900 mt-1">{{ reservation_period_units }}</p>
+            </div>
+            <div class="p-4 text-center">
+                <p class="text-xs uppercase text-gray-500 font-semibold">Davr summa</p>
+                <p class="text-lg font-bold text-amber-700 mt-1">{{ reservation_period_total|money }}</p>
+            </div>
+        </div>
+        {% if top_reservations %}
+        <div class="overflow-x-auto">
+            <table class="w-full text-sm text-left text-gray-500">
+                <thead class="text-xs text-gray-700 uppercase bg-gray-100">
+                    <tr>
+                        <th class="px-4 py-3">Mijoz</th>
+                        <th class="px-4 py-3">Filial</th>
+                        <th class="px-4 py-3">Dona</th>
+                        <th class="px-4 py-3">Summa</th>
+                        <th class="px-4 py-3">Xodim</th>
+                        <th class="px-4 py-3">Sana</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-100">
+                    {% for r in top_reservations %}
+                    <tr>
+                        <td class="px-4 py-3 font-medium text-gray-900">{{ r.customer_name }}</td>
+                        <td class="px-4 py-3">{{ r.branch.name }}</td>
+                        <td class="px-4 py-3">{{ r.unit_count }}</td>
+                        <td class="px-4 py-3 font-semibold text-amber-700">{{ r.total_amount|money:r.currency }}</td>
+                        <td class="px-4 py-3">{{ r.employee.name|default:"—" }}</td>
+                        <td class="px-4 py-3 text-xs whitespace-nowrap">{{ r.created_at|date:"d.m.Y H:i" }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% endif %}
+    </div>
+
     {# ── Qarzlar ── #}
     <div class="bg-white border border-gray-200 rounded-lg shadow-sm overflow-hidden">
         <div class="flex flex-wrap items-start justify-between gap-3 p-4 bg-gray-50 border-b border-gray-200">

@@ -1,0 +1,54 @@
+{% extends 'accounts/main.html' %}
+{% load money_tags %}
+
+{% block content %}
+<div class="bg-white border border-gray-200 rounded-lg shadow-sm overflow-hidden mb-8 max-w-2xl">
+    <div class="flex flex-wrap items-start justify-between gap-3 p-4 bg-gray-50 border-b border-gray-200">
+        <div>
+            <h1 class="text-xl font-bold text-gray-900">Qarzni tahrirlash #{{ debt.id }}</h1>
+            <p class="text-sm text-gray-500 mt-0.5">{{ debt.customer.name }} · {{ debt.customer.phone|default:"" }}</p>
+        </div>
+        <a href="{% url 'debtors_list' %}" class="px-4 py-2 bg-gray-200 text-gray-700 text-sm font-medium rounded-md hover:bg-gray-300">← Orqaga</a>
+    </div>
+
+    <form method="post" class="p-4 md:p-6 space-y-4">
+        {% csrf_token %}
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+                <label class="block text-xs font-semibold text-gray-600 mb-1">Dastlabki summa</label>
+                <input type="number" name="original_amount" step="0.01" min="0"
+                       value="{{ debt.original_amount }}" required
+                       class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm">
+            </div>
+            <div>
+                <label class="block text-xs font-semibold text-gray-600 mb-1">To‘langan</label>
+                <input type="number" name="paid_amount" step="0.01" min="0"
+                       value="{{ debt.paid_amount }}" required
+                       class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm">
+            </div>
+            <div>
+                <label class="block text-xs font-semibold text-gray-600 mb-1">Holat</label>
+                <select name="status" class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm">
+                    {% for val, label in status_choices %}
+                    <option value="{{ val }}" {% if debt.status == val %}selected{% endif %}>{{ label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div>
+                <label class="block text-xs font-semibold text-gray-600 mb-1">Qoldiq (avtomatik)</label>
+                <input type="text" value="{{ debt.remaining_balance|money:debt.currency }}" disabled
+                       class="w-full px-3 py-2 border border-gray-200 rounded-md text-sm bg-gray-50 text-gray-600">
+            </div>
+        </div>
+        <div>
+            <label class="block text-xs font-semibold text-gray-600 mb-1">Izoh</label>
+            <input type="text" name="note" value="{{ debt.note }}" maxlength="255"
+                   class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm">
+        </div>
+        <div class="flex justify-end gap-2 pt-2">
+            <a href="{% url 'debtors_list' %}" class="px-4 py-2 text-sm text-gray-600 hover:text-gray-900">Bekor</a>
+            <button type="submit" class="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-md">Saqlash</button>
+        </div>
+    </form>
+</div>
+{% endblock %}

@@ -116,7 +116,7 @@
                         <th class="px-4 py-3 text-right">Jami xarid</th>
                         <th class="px-4 py-3 text-right">Chegirma</th>
                         <th class="px-4 py-3 text-right">Oxirgi</th>
-                        <th class="px-4 py-3 text-right"></th>
+                        <th class="px-4 py-3 text-right">Amallar</th>
                     </tr>
                 </thead>
                 <tbody class="divide-y divide-gray-100">
@@ -148,10 +148,20 @@
                             {% if c.last_purchase %}{{ c.last_purchase|date:"d.m.Y" }}{% else %}—{% endif %}
                         </td>
                         <td class="px-4 py-3 text-right">
-                            <a href="{% url 'customer_detail' c.pk %}"
-                               class="inline-block px-2 py-1 bg-blue-600 text-white text-xs font-semibold rounded hover:bg-blue-700">
-                                Tarix
-                            </a>
+                            <div class="inline-flex flex-wrap items-center justify-end gap-1.5">
+                                <a href="{% url 'customer_detail' c.pk %}"
+                                   class="px-2.5 py-1.5 text-xs font-semibold rounded-md border border-blue-600 text-blue-600 hover:bg-blue-600 hover:text-white transition">
+                                    Tahrirlash
+                                </a>
+                                <form method="post" action="{% url 'customer_delete' c.pk %}" class="inline">
+                                    {% csrf_token %}
+                                    <button type="submit"
+                                            onclick="return confirm('{{ c.name|escapejs }} o‘chirilsinmi (arxiv)?')"
+                                            class="px-2.5 py-1.5 text-xs font-semibold rounded-md border border-red-600 text-red-600 hover:bg-red-600 hover:text-white transition">
+                                        O‘chirish
+                                    </button>
+                                </form>
+                            </div>
                         </td>
                     </tr>
                     {% empty %}
