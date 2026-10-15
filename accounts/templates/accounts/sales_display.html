@@ -46,11 +46,11 @@
                 </div>
             </div>
 
-        {% elif request.user.employee.branch %}
+        {% elif sales_agent_stats %}
         <div class="flex justify-end items-center mt-6 pl-80">
             <div class="text-gray-700 font-semibold flex justify-center items-center space-x-2">
-                <span class="bg-blue-100 text-blue-800 text-xs font-bold px-2.5 py-0.5 rounded">Komissiya: {{ request.user.employee.salesagent.total_commission_earned }}</span>
-                <span class="bg-blue-100 text-blue-800 text-xs font-bold px-2.5 py-0.5 rounded">Jami sotuvlar: {{ request.user.employee.salesagent.total_sales }}</span>
+                <span class="bg-blue-100 text-blue-800 text-xs font-bold px-2.5 py-0.5 rounded">Komissiya: {{ sales_agent_stats.total_commission_earned }}</span>
+                <span class="bg-blue-100 text-blue-800 text-xs font-bold px-2.5 py-0.5 rounded">Jami sotuvlar: {{ sales_agent_stats.total_sales }}</span>
             </div>
         </div>
         {% endif %}

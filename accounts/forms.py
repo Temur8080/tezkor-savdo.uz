@@ -211,9 +211,11 @@ class EmployeeAdminForm(forms.ModelForm):
     )
     password = forms.CharField(
         label='Parol',
+        required=False,
         widget=forms.PasswordInput(attrs={
             'class': 'w-full px-4 py-3 rounded-xl border-2 border-gray-200 focus:border-blue-600 focus:ring-0 font-semibold',
-            'placeholder': 'Vaqtinchalik parol belgilang'
+            'placeholder': 'Vaqtinchalik parol belgilang',
+            'autocomplete': 'new-password',
         })
     )
 
@@ -238,3 +240,21 @@ class EmployeeAdminForm(forms.ModelForm):
         widgets = {
             'hire_date': forms.DateInput(attrs={'type': 'date'}),
         }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        instance = getattr(self, 'instance', None)
+        if instance and instance.pk and getattr(instance, 'user_id', None):
+            self.fields['username'].initial = instance.user.username
+            self.fields['password'].widget.attrs['placeholder'] = 'Bo‘sh qoldiring — parol o‘zgarmaydi'
+            self.fields['password'].required = False
+        else:
+            self.fields['password'].required = True
+            self.fields['password'].widget.attrs['placeholder'] = 'Vaqtinchalik parol belgilang'
+
+    def clean_password(self):
+        password = self.cleaned_data.get('password') or ''
+        instance = getattr(self, 'instance', None)
+        if not (instance and instance.pk) and not password:
+            raise forms.ValidationError('Parol majburiy.')
+        return password

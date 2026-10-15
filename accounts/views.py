@@ -14,10 +14,12 @@ from .decorators import (
     manager_required,
     ManagerRequiredMixin,
     ROLE_CONSULTANT,
+    ROLE_SALES,
 )
 from .models import Product, Employee, Branch, BranchInventory, Customer, Order, OrderItem, Payment, CashPayment, \
     Invoice, WarrantyClaims, DefectiveInventory, ReplacementRecord, AuditTrail, \
-    Organization, Supplier, ProductCategory, AppSettings, CustomerDebt, DebtPayment, Expense, PriceTier
+    Organization, Supplier, ProductCategory, AppSettings, CustomerDebt, DebtPayment, Expense, PriceTier, \
+    SalesAgent
 from .loyalty import apply_discount, apply_markup, customer_payload, money as money_dec
 from .money import (
     CURRENCY_UZS, CURRENCY_USD, parse_decimal, convert_amount, format_money,
@@ -974,6 +976,9 @@ def salesDisplay(request):
             grand_total += Decimal(line)
     paginator = Paginator(filtered_items, 7)
     page_obj = paginator.get_page(request.GET.get('page'))
+    sales_agent_stats = None
+    if emp and not is_manager:
+        sales_agent_stats = SalesAgent.objects.filter(employee=emp).first()
     return render(request, 'accounts/sales_display.html', {
         'myFilter': myFilter,
         'is_manager': is_manager,
@@ -981,6 +986,7 @@ def salesDisplay(request):
         'grand_total': grand_total,
         'inst': debt_order_count,
         'cash_sales': cash_sales,
+        'sales_agent_stats': sales_agent_stats,
     })
 
 @login_required(login_url='login')
@@ -1244,6 +1250,14 @@ def employee_delete(request, pk):
     messages.success(request, f"{name} o‘chirildi (arxivlandi).")
     return redirect('employee_list')
 
+def _sync_sales_agent_for_role(employee):
+    """Ensure SalesAgent row exists only for Sotuvchi lavozimi."""
+    if employee.role == ROLE_SALES:
+        SalesAgent.objects.get_or_create(employee=employee)
+    else:
+        SalesAgent.objects.filter(employee=employee).delete()
+
+
 class EmployeeCreate(SuccessMessageMixin, CreateView):
     model = Employee
     form_class = EmployeeAdminForm
@@ -1254,7 +1268,7 @@ class EmployeeCreate(SuccessMessageMixin, CreateView):
     def form_valid(self, form):
         custom_username = form.cleaned_data.get('username')
         custom_password = form.cleaned_data.get('password')
-        email = form.cleaned_data.get('email')
+        email = form.cleaned_data.get('email') or ''
 
         if User.objects.filter(username=custom_username).exists():
             form.add_error('username', 'Bu login allaqachon band.')
@@ -1272,7 +1286,9 @@ class EmployeeCreate(SuccessMessageMixin, CreateView):
 
         employee = form.save(commit=False)
         employee.user = user
+        employee.email = email or None
         employee.save()
+        _sync_sales_agent_for_role(employee)
 
         return redirect(self.success_url)
 
@@ -1286,7 +1302,18 @@ def manageEmployee(request, pk):
             employee = form.save(commit=False)
             user = employee.user
 
-            user.email = form.cleaned_data.get('email')
+            # auth_user.email is NOT NULL — blank employee email must stay ''
+            user.email = form.cleaned_data.get('email') or ''
+            new_username = (form.cleaned_data.get('username') or '').strip()
+            if new_username and new_username != user.username:
+                if User.objects.filter(username=new_username).exclude(pk=user.pk).exists():
+                    form.add_error('username', 'Bu login allaqachon band.')
+                    return render(
+                        request,
+                        'accounts/employee_form.html',
+                        {'employee': employee, 'form': form},
+                    )
+                user.username = new_username
 
             new_password = form.cleaned_data.get('password')
             if new_password:
@@ -1294,6 +1321,7 @@ def manageEmployee(request, pk):
 
             user.save()
             employee.save()
+            _sync_sales_agent_for_role(employee)
 
             return redirect('employee_list')
 
