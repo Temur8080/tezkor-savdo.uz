@@ -18,7 +18,7 @@ from .decorators import (
 from .models import Product, Employee, Branch, BranchInventory, Customer, Order, OrderItem, Payment, CashPayment, \
     Invoice, WarrantyClaims, DefectiveInventory, ReplacementRecord, AuditTrail, \
     Organization, Supplier, ProductCategory, AppSettings, CustomerDebt, DebtPayment, Expense, PriceTier
-from .loyalty import apply_discount, customer_payload, money as money_dec
+from .loyalty import apply_discount, apply_markup, customer_payload, money as money_dec
 from .money import (
     CURRENCY_UZS, CURRENCY_USD, parse_decimal, convert_amount, format_money,
 )
@@ -105,17 +105,82 @@ def _suggest_bonus_percent(total_spent, orders_count, current_bonus):
 
 
 def _checkout_discount_percent(customer, secret_code):
-    discount = customer.get_discount_percent() if customer else Decimal('0.00')
+    """Legacy helper: returns discount % only (no markup)."""
+    adjust = _checkout_price_adjust(customer, secret_code)
+    if adjust['mode'] == 'discount':
+        return money_dec(adjust['percent'])
+    return money_dec(customer.get_discount_percent() if customer else Decimal('0.00'))
+
+
+def _checkout_price_adjust(customer, secret_code):
+    """
+    Returns {'mode': 'discount'|'markup'|'none', 'percent': Decimal}.
+    Markup secret code wins over discount code when both match (should be different codes).
+    """
+    loyalty_pct = money_dec(customer.get_discount_percent() if customer else Decimal('0.00'))
     code = (secret_code or '').strip()
-    if not code:
-        return money_dec(discount)
     settings_obj = AppSettings.get_solo()
-    expected = (settings_obj.pos_secret_code or '').strip()
-    if expected and code == expected:
-        secret_pct = money_dec(settings_obj.pos_secret_discount_percent or 0)
-        if secret_pct > discount:
-            discount = secret_pct
-    return money_dec(discount)
+    if code:
+        markup_code = (settings_obj.pos_secret_markup_code or '').strip()
+        if markup_code and code == markup_code:
+            markup_pct = money_dec(settings_obj.pos_secret_markup_percent or 0)
+            if markup_pct > 0:
+                return {'mode': 'markup', 'percent': markup_pct}
+        discount_code = (settings_obj.pos_secret_code or '').strip()
+        if discount_code and code == discount_code:
+            secret_pct = money_dec(settings_obj.pos_secret_discount_percent or 0)
+            if secret_pct > loyalty_pct:
+                return {'mode': 'discount', 'percent': secret_pct}
+    if loyalty_pct > 0:
+        return {'mode': 'discount', 'percent': loyalty_pct}
+    return {'mode': 'none', 'percent': money_dec(0)}
+
+
+def _price_lines_from_cart(cart, adjust):
+    priced_lines = []
+    list_total = Decimal('0.00')
+    net_total = Decimal('0.00')
+    mode = adjust.get('mode') or 'none'
+    percent = money_dec(adjust.get('percent') or 0)
+    for item in cart:
+        product = Product.objects.get(id=item['id'])
+        qty = int(item['qty'])
+        list_price = money_dec(item.get('price', product.base_price))
+        if mode == 'markup':
+            unit_price = apply_markup(list_price, percent)
+        elif mode == 'discount':
+            unit_price = apply_discount(list_price, percent)
+        else:
+            unit_price = list_price
+        priced_lines.append((product, qty, list_price, unit_price))
+        list_total += list_price * qty
+        net_total += unit_price * qty
+    list_total = money_dec(list_total)
+    net_total = money_dec(net_total)
+    if mode == 'markup':
+        discount_percent = money_dec(0)
+        discount_amount = money_dec(0)
+        markup_percent = percent
+        markup_amount = money_dec(net_total - list_total)
+    elif mode == 'discount':
+        discount_percent = percent
+        discount_amount = money_dec(list_total - net_total)
+        markup_percent = money_dec(0)
+        markup_amount = money_dec(0)
+    else:
+        discount_percent = money_dec(0)
+        discount_amount = money_dec(0)
+        markup_percent = money_dec(0)
+        markup_amount = money_dec(0)
+    return {
+        'priced_lines': priced_lines,
+        'list_total': list_total,
+        'net_total': net_total,
+        'discount_percent': discount_percent,
+        'discount_amount': discount_amount,
+        'markup_percent': markup_percent,
+        'markup_amount': markup_amount,
+    }
 
 
 @login_required(login_url='login')
@@ -743,6 +808,12 @@ def emp_receipt(request, pk):
     if discount_amount <= 0 and list_total > subtotal:
         discount_amount = (list_total - subtotal).quantize(Decimal('0.01'))
     discount_percent = order.discount_percent or Decimal('0.00')
+    markup_amount = Decimal('0.00')
+    markup_percent = Decimal('0.00')
+    if subtotal > list_total and discount_amount <= 0:
+        markup_amount = (subtotal - list_total).quantize(Decimal('0.01'))
+        if list_total > 0:
+            markup_percent = (markup_amount / list_total * Decimal('100')).quantize(Decimal('0.01'))
 
     context = {
         'order': order,
@@ -751,6 +822,8 @@ def emp_receipt(request, pk):
         'list_total': list_total,
         'discount_amount': discount_amount,
         'discount_percent': discount_percent,
+        'markup_amount': markup_amount,
+        'markup_percent': markup_percent,
         'vat_amount': vat_amount,
         'vat_label': vat_label,
         'grand_total': grand_total,
@@ -1262,6 +1335,8 @@ def posTerminal(request):
         'can_complete_sale': can_complete_sale(request.user),
         'secret_discount_code': (app_settings.pos_secret_code or '').strip(),
         'secret_discount_percent': str(app_settings.pos_secret_discount_percent or 0),
+        'secret_markup_code': (app_settings.pos_secret_markup_code or '').strip(),
+        'secret_markup_percent': str(app_settings.pos_secret_markup_percent or 0),
     }
 
     return render(request, 'accounts/pos_terminal.html', context)
@@ -1872,24 +1947,13 @@ def checkout_cash(request):
                         pk=partner_id, is_active=True, customer_type=Customer.TYPE_PARTNER
                     ).first()
 
-                discount_percent = _checkout_discount_percent(
-                    customer, data.get('secretCode')
-                )
-
-                priced_lines = []
-                list_total = Decimal('0.00')
-                net_total = Decimal('0.00')
-                for item in cart:
-                    product = Product.objects.get(id=item['id'])
-                    qty = int(item['qty'])
-                    list_price = money_dec(item.get('price', product.base_price))
-                    unit_price = apply_discount(list_price, discount_percent)
-                    priced_lines.append((product, qty, list_price, unit_price))
-                    list_total += list_price * qty
-                    net_total += unit_price * qty
-                list_total = money_dec(list_total)
-                net_total = money_dec(net_total)
-                discount_amount = money_dec(list_total - net_total)
+                adjust = _checkout_price_adjust(customer, data.get('secretCode'))
+                priced = _price_lines_from_cart(cart, adjust)
+                priced_lines = priced['priced_lines']
+                list_total = priced['list_total']
+                net_total = priced['net_total']
+                discount_percent = priced['discount_percent']
+                discount_amount = priced['discount_amount']
                 total_amount = net_total
 
                 if cash_raw is None or str(cash_raw).strip() == '':
@@ -2118,23 +2182,13 @@ def checkout_quote(request):
         if partner_id:
             partner = Customer.objects.filter(pk=partner_id, is_active=True, customer_type=Customer.TYPE_PARTNER).first()
 
-        discount_percent = _checkout_discount_percent(
-            customer, data.get('secretCode')
-        )
-        priced_lines = []
-        list_total = Decimal('0.00')
-        net_total = Decimal('0.00')
-        for item in cart:
-            product = Product.objects.get(id=item['id'])
-            qty = int(item['qty'])
-            list_price = money_dec(item.get('price', product.base_price))
-            unit_price = apply_discount(list_price, discount_percent)
-            priced_lines.append((product, qty, list_price, unit_price))
-            list_total += list_price * qty
-            net_total += unit_price * qty
-        list_total = money_dec(list_total)
-        net_total = money_dec(net_total)
-        discount_amount = money_dec(list_total - net_total)
+        adjust = _checkout_price_adjust(customer, data.get('secretCode'))
+        priced = _price_lines_from_cart(cart, adjust)
+        priced_lines = priced['priced_lines']
+        list_total = priced['list_total']
+        net_total = priced['net_total']
+        discount_percent = priced['discount_percent']
+        discount_amount = priced['discount_amount']
 
         for product, qty, _lp, _up in priced_lines:
             inv = BranchInventory.objects.filter(branch=branch, product=product).first()
@@ -3091,7 +3145,7 @@ def app_settings(request):
         if secret_code and not any(ch.isalpha() for ch in secret_code):
             messages.error(
                 request,
-                'Maxfiy kodda kamida bitta harf bo‘lishi shart (faqat raqam bo‘lishi mumkin emas).',
+                'Chegirma kodida kamida bitta harf bo‘lishi shart (faqat raqam bo‘lishi mumkin emas).',
             )
             return redirect('app_settings')
         secret_raw = (request.POST.get('pos_secret_discount_percent') or '').strip()
@@ -3101,6 +3155,24 @@ def app_settings(request):
             secret_pct = parse_decimal(secret_raw)
             if secret_pct < 0 or secret_pct > 100:
                 messages.error(request, 'Chegirma 0–100% oralig‘ida bo‘lishi kerak.')
+                return redirect('app_settings')
+        markup_code = (request.POST.get('pos_secret_markup_code') or '').strip()
+        if markup_code and not any(ch.isalpha() for ch in markup_code):
+            messages.error(
+                request,
+                'Ustama kodida kamida bitta harf bo‘lishi shart (faqat raqam bo‘lishi mumkin emas).',
+            )
+            return redirect('app_settings')
+        if secret_code and markup_code and secret_code == markup_code:
+            messages.error(request, 'Chegirma va ustama kodlari bir xil bo‘lmasligi kerak.')
+            return redirect('app_settings')
+        markup_raw = (request.POST.get('pos_secret_markup_percent') or '').strip()
+        if markup_raw == '':
+            markup_pct = app.pos_secret_markup_percent
+        else:
+            markup_pct = parse_decimal(markup_raw)
+            if markup_pct < 0 or markup_pct > 1000:
+                messages.error(request, 'Ustama 0–1000% oralig‘ida bo‘lishi kerak.')
                 return redirect('app_settings')
         theme_mode = (request.POST.get('theme_mode') or AppSettings.THEME_SYSTEM).strip()
         if theme_mode not in dict(AppSettings.THEME_MODE_CHOICES):
@@ -3148,6 +3220,8 @@ def app_settings(request):
         app.vat_percent = vat_pct
         app.pos_secret_code = secret_code
         app.pos_secret_discount_percent = secret_pct
+        app.pos_secret_markup_code = markup_code
+        app.pos_secret_markup_percent = markup_pct
         app.theme_mode = theme_mode
         app.theme_day_start = day_start
         app.theme_night_start = night_start

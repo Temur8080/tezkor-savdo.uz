@@ -75,6 +75,12 @@
                 <span>−{{ discount_amount|money:order.currency }}</span>
             </div>
             {% endif %}
+            {% if markup_amount and markup_amount > 0 %}
+            <div class="flex justify-between text-sm text-amber-800 font-bold">
+                <span>USTAMA{% if markup_percent and markup_percent > 0 %} {{ markup_percent }}%{% endif %}</span>
+                <span>+{{ markup_amount|money:order.currency }}</span>
+            </div>
+            {% endif %}
             {% if vat_amount and vat_amount > 0 %}
             <div class="flex justify-between text-sm">
                 <span>{{ vat_label|default:"QQS" }}</span>

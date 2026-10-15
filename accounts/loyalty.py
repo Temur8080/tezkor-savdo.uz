@@ -14,6 +14,16 @@ def apply_discount(unit_price, discount_percent):
         pct = Decimal('100')
     return money(price * (Decimal('100') - pct) / Decimal('100'))
 
+
+def apply_markup(unit_price, markup_percent):
+    price = money(unit_price)
+    pct = money(markup_percent)
+    if pct <= 0:
+        return price
+    if pct > Decimal('1000'):
+        pct = Decimal('1000')
+    return money(price * (Decimal('100') + pct) / Decimal('100'))
+
 def customer_payload(customer):
     if not customer:
         return None

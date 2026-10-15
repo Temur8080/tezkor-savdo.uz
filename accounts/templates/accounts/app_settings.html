@@ -71,25 +71,40 @@
 
         <section class="bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-lg shadow-sm overflow-hidden">
             <div class="p-4 bg-gray-50 dark:bg-slate-800/80 border-b border-gray-200 dark:border-slate-700">
-                <h2 class="text-base font-bold text-gray-900 dark:text-slate-100">Kassa maxfiy chegirmasi</h2>
+                <h2 class="text-base font-bold text-gray-900 dark:text-slate-100">Kassa maxfiy chegirma / ustama</h2>
                 <p class="text-xs text-gray-500 dark:text-slate-400 mt-0.5">
-                    «Qabul qilingan naqd» maydoniga kod yozilsa, umumiy summadan foiz chegirma qo‘llanadi
+                    «Qabul qilingan naqd» maydoniga kod yozilsa chegirma yoki ustama qo‘llanadi (kodlar har xil bo‘lsin)
                 </p>
             </div>
             <div class="p-4 grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                    <label class="block text-xs font-semibold text-gray-600 dark:text-slate-400 mb-1">Maxfiy kod</label>
+                    <label class="block text-xs font-semibold text-gray-600 dark:text-slate-400 mb-1">Chegirma kodi</label>
                     <input type="text" name="pos_secret_code" id="pos-secret-code" value="{{ app.pos_secret_code }}"
                            maxlength="32" autocomplete="off"
-                           pattern="(?=.*[A-Za-zА-Яа-яЁёЎўҚқҒғҲҳ]).+"
+                           pattern="(?=.*[A-Za-zА-Яа-яЁёЎўҚқҒғҲҳ]).*"
                            title="Kamida bitta harf bo‘lishi shart (masalan: chegirma10)"
                            class="w-full px-3 py-2 border border-gray-300 dark:border-slate-600 rounded-md text-sm font-mono bg-white dark:bg-slate-950 dark:text-slate-100">
-                    <p class="mt-1 text-xs text-gray-500 dark:text-slate-400">Kamida bitta harf majburiy — faqat raqam bo‘lishi mumkin emas.</p>
+                    <p class="mt-1 text-xs text-gray-500 dark:text-slate-400">Kamida bitta harf majburiy.</p>
                 </div>
                 <div>
                     <label class="block text-xs font-semibold text-gray-600 dark:text-slate-400 mb-1">Chegirma %</label>
                     <input type="number" name="pos_secret_discount_percent" value="{{ app.pos_secret_discount_percent }}"
                            min="0" max="100" step="0.01"
+                           class="w-full px-3 py-2 border border-gray-300 dark:border-slate-600 rounded-md text-sm bg-white dark:bg-slate-950 dark:text-slate-100">
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-gray-600 dark:text-slate-400 mb-1">Ustama kodi</label>
+                    <input type="text" name="pos_secret_markup_code" id="pos-secret-markup-code" value="{{ app.pos_secret_markup_code }}"
+                           maxlength="32" autocomplete="off"
+                           pattern="(?=.*[A-Za-zА-Яа-яЁёЎўҚқҒғҲҳ]).*"
+                           title="Kamida bitta harf bo‘lishi shart (masalan: ustama10)"
+                           class="w-full px-3 py-2 border border-gray-300 dark:border-slate-600 rounded-md text-sm font-mono bg-white dark:bg-slate-950 dark:text-slate-100">
+                    <p class="mt-1 text-xs text-gray-500 dark:text-slate-400">Kamida bitta harf majburiy. Bo‘sh qoldirilsa ustama o‘chiriladi.</p>
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-gray-600 dark:text-slate-400 mb-1">Ustama %</label>
+                    <input type="number" name="pos_secret_markup_percent" value="{{ app.pos_secret_markup_percent }}"
+                           min="0" max="1000" step="0.01"
                            class="w-full px-3 py-2 border border-gray-300 dark:border-slate-600 rounded-md text-sm bg-white dark:bg-slate-950 dark:text-slate-100">
                 </div>
             </div>

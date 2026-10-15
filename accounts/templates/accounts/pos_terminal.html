@@ -35,10 +35,12 @@
     const CAN_COMPLETE_SALE = {{ can_complete_sale|yesno:"true,false" }};
     const SECRET_DISCOUNT_CODE = "{{ secret_discount_code|default:''|escapejs }}";
     const SECRET_DISCOUNT_PERCENT = parseFloat("{{ secret_discount_percent|default:'0' }}") || 0;
+    const SECRET_MARKUP_CODE = "{{ secret_markup_code|default:''|escapejs }}";
+    const SECRET_MARKUP_PERCENT = parseFloat("{{ secret_markup_percent|default:'0' }}") || 0;
 </script>
 
-<script src="{% static 'js/moneyFormat.js' %}?v=46"></script>
-<script src="{% static 'js/posScanner.js' %}?v=46"></script>
-<script src="{% static 'js/posUI.js' %}?v=46"></script>
-<script src="{% static 'js/posInit.js' %}?v=46"></script>
+<script src="{% static 'js/moneyFormat.js' %}?v=47"></script>
+<script src="{% static 'js/posScanner.js' %}?v=47"></script>
+<script src="{% static 'js/posUI.js' %}?v=47"></script>
+<script src="{% static 'js/posInit.js' %}?v=47"></script>
 {% endblock %}

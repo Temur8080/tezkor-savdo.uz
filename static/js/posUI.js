@@ -548,29 +548,58 @@ function getCheckoutCart() {
 }
 
 let checkoutDiscountPercent = 0
+let checkoutMarkupPercent = 0
 let loyaltyDiscountPercent = 0
 let secretDiscountActive = false
+let secretMarkupActive = false
 
 function syncCheckoutDiscountPercent() {
     const secretPct = secretDiscountActive
         ? Math.min(100, Math.max(0, parseFloat(typeof SECRET_DISCOUNT_PERCENT !== 'undefined' ? SECRET_DISCOUNT_PERCENT : 0) || 0))
         : 0
     const loyaltyPct = Math.min(100, Math.max(0, parseFloat(loyaltyDiscountPercent) || 0))
-    checkoutDiscountPercent = Math.max(loyaltyPct, secretPct)
+    checkoutDiscountPercent = secretMarkupActive ? 0 : Math.max(loyaltyPct, secretPct)
+    checkoutMarkupPercent = secretMarkupActive
+        ? Math.min(1000, Math.max(0, parseFloat(typeof SECRET_MARKUP_PERCENT !== 'undefined' ? SECRET_MARKUP_PERCENT : 0) || 0))
+        : 0
+}
+
+function getActiveSecretCode() {
+    if (secretMarkupActive) {
+        return (typeof SECRET_MARKUP_CODE !== 'undefined' ? SECRET_MARKUP_CODE : '') || ''
+    }
+    if (secretDiscountActive) {
+        return (typeof SECRET_DISCOUNT_CODE !== 'undefined' ? SECRET_DISCOUNT_CODE : '') || ''
+    }
+    return ''
 }
 
 function tryApplySecretDiscountFromCashInput() {
     const input = document.getElementById('cash-received-input')
     if (!input) return false
-    const expected = (typeof SECRET_DISCOUNT_CODE !== 'undefined' ? SECRET_DISCOUNT_CODE : '') || ''
-    if (!expected) return false
     const raw = (input.value || '').trim()
-    if (raw !== expected) return false
-    secretDiscountActive = true
-    syncCheckoutDiscountPercent()
-    input.value = ''
-    refreshCheckoutTotalsUI()
-    return true
+    if (!raw) return false
+
+    const markupCode = (typeof SECRET_MARKUP_CODE !== 'undefined' ? SECRET_MARKUP_CODE : '') || ''
+    const discountCode = (typeof SECRET_DISCOUNT_CODE !== 'undefined' ? SECRET_DISCOUNT_CODE : '') || ''
+
+    if (markupCode && raw === markupCode) {
+        secretMarkupActive = true
+        secretDiscountActive = false
+        syncCheckoutDiscountPercent()
+        input.value = ''
+        refreshCheckoutTotalsUI()
+        return true
+    }
+    if (discountCode && raw === discountCode) {
+        secretDiscountActive = true
+        secretMarkupActive = false
+        syncCheckoutDiscountPercent()
+        input.value = ''
+        refreshCheckoutTotalsUI()
+        return true
+    }
+    return false
 }
 
 function onCashReceivedInput() {
@@ -587,6 +616,10 @@ function getCheckoutListSubtotal() {
 
 function getCheckoutNetSubtotal() {
     const list = getCheckoutListSubtotal()
+    const markupPct = Math.min(1000, Math.max(0, parseFloat(checkoutMarkupPercent) || 0))
+    if (markupPct > 0) {
+        return Math.round(list * (100 + markupPct)) / 100
+    }
     const pct = Math.min(100, Math.max(0, parseFloat(checkoutDiscountPercent) || 0))
     return Math.round(list * (100 - pct)) / 100
 }
@@ -602,6 +635,7 @@ function refreshCheckoutTotalsUI() {
     const list = getCheckoutListSubtotal()
     const net = getCheckoutNetSubtotal()
     const save = Math.max(0, list - net)
+    const markup = Math.max(0, net - list)
     const priceEl = document.getElementById('cash-modal-price')
     if (priceEl) priceEl.textContent = formatMoney(currentGrandTotal, cur)
     const listRow = document.getElementById('cash-list-row')
@@ -609,15 +643,24 @@ function refreshCheckoutTotalsUI() {
     const listEl = document.getElementById('cash-list-price')
     const saveEl = document.getElementById('cash-save-amount')
     const saveLabel = document.getElementById('cash-save-label')
-    const pct = Math.min(100, Math.max(0, parseFloat(checkoutDiscountPercent) || 0))
-    if (save > 0.001) {
+    const discountPct = Math.min(100, Math.max(0, parseFloat(checkoutDiscountPercent) || 0))
+    const markupPct = Math.min(1000, Math.max(0, parseFloat(checkoutMarkupPercent) || 0))
+    if (save > 0.001 || markup > 0.001) {
         if (listRow) listRow.classList.remove('hidden')
         if (saveRow) saveRow.classList.remove('hidden')
         if (listEl) listEl.textContent = formatMoney(list + calcTax(list), cur)
-        if (saveEl) saveEl.textContent = '−' + formatMoney(save, cur)
-        if (saveLabel) {
-            const pctText = Number.isInteger(pct) ? String(pct) : String(Math.round(pct * 100) / 100)
-            saveLabel.textContent = pct > 0 ? ('Chegirma ' + pctText + '%') : 'Chegirma'
+        if (markup > 0.001) {
+            if (saveEl) saveEl.textContent = '+' + formatMoney(markup, cur)
+            if (saveLabel) {
+                const pctText = Number.isInteger(markupPct) ? String(markupPct) : String(Math.round(markupPct * 100) / 100)
+                saveLabel.textContent = markupPct > 0 ? ('Ustama ' + pctText + '%') : 'Ustama'
+            }
+        } else {
+            if (saveEl) saveEl.textContent = '−' + formatMoney(save, cur)
+            if (saveLabel) {
+                const pctText = Number.isInteger(discountPct) ? String(discountPct) : String(Math.round(discountPct * 100) / 100)
+                saveLabel.textContent = discountPct > 0 ? ('Chegirma ' + pctText + '%') : 'Chegirma'
+            }
         }
     } else {
         if (listRow) listRow.classList.add('hidden')
@@ -732,6 +775,7 @@ function openCheckoutModal(type){
 
     loyaltyDiscountPercent = 0
     secretDiscountActive = false
+    secretMarkupActive = false
     syncCheckoutDiscountPercent()
     const typeEl = document.getElementById('cash-cust-type')
     if (typeEl) typeEl.value = 'regular'
@@ -784,6 +828,7 @@ function closeCheckoutModal(){
     if (cashInput) cashInput.value = ''
     loyaltyDiscountPercent = 0
     secretDiscountActive = false
+    secretMarkupActive = false
     syncCheckoutDiscountPercent()
 }
 
@@ -861,9 +906,7 @@ async function submitQuoteOrder(paymentCart, totalAmount, customerData) {
                 totalAmount: payTotal,
                 customerData: customerData,
                 currency: payCurrency,
-                secretCode: secretDiscountActive
-                    ? ((typeof SECRET_DISCOUNT_CODE !== 'undefined' ? SECRET_DISCOUNT_CODE : '') || '')
-                    : '',
+                secretCode: getActiveSecretCode(),
             }),
         })
         const data = await response.json()
@@ -904,9 +947,7 @@ async function processCashPayment(paymentCart, totalAmount, cashReceived, change
                 customerData: customerData,
                 paymentMethod: 'CASH',
                 currency: payCurrency,
-                secretCode: secretDiscountActive
-                    ? ((typeof SECRET_DISCOUNT_CODE !== 'undefined' ? SECRET_DISCOUNT_CODE : '') || '')
-                    : '',
+                secretCode: getActiveSecretCode(),
             })
         })
 

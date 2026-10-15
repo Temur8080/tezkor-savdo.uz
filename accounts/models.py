@@ -425,6 +425,20 @@ class AppSettings(models.Model):
         default=10,
         help_text='Maxfiy kod kiritilganda umumiy summadan chegirma foizi',
     )
+    pos_secret_markup_code = models.CharField(
+        'Kassa maxfiy ustama kodi',
+        max_length=32,
+        blank=True,
+        default='',
+        help_text='Kassada «Qabul qilingan naqd» maydoniga shu kod yozilsa ustama qo‘llanadi',
+    )
+    pos_secret_markup_percent = models.DecimalField(
+        'Maxfiy kod ustamasi %',
+        max_digits=5,
+        decimal_places=2,
+        default=0,
+        help_text='Ustama kodi kiritilganda umumiy summaga qo‘shiladigan foiz',
+    )
     THEME_SYSTEM = 'system'
     THEME_DAY = 'day'
     THEME_NIGHT = 'night'

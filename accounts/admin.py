@@ -467,11 +467,13 @@ class AppSettingsAdmin(admin.ModelAdmin):
     list_display = (
         'usd_to_uzs', 'vat_enabled', 'vat_percent',
         'pos_secret_code', 'pos_secret_discount_percent',
+        'pos_secret_markup_code', 'pos_secret_markup_percent',
         'theme_mode', 'updated_at',
     )
     fields = (
         'usd_to_uzs', 'vat_enabled', 'vat_percent',
         'pos_secret_code', 'pos_secret_discount_percent',
+        'pos_secret_markup_code', 'pos_secret_markup_percent',
         'theme_mode', 'theme_day_start', 'theme_night_start', 'updated_at',
     )
     readonly_fields = ('updated_at',)
