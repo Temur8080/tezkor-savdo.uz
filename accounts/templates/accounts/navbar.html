@@ -2,24 +2,24 @@
 
 {% with url_name=request.resolver_match.url_name|default:'' %}
 <nav id="tezkor-nav" class="bg-white dark:bg-slate-900 fixed w-full z-30 top-0 start-0 border-b border-gray-200 dark:border-slate-700">
-  <div class="w-full flex flex-wrap items-center justify-between gap-2 px-3 sm:px-6 py-3">
+  <div class="w-full flex flex-wrap items-center justify-between gap-2 px-3 sm:px-6 py-2.5 md:py-3">
 
-    <div class="flex items-center gap-2 min-w-0 flex-1">
+    <div class="flex items-center gap-2 min-w-0 shrink-0">
         <a href="{% url 'pos_terminal' %}" class="flex items-center gap-2 shrink-0">
             {% if brand.logo_is_static %}
             <img src="{% static brand.logo_url %}" class="h-9 sm:h-10 w-auto object-contain" alt="{{ brand.brand_name }}" />
             {% else %}
             <img src="{{ brand.logo_url }}" class="h-9 sm:h-10 w-auto object-contain" alt="{{ brand.brand_name }}" />
             {% endif %}
-            <span class="hidden sm:block text-lg font-black text-slate-800 dark:text-slate-100 tracking-tight">{{ brand.brand_name }}</span>
+            <span class="hidden lg:block text-lg font-black text-slate-800 dark:text-slate-100 tracking-tight">{{ brand.brand_name }}</span>
         </a>
 
         <div class="text-gray-700 dark:text-slate-300 font-semibold flex items-center gap-1.5 min-w-0 text-xs sm:text-sm">
             {% if request.user.is_superuser %}
             <span class="truncate">Admin</span>
             {% elif request.user.employee %}
-            <span class="truncate max-w-[7rem] sm:max-w-none">{{ request.user.employee.name }}</span>
-            <span class="hidden xs:inline bg-blue-100 dark:bg-blue-900/50 text-blue-800 dark:text-blue-200 text-[10px] sm:text-xs font-bold px-2 py-0.5 rounded shrink-0">
+            <span class="truncate max-w-[7rem] md:max-w-[9rem] lg:max-w-none">{{ request.user.employee.name }}</span>
+            <span class="hidden xl:inline bg-blue-100 dark:bg-blue-900/50 text-blue-800 dark:text-blue-200 text-[10px] sm:text-xs font-bold px-2 py-0.5 rounded shrink-0">
                 {{ request.user.employee.get_role_display }}
             </span>
             {% else %}
@@ -40,137 +40,165 @@
       </svg>
     </button>
 
-    <div class="hidden w-full md:block md:w-auto max-h-[calc(100vh-4.5rem)] overflow-y-auto md:max-h-none md:overflow-visible" id="navbar-default">
+    <div class="hidden w-full md:block md:w-auto md:flex-1 md:min-w-0 max-h-[calc(100vh-4.5rem)] overflow-y-auto md:max-h-none md:overflow-visible" id="navbar-default">
       <ul class="font-medium flex flex-col p-3 md:p-0 mt-2 md:mt-0 border border-gray-100 dark:border-slate-700 rounded-xl
-                 bg-gray-50 dark:bg-slate-900 md:flex-row md:flex-wrap md:gap-x-4 md:gap-y-1 lg:gap-x-5
-                 rtl:space-x-reverse md:border-0 md:bg-white md:dark:bg-slate-900 md:items-center">
+                 bg-gray-50 dark:bg-slate-900 md:flex-row md:flex-nowrap md:justify-end md:gap-x-3 lg:gap-x-4
+                 rtl:space-x-reverse md:border-0 md:bg-white md:dark:bg-slate-900 md:items-center md:text-sm">
 
         {% if request.user.is_superuser or request.user.employee and request.user.employee.role == 'Manager' %}
 
         <li>
           <a href="{% url 'dashboard' %}"
-             class="nav-link block py-2.5 px-3 rounded-lg md:px-0 md:py-1 md:rounded-none border-b-2 transition
+             class="nav-link block py-2.5 px-3 rounded-lg md:px-0 md:py-1 md:rounded-none border-b-2 transition whitespace-nowrap
              {% if url_name == 'dashboard' %}is-active{% endif %}">
-            Boshqaruv paneli
+            Boshqaruv
           </a>
         </li>
         <li>
           <a href="{% url 'pos_terminal' %}"
-             class="nav-link block py-2.5 px-3 rounded-lg md:px-0 md:py-1 md:rounded-none border-b-2 transition
+             class="nav-link block py-2.5 px-3 rounded-lg md:px-0 md:py-1 md:rounded-none border-b-2 transition whitespace-nowrap
              {% if url_name == 'pos_terminal' %}is-active{% endif %}">
             Kassa
           </a>
         </li>
         <li>
           <a href="{% url 'sales_display' %}"
-             class="nav-link block py-2.5 px-3 rounded-lg md:px-0 md:py-1 md:rounded-none border-b-2 transition
+             class="nav-link block py-2.5 px-3 rounded-lg md:px-0 md:py-1 md:rounded-none border-b-2 transition whitespace-nowrap
              {% if url_name == 'sales_display' or url_name == 'sales_edit' or url_name == 'emp_receipt' %}is-active{% endif %}">
             Sotuvlar
           </a>
         </li>
         <li>
           <a href="{% url 'branch_inventory' %}"
-             class="nav-link block py-2.5 px-3 rounded-lg md:px-0 md:py-1 md:rounded-none border-b-2 transition
+             class="nav-link block py-2.5 px-3 rounded-lg md:px-0 md:py-1 md:rounded-none border-b-2 transition whitespace-nowrap
              {% if url_name == 'branch_inventory' or url_name == 'inventory_update' %}is-active{% endif %}">
             Ombor
           </a>
         </li>
         <li>
-          <a href="{% url 'inventory_intake' %}"
-             class="nav-link block py-2.5 px-3 rounded-lg md:px-0 md:py-1 md:rounded-none border-b-2 transition
-             {% if url_name == 'inventory_intake' %}is-active{% endif %}">
-            Ombor kirimi
-          </a>
-        </li>
-        <li>
           <a href="{% url 'admin_reports' %}"
-             class="nav-link block py-2.5 px-3 rounded-lg md:px-0 md:py-1 md:rounded-none border-b-2 transition
+             class="nav-link block py-2.5 px-3 rounded-lg md:px-0 md:py-1 md:rounded-none border-b-2 transition whitespace-nowrap
              {% if url_name == 'admin_reports' %}is-active{% endif %}">
             Hisobotlar
           </a>
         </li>
         <li>
           <a href="{% url 'customers_loyalty' %}"
-             class="nav-link block py-2.5 px-3 rounded-lg md:px-0 md:py-1 md:rounded-none border-b-2 transition
+             class="nav-link block py-2.5 px-3 rounded-lg md:px-0 md:py-1 md:rounded-none border-b-2 transition whitespace-nowrap
              {% if url_name == 'customers_loyalty' or url_name == 'customer_detail' %}is-active{% endif %}">
             Mijozlar
           </a>
         </li>
-        <li>
+
+        {# Mobile: secondary links inline #}
+        <li class="md:hidden">
+          <a href="{% url 'inventory_intake' %}"
+             class="nav-link block py-2.5 px-3 rounded-lg border-b-2 transition
+             {% if url_name == 'inventory_intake' %}is-active{% endif %}">
+            Ombor kirimi
+          </a>
+        </li>
+        <li class="md:hidden">
           <a href="{% url 'employee_list' %}"
-             class="nav-link block py-2.5 px-3 rounded-lg md:px-0 md:py-1 md:rounded-none border-b-2 transition
+             class="nav-link block py-2.5 px-3 rounded-lg border-b-2 transition
              {% if url_name == 'employee_list' or url_name == 'employee_form' or url_name == 'manage_employee' %}is-active{% endif %}">
             Xodimlar
           </a>
         </li>
-        <li>
+        <li class="md:hidden">
           <a href="{% url 'warranty_list' %}"
-             class="nav-link block py-2.5 px-3 rounded-lg md:px-0 md:py-1 md:rounded-none border-b-2 transition
+             class="nav-link block py-2.5 px-3 rounded-lg border-b-2 transition
              {% if url_name == 'warranty_list' or url_name == 'warranty' %}is-active{% endif %}">
             Kafolat
           </a>
         </li>
-        <li>
+        <li class="md:hidden">
           <a href="{% url 'debtors_list' %}"
-             class="nav-link block py-2.5 px-3 rounded-lg md:px-0 md:py-1 md:rounded-none border-b-2 transition
+             class="nav-link block py-2.5 px-3 rounded-lg border-b-2 transition
              {% if url_name == 'debtors_list' or url_name == 'debt_pay' or url_name == 'debt_edit' %}is-active{% endif %}">
             Qarzdorlar
           </a>
         </li>
-        <li>
+        <li class="md:hidden">
           <a href="{% url 'reservations_list' %}"
-             class="nav-link block py-2.5 px-3 rounded-lg md:px-0 md:py-1 md:rounded-none border-b-2 transition
+             class="nav-link block py-2.5 px-3 rounded-lg border-b-2 transition
              {% if url_name == 'reservations_list' or url_name == 'reservation_cancel' %}is-active{% endif %}">
             Bronlar
           </a>
         </li>
-        <li>
+        <li class="md:hidden">
           <a href="{% url 'expenses_list' %}"
-             class="nav-link block py-2.5 px-3 rounded-lg md:px-0 md:py-1 md:rounded-none border-b-2 transition
+             class="nav-link block py-2.5 px-3 rounded-lg border-b-2 transition
              {% if url_name == 'expenses_list' or url_name == 'expense_delete' %}is-active{% endif %}">
             Xarajatlar
           </a>
         </li>
-        <li>
+        <li class="md:hidden">
           <a href="{% url 'audit_logs' %}"
-             class="nav-link block py-2.5 px-3 rounded-lg md:px-0 md:py-1 md:rounded-none border-b-2 transition
+             class="nav-link block py-2.5 px-3 rounded-lg border-b-2 transition
              {% if url_name == 'audit_logs' %}is-active{% endif %}">
             Audit
           </a>
         </li>
-        <li>
+        <li class="md:hidden">
           <a href="{% url 'app_settings' %}"
-             class="nav-link flex items-center gap-2 py-2.5 px-3 rounded-lg md:px-1 md:py-1 md:rounded-none border-b-2 transition
+             class="nav-link flex items-center gap-2 py-2.5 px-3 rounded-lg border-b-2 transition
              {% if url_name == 'app_settings' %}is-active{% endif %}">
-            <svg class="h-5 w-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8"
-                    d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-            </svg>
-            <span class="md:sr-only">Sozlamalar</span>
+            Sozlamalar
           </a>
+        </li>
+
+        {# Desktop: secondary links in "Yana" dropdown #}
+        <li class="hidden md:block relative" id="nav-more-wrap">
+          <button type="button" id="nav-more-btn"
+                  class="nav-link nav-more-trigger inline-flex items-center gap-1 py-1 px-0 border-b-2 transition whitespace-nowrap
+                  {% if url_name == 'inventory_intake' or url_name == 'employee_list' or url_name == 'employee_form' or url_name == 'manage_employee' or url_name == 'warranty_list' or url_name == 'warranty' or url_name == 'debtors_list' or url_name == 'debt_pay' or url_name == 'debt_edit' or url_name == 'reservations_list' or url_name == 'reservation_cancel' or url_name == 'expenses_list' or url_name == 'expense_delete' or url_name == 'audit_logs' or url_name == 'app_settings' %}is-active{% endif %}"
+                  aria-expanded="false" aria-haspopup="true" aria-controls="nav-more-menu">
+            Yana
+            <svg class="w-3.5 h-3.5 opacity-70" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5" aria-hidden="true">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/>
+            </svg>
+          </button>
+          <div id="nav-more-menu" class="nav-more-menu hidden absolute right-0 top-full mt-2 min-w-[12.5rem] py-1.5 rounded-xl border border-gray-200 dark:border-slate-600 bg-white dark:bg-slate-900 shadow-lg z-50" role="menu">
+            <a href="{% url 'inventory_intake' %}" role="menuitem"
+               class="nav-more-link {% if url_name == 'inventory_intake' %}is-active{% endif %}">Ombor kirimi</a>
+            <a href="{% url 'employee_list' %}" role="menuitem"
+               class="nav-more-link {% if url_name == 'employee_list' or url_name == 'employee_form' or url_name == 'manage_employee' %}is-active{% endif %}">Xodimlar</a>
+            <a href="{% url 'warranty_list' %}" role="menuitem"
+               class="nav-more-link {% if url_name == 'warranty_list' or url_name == 'warranty' %}is-active{% endif %}">Kafolat</a>
+            <a href="{% url 'debtors_list' %}" role="menuitem"
+               class="nav-more-link {% if url_name == 'debtors_list' or url_name == 'debt_pay' or url_name == 'debt_edit' %}is-active{% endif %}">Qarzdorlar</a>
+            <a href="{% url 'reservations_list' %}" role="menuitem"
+               class="nav-more-link {% if url_name == 'reservations_list' or url_name == 'reservation_cancel' %}is-active{% endif %}">Bronlar</a>
+            <a href="{% url 'expenses_list' %}" role="menuitem"
+               class="nav-more-link {% if url_name == 'expenses_list' or url_name == 'expense_delete' %}is-active{% endif %}">Xarajatlar</a>
+            <a href="{% url 'audit_logs' %}" role="menuitem"
+               class="nav-more-link {% if url_name == 'audit_logs' %}is-active{% endif %}">Audit</a>
+            <a href="{% url 'app_settings' %}" role="menuitem"
+               class="nav-more-link {% if url_name == 'app_settings' %}is-active{% endif %}">Sozlamalar</a>
+          </div>
         </li>
 
         {% else %}
 
         <li>
           <a href="{% url 'pos_terminal' %}"
-             class="nav-link block py-2.5 px-3 rounded-lg md:px-0 md:py-1 md:rounded-none border-b-2 transition
+             class="nav-link block py-2.5 px-3 rounded-lg md:px-0 md:py-1 md:rounded-none border-b-2 transition whitespace-nowrap
              {% if url_name == 'pos_terminal' %}is-active{% endif %}">
-            Kassa terminali
+            Kassa
           </a>
         </li>
         {% if request.user.employee.role != 'Consultant' %}
         <li>
           <a href="{% url 'branch_inventory' %}"
-             class="nav-link block py-2.5 px-3 rounded-lg md:px-0 md:py-1 md:rounded-none border-b-2 transition
+             class="nav-link block py-2.5 px-3 rounded-lg md:px-0 md:py-1 md:rounded-none border-b-2 transition whitespace-nowrap
              {% if url_name == 'branch_inventory' or url_name == 'inventory_update' %}is-active{% endif %}">
-            Filial ombori
+            Ombor
           </a>
         </li>
         <li>
           <a href="{% url 'inventory_intake' %}"
-             class="nav-link block py-2.5 px-3 rounded-lg md:px-0 md:py-1 md:rounded-none border-b-2 transition
+             class="nav-link block py-2.5 px-3 rounded-lg md:px-0 md:py-1 md:rounded-none border-b-2 transition whitespace-nowrap
              {% if url_name == 'inventory_intake' %}is-active{% endif %}">
             Ombor kirimi
           </a>
@@ -178,15 +206,15 @@
         {% endif %}
         <li>
           <a href="{% url 'sales_display' %}"
-             class="nav-link block py-2.5 px-3 rounded-lg md:px-0 md:py-1 md:rounded-none border-b-2 transition
+             class="nav-link block py-2.5 px-3 rounded-lg md:px-0 md:py-1 md:rounded-none border-b-2 transition whitespace-nowrap
              {% if url_name == 'sales_display' or url_name == 'sales_edit' or url_name == 'emp_receipt' %}is-active{% endif %}">
-            Mening sotuvlarim
+            Sotuvlar
           </a>
         </li>
         {% if request.user.employee.role != 'Consultant' %}
         <li>
           <a href="{% url 'debtors_list' %}"
-             class="nav-link block py-2.5 px-3 rounded-lg md:px-0 md:py-1 md:rounded-none border-b-2 transition
+             class="nav-link block py-2.5 px-3 rounded-lg md:px-0 md:py-1 md:rounded-none border-b-2 transition whitespace-nowrap
              {% if url_name == 'debtors_list' or url_name == 'debt_pay' or url_name == 'debt_edit' %}is-active{% endif %}">
             Qarzdorlar
           </a>
@@ -194,14 +222,14 @@
         {% endif %}
         <li>
           <a href="{% url 'reservations_list' %}"
-             class="nav-link block py-2.5 px-3 rounded-lg md:px-0 md:py-1 md:rounded-none border-b-2 transition
+             class="nav-link block py-2.5 px-3 rounded-lg md:px-0 md:py-1 md:rounded-none border-b-2 transition whitespace-nowrap
              {% if url_name == 'reservations_list' or url_name == 'reservation_cancel' %}is-active{% endif %}">
             Bronlar
           </a>
         </li>
         <li>
           <a href="{% url 'employee_profile' %}"
-             class="nav-link block py-2.5 px-3 rounded-lg md:px-0 md:py-1 md:rounded-none border-b-2 transition
+             class="nav-link block py-2.5 px-3 rounded-lg md:px-0 md:py-1 md:rounded-none border-b-2 transition whitespace-nowrap
              {% if url_name == 'employee_profile' %}is-active{% endif %}">
             Profil
           </a>
@@ -209,10 +237,10 @@
 
         {% endif %}
 
-        <li class="md:ml-1">
+        <li class="md:ml-1 shrink-0">
              <form action="{% url 'logout' %}" method="post" class="inline w-full">
                 {% csrf_token %}
-                <button type="submit" class="nav-logout block py-2.5 px-3 w-full text-left rounded-lg md:border-0 md:p-0">
+                <button type="submit" class="nav-logout block py-2.5 px-3 w-full text-left rounded-lg md:border-0 md:p-0 whitespace-nowrap">
                     Chiqish
                 </button>
             </form>
@@ -228,38 +256,82 @@
   var menu = document.getElementById('navbar-default');
   var iconOpen = document.getElementById('nav-icon-open');
   var iconClose = document.getElementById('nav-icon-close');
-  if (!btn || !menu) return;
+  var nav = document.getElementById('tezkor-nav');
+  var moreBtn = document.getElementById('nav-more-btn');
+  var moreMenu = document.getElementById('nav-more-menu');
+  var moreWrap = document.getElementById('nav-more-wrap');
+
+  function syncNavHeight() {
+    if (!nav) return;
+    var h = Math.ceil(nav.getBoundingClientRect().height);
+    document.documentElement.style.setProperty('--tezkor-nav-h', h + 'px');
+  }
 
   function setOpen(open) {
+    if (!btn || !menu) return;
     menu.classList.toggle('hidden', !open);
     btn.setAttribute('aria-expanded', open ? 'true' : 'false');
     if (iconOpen) iconOpen.classList.toggle('hidden', open);
     if (iconClose) iconClose.classList.toggle('hidden', !open);
     document.body.classList.toggle('nav-menu-open', open);
+    syncNavHeight();
   }
 
-  btn.addEventListener('click', function () {
-    setOpen(menu.classList.contains('hidden'));
-  });
+  function setMoreOpen(open) {
+    if (!moreBtn || !moreMenu) return;
+    moreMenu.classList.toggle('hidden', !open);
+    moreBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
+    moreBtn.classList.toggle('is-open', open);
+  }
 
-  menu.querySelectorAll('a.nav-link').forEach(function (link) {
-    link.addEventListener('click', function () {
-      if (window.matchMedia('(max-width: 767px)').matches) setOpen(false);
+  if (btn && menu) {
+    btn.addEventListener('click', function () {
+      setOpen(menu.classList.contains('hidden'));
     });
-  });
 
-  window.addEventListener('resize', function () {
-    if (window.matchMedia('(min-width: 768px)').matches) {
-      menu.classList.remove('hidden');
-      menu.classList.add('md:block');
-      if (iconOpen) iconOpen.classList.remove('hidden');
-      if (iconClose) iconClose.classList.add('hidden');
-      btn.setAttribute('aria-expanded', 'false');
-      document.body.classList.remove('nav-menu-open');
-    } else if (btn.getAttribute('aria-expanded') !== 'true') {
-      menu.classList.add('hidden');
-    }
-  });
+    menu.querySelectorAll('a.nav-link, a.nav-more-link').forEach(function (link) {
+      link.addEventListener('click', function () {
+        if (window.matchMedia('(max-width: 767px)').matches) setOpen(false);
+        setMoreOpen(false);
+      });
+    });
+
+    window.addEventListener('resize', function () {
+      if (window.matchMedia('(min-width: 768px)').matches) {
+        menu.classList.remove('hidden');
+        menu.classList.add('md:block');
+        if (iconOpen) iconOpen.classList.remove('hidden');
+        if (iconClose) iconClose.classList.add('hidden');
+        btn.setAttribute('aria-expanded', 'false');
+        document.body.classList.remove('nav-menu-open');
+      } else if (btn.getAttribute('aria-expanded') !== 'true') {
+        menu.classList.add('hidden');
+        setMoreOpen(false);
+      }
+      syncNavHeight();
+    });
+  }
+
+  if (moreBtn && moreMenu) {
+    moreBtn.addEventListener('click', function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      setMoreOpen(moreMenu.classList.contains('hidden'));
+    });
+    document.addEventListener('click', function (e) {
+      if (!moreWrap) return;
+      if (!moreWrap.contains(e.target)) setMoreOpen(false);
+    });
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape') setMoreOpen(false);
+    });
+  }
+
+  syncNavHeight();
+  window.addEventListener('load', syncNavHeight);
+  if (nav && typeof ResizeObserver !== 'undefined') {
+    new ResizeObserver(syncNavHeight).observe(nav);
+  }
 })();
 </script>
 {% endwith %}

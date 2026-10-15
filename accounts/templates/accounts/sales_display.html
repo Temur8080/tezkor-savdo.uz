@@ -1,9 +1,11 @@
 {% extends 'accounts/main.html' %}
+{% load static %}
 
 {% block content %}
 
 <div class="bg-white border border-gray-200 rounded-lg shadow-sm overflow-hidden">
     <form method="get" class="flex flex-row flex-wrap items-center justify-between gap-4 p-4 bg-gray-50 border-b">
+        {% if per_page %}<input type="hidden" name="per_page" value="{{ per_page }}">{% endif %}
         <div class="flex flex-row gap-2">
             <div class="flex flex-col">
                 <label class="text-xs font-semibold text-gray-600 mb-1">Xodim ismi</label>
@@ -192,22 +194,24 @@
     </div>
 </div>
 
-<div class="flex items-center justify-between p-4 bg-white border-t border-gray-200">
+<div class="flex flex-wrap items-center justify-between gap-2 p-4 bg-white border-t border-gray-200">
     <span class="text-sm text-gray-700">
-        Sahifa <span class="font-semibold text-gray-900">{{ sales.number }}</span> dan
+        Sahifa <span class="font-semibold text-gray-900">{{ sales.number }}</span> /
         <span class="font-semibold text-gray-900">{{ sales.paginator.num_pages }}</span>
+        <span class="text-gray-400">·</span>
+        sahifada {{ per_page|default:sales.paginator.per_page }} ta
     </span>
 
-    <div class="inline-flex mt-2 xs:mt-0">
+    <div class="inline-flex">
         {% if sales.has_previous %}
-            <a href="?page={{ sales.previous_page_number }}{% if request.GET.urlencode %}&{{ request.GET.urlencode|cut:'page=' }}{% endif %}"
+            <a href="?{% for key, value in request.GET.items %}{% if key != 'page' %}{{ key }}={{ value|urlencode }}&{% endif %}{% endfor %}page={{ sales.previous_page_number }}"
                class="flex items-center justify-center px-3 h-8 text-sm font-medium text-white bg-gray-800 rounded-s hover:bg-gray-900">
                 Oldingi
             </a>
         {% endif %}
 
         {% if sales.has_next %}
-            <a href="?page={{ sales.next_page_number }}{% if request.GET.urlencode %}&{{ request.GET.urlencode|cut:'page=' }}{% endif %}"
+            <a href="?{% for key, value in request.GET.items %}{% if key != 'page' %}{{ key }}={{ value|urlencode }}&{% endif %}{% endfor %}page={{ sales.next_page_number }}"
                class="flex items-center justify-center px-3 h-8 text-sm font-medium text-white bg-gray-800 border-0 border-s border-gray-700 rounded-e hover:bg-gray-900">
                 Keyingi
             </a>
@@ -215,4 +219,5 @@
     </div>
 </div>
 
+<script src="{% static 'js/listPageFit.js' %}?v=1"></script>
 {% endblock %}

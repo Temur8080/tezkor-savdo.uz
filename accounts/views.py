@@ -62,6 +62,16 @@ import csv
 _ZERO_MONEY = Decimal('0.00')
 
 
+def _list_page_size(request, default=15, minimum=7, maximum=50):
+    """Ekran balandligiga moslashuvchi ro‘yxat: ?per_page=N (JS belgilaydi)."""
+    raw = request.GET.get('per_page')
+    try:
+        n = int(raw)
+    except (TypeError, ValueError):
+        n = default
+    return max(minimum, min(maximum, n))
+
+
 def _active_order_stats_qs():
     return (
         Order.objects.filter(is_active=True, deleted_at__isnull=True)
@@ -1011,7 +1021,8 @@ def salesDisplay(request):
             grand_total += convert_amount(line, CURRENCY_USD, CURRENCY_UZS, usd_rate)
         else:
             grand_total += Decimal(line)
-    paginator = Paginator(filtered_items, 7)
+    per_page = _list_page_size(request, default=15)
+    paginator = Paginator(filtered_items, per_page)
     page_obj = paginator.get_page(request.GET.get('page'))
     sales_agent_stats = None
     if emp and not is_manager:
@@ -1024,6 +1035,7 @@ def salesDisplay(request):
         'inst': debt_order_count,
         'cash_sales': cash_sales,
         'sales_agent_stats': sales_agent_stats,
+        'per_page': per_page,
     })
 
 @login_required(login_url='login')
@@ -1129,7 +1141,8 @@ def branchInventory(request):
 
     myFilter = InventoryFilter(request.GET, queryset=items)
     filtered_items = myFilter.qs
-    paginator = Paginator(filtered_items, 8)
+    per_page = _list_page_size(request, default=15)
+    paginator = Paginator(filtered_items, per_page)
     page_obj = paginator.get_page(request.GET.get('page'))
 
     return render(request, 'accounts/branch_inventory.html', {
@@ -1138,6 +1151,7 @@ def branchInventory(request):
         'assigned_branch': assigned_branch,
         'is_manager': is_manager,
         'show_archived': show_archived,
+        'per_page': per_page,
     })
 
 @login_required(login_url='login')

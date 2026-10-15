@@ -41,13 +41,16 @@
         tailwind.config = { darkMode: 'class' };
     </script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/flowbite/2.3.0/flowbite.min.css" rel="stylesheet" />
-    <link href="{% static 'css/theme.css' %}?v=11" rel="stylesheet" />
+    <link href="{% static 'css/theme.css' %}?v=12" rel="stylesheet" />
     <title>{{ brand.brand_name|default:"Tezkor" }} Kassa</title>
 
     <style>
         html { font-size: 0.95rem; }
         @media (max-width: 640px) {
             html { font-size: 1rem; }
+        }
+        .page-main {
+            padding-top: calc(var(--tezkor-nav-h, 5.5rem) + 0.75rem);
         }
     </style>
 
@@ -57,7 +60,7 @@
 
     {% include 'accounts/navbar.html' %}
 
-    <main class="page-main pt-20 sm:pt-24 px-3 sm:px-6 pb-6 sm:pb-8">
+    <main class="page-main px-3 sm:px-6 pb-6 sm:pb-8">
         {% block content %}
 
         {% endblock %}

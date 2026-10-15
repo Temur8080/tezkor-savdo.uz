@@ -241,6 +241,32 @@ html.dark ::-webkit-scrollbar-track {
   background-color: #f3f4f6;
 }
 
+#tezkor-nav .nav-more-link {
+  display: block;
+  padding: 0.55rem 0.9rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: #374151;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+#tezkor-nav .nav-more-link:hover {
+  background-color: #f3f4f6;
+  color: #0f766e;
+}
+
+#tezkor-nav .nav-more-link.is-active {
+  color: #0f766e;
+  font-weight: 700;
+  background-color: #f0fdfa;
+}
+
+#tezkor-nav .nav-more-trigger.is-open {
+  color: #0f766e;
+  border-color: #0d9488;
+}
+
 @media (min-width: 768px) {
   #tezkor-nav .nav-link:hover,
   #tezkor-nav .nav-link.is-active,
@@ -281,6 +307,25 @@ html.dark #tezkor-nav .nav-logout {
 html.dark #tezkor-nav .nav-logout:hover {
   color: #fca5a5 !important;
   background-color: #1e293b !important;
+}
+
+html.dark #tezkor-nav .nav-more-link {
+  color: #cbd5e1 !important;
+}
+
+html.dark #tezkor-nav .nav-more-link:hover {
+  color: #5eead4 !important;
+  background-color: #1e293b !important;
+}
+
+html.dark #tezkor-nav .nav-more-link.is-active {
+  color: #5eead4 !important;
+  background-color: rgba(13, 148, 136, 0.18) !important;
+}
+
+html.dark #tezkor-nav .nav-more-menu {
+  background-color: #0f172a !important;
+  border-color: #334155 !important;
 }
 
 @media (min-width: 768px) {
