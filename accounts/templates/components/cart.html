@@ -6,10 +6,23 @@
                 <p class="text-xs text-sky-700/80 mt-0.5">Mijoz: Oddiy mijoz</p>
             </div>
             <div class="flex flex-wrap items-center gap-1.5 shrink-0">
-                <button type="button" id="reserve-order-btn"
-                        class="px-3 py-1.5 rounded-md bg-amber-500 text-white text-xs font-semibold border border-amber-600 hover:bg-amber-600 transition shadow-sm touch-manipulation">
-                    Bronlash
-                </button>
+                <div class="relative" id="reserve-btn-wrap">
+                    <button type="button" id="reserve-order-btn"
+                            class="px-3 py-1.5 rounded-md bg-amber-500 text-white text-xs font-semibold border border-amber-600 hover:bg-amber-600 transition shadow-sm touch-manipulation">
+                        Bronlash
+                    </button>
+                    <button type="button" id="reserve-count-badge"
+                            class="hidden absolute -top-2 -right-2 min-w-[1.25rem] h-5 px-1 rounded-full bg-red-600 text-white text-[10px] font-bold leading-5 shadow border border-white touch-manipulation z-10"
+                            title="Bronlar ro‘yxati" aria-label="Bronlar soni">0</button>
+                    <div id="reserved-orders-dropdown"
+                         class="hidden absolute right-0 top-full mt-2 w-72 max-w-[85vw] z-30 bg-white border border-amber-300 rounded-lg shadow-lg p-2">
+                        <div class="flex items-center justify-between gap-2 px-1 pb-2 mb-1 border-b border-amber-100">
+                            <p class="text-[10px] font-semibold uppercase tracking-wide text-amber-800">Bronlar</p>
+                            <a href="{% url 'reservations_list' %}" class="text-[10px] font-semibold text-amber-700 hover:underline">Barchasi →</a>
+                        </div>
+                        <div id="reserved-orders-list" class="space-y-2 max-h-56 overflow-y-auto"></div>
+                    </div>
+                </div>
                 <button type="button" id="hold-order-btn"
                         class="px-3 py-1.5 rounded-md bg-white/90 text-sky-800 text-xs font-semibold border border-sky-300 hover:bg-white transition shadow-sm touch-manipulation">
                     Zahiralash
@@ -25,17 +38,6 @@
                 </p>
             </div>
             <div id="held-orders-list" class="space-y-2 max-h-28 overflow-y-auto"></div>
-        </div>
-
-        <div id="reserved-orders-panel" class="mt-3 hidden">
-            <div class="flex items-center justify-between gap-2 mb-2">
-                <p class="text-[10px] font-semibold uppercase tracking-wide text-amber-800">
-                    Bronlangan
-                    <span id="reserved-orders-count" class="ml-1 inline-flex items-center justify-center min-w-[1.25rem] h-5 px-1.5 rounded-full bg-amber-600 text-white text-[10px] font-bold"></span>
-                </p>
-                <a href="{% url 'reservations_list' %}" class="text-[10px] font-semibold text-amber-700 hover:underline">Barchasi →</a>
-            </div>
-            <div id="reserved-orders-list" class="space-y-2 max-h-32 overflow-y-auto"></div>
         </div>
     </div>
 

@@ -2467,14 +2467,71 @@ def reservations_active_api(request):
             'created_at': r.created_at.isoformat() if r.created_at else '',
             'items': [
                 {
+                    'id': it.product_id,
                     'name': it.product.product_name if it.product_id else '',
                     'qty': it.quantity,
                     'price': float(it.unit_price or 0),
+                    'currency': r.currency,
+                    'img': it.product.image.url if it.product_id and it.product.image else '',
                 }
                 for it in r.items.all()
             ],
         })
     return JsonResponse({'reservations': rows})
+
+
+@login_required(login_url='login')
+@transaction.atomic
+def reservation_to_cart(request, pk):
+    """Release held stock and return cart lines so POS can open this bron."""
+    if request.method != 'POST':
+        return JsonResponse({'success': False, 'message': 'POST kerak'}, status=405)
+
+    reservation = get_object_or_404(
+        ProductReservation.objects.select_related('branch').prefetch_related('items__product'),
+        pk=pk,
+    )
+    emp = get_active_employee(request.user)
+    if not is_app_manager(request.user):
+        if emp is None or reservation.branch_id != emp.branch_id:
+            raise PermissionDenied
+    if reservation.status != 'Active':
+        return JsonResponse({'success': False, 'message': 'Bu bron allaqachon yopilgan.'}, status=400)
+
+    cart_items = []
+    for it in reservation.items.all():
+        product = it.product
+        # After release, available stock will include this qty again
+        held_qty = int(it.quantity or 1)
+        inv = BranchInventory.objects.filter(
+            branch=reservation.branch, product=product
+        ).first()
+        avail = int(inv.quantity or 0) + (held_qty if reservation.stock_held else 0)
+        cart_items.append({
+            'id': product.id,
+            'name': product.product_name,
+            'price': float(it.unit_price or 0),
+            'originalPrice': float(it.unit_price or 0),
+            'priceAdjusted': False,
+            'currency': reservation.currency or 'UZS',
+            'qty': held_qty,
+            'img': product.image.url if product.image else '',
+            'stock': avail,
+        })
+
+    _release_reservation_stock(reservation)
+    reservation.status = 'Completed'
+    reservation.save(update_fields=['status', 'stock_held', 'updated_at'])
+
+    return JsonResponse({
+        'success': True,
+        'reservation_id': reservation.id,
+        'customer_name': reservation.customer_name,
+        'phone': reservation.phone or '',
+        'currency': reservation.currency,
+        'cart': cart_items,
+        'message': f'Bron #{reservation.id} savatga yuklandi.',
+    })
 
 
 @login_required(login_url='login')

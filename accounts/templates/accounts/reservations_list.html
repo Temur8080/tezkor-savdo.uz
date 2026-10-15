@@ -105,14 +105,20 @@
                     </td>
                     <td class="px-4 py-3">
                         {% if r.status == 'Active' %}
-                        <form method="post" action="{% url 'reservation_cancel' r.id %}" class="inline">
-                            {% csrf_token %}
-                            <button type="submit"
-                                    onclick="return confirm('Bron #{{ r.id }} bekor qilinsinmi?')"
-                                    class="px-2.5 py-1.5 text-xs font-semibold rounded-md border border-red-600 text-red-600 hover:bg-red-600 hover:text-white transition">
-                                Bekor qilish
-                            </button>
-                        </form>
+                        <div class="inline-flex flex-wrap items-center justify-center gap-1.5">
+                            <a href="{% url 'pos_terminal' %}?reservation={{ r.id }}"
+                               class="px-2.5 py-1.5 text-xs font-semibold rounded-md bg-sky-600 text-white hover:bg-sky-700 transition">
+                                Kassa
+                            </a>
+                            <form method="post" action="{% url 'reservation_cancel' r.id %}" class="inline">
+                                {% csrf_token %}
+                                <button type="submit"
+                                        onclick="return confirm('Bron #{{ r.id }} bekor qilinsinmi?')"
+                                        class="px-2.5 py-1.5 text-xs font-semibold rounded-md border border-red-600 text-red-600 hover:bg-red-600 hover:text-white transition">
+                                    Bekor qilish
+                                </button>
+                            </form>
+                        </div>
                         {% else %}
                         <span class="text-xs text-gray-400">—</span>
                         {% endif %}

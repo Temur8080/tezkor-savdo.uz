@@ -50,10 +50,40 @@ function initPosTerminal() {
         reserveBtn.addEventListener('click', () => reserveCurrentOrder())
     }
 
+    const reserveBadge = document.getElementById('reserve-count-badge')
+    if (reserveBadge && !reserveBadge.dataset.posBound) {
+        reserveBadge.dataset.posBound = '1'
+        reserveBadge.addEventListener('click', (e) => {
+            e.preventDefault()
+            e.stopPropagation()
+            if (typeof toggleReservedOrdersDropdown === 'function') toggleReservedOrdersDropdown()
+        })
+    }
+
+    document.addEventListener('click', (e) => {
+        const wrap = document.getElementById('reserve-btn-wrap')
+        const dropdown = document.getElementById('reserved-orders-dropdown')
+        if (!wrap || !dropdown || dropdown.classList.contains('hidden')) return
+        if (!wrap.contains(e.target)) dropdown.classList.add('hidden')
+    })
+
     if (typeof syncCartStockFromGrid === 'function') syncCartStockFromGrid()
     renderCart()
     renderHeldOrders()
-    if (typeof loadReservedOrders === 'function') loadReservedOrders()
+    const reservedReady = (typeof loadReservedOrders === 'function')
+        ? loadReservedOrders()
+        : Promise.resolve()
+    Promise.resolve(reservedReady).then(() => {
+        const params = new URLSearchParams(window.location.search || '')
+        const reservationId = params.get('reservation')
+        if (reservationId && typeof openReservationToCart === 'function') {
+            openReservationToCart(reservationId).then(() => {
+                const url = new URL(window.location.href)
+                url.searchParams.delete('reservation')
+                window.history.replaceState({}, '', url.pathname + url.search)
+            })
+        }
+    })
     consumePendingTerminalScan()
 
     const cashInput = document.getElementById('cash-received-input')

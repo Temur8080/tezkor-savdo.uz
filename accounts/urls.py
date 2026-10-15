@@ -37,6 +37,7 @@ urlpatterns = [
     path('api/reservations/active/', views.reservations_active_api, name='reservations_active_api'),
     path('reservations/', views.reservations_list, name='reservations_list'),
     path('reservations/<int:pk>/cancel/', views.reservation_cancel, name='reservation_cancel'),
+    path('reservations/<int:pk>/to_cart/', views.reservation_to_cart, name='reservation_to_cart'),
     path('orders/<int:pk>/approve/', views.order_approve, name='order_approve'),
     path('orders/<int:pk>/reject/', views.order_reject, name='order_reject'),
     path('api/customers/lookup/', views.customer_lookup, name='customer_lookup'),

@@ -463,8 +463,9 @@ async function reserveCurrentOrder() {
 }
 
 async function loadReservedOrders() {
-    const panel = document.getElementById('reserved-orders-panel')
-    if (!panel) return
+    const badge = document.getElementById('reserve-count-badge')
+    const list = document.getElementById('reserved-orders-list')
+    if (!badge && !list) return
     try {
         const response = await fetch('/api/reservations/active/')
         const data = await response.json().catch(() => ({}))
@@ -476,7 +477,23 @@ async function loadReservedOrders() {
     }
 }
 
-async function cancelReservation(reservationId) {
+function toggleReservedOrdersDropdown(forceOpen) {
+    const dropdown = document.getElementById('reserved-orders-dropdown')
+    if (!dropdown) return
+    const rows = window._activeReservations || []
+    if (!rows.length) {
+        dropdown.classList.add('hidden')
+        return
+    }
+    const open = typeof forceOpen === 'boolean' ? forceOpen : dropdown.classList.contains('hidden')
+    dropdown.classList.toggle('hidden', !open)
+}
+
+async function cancelReservation(reservationId, event) {
+    if (event) {
+        event.preventDefault()
+        event.stopPropagation()
+    }
     if (!confirm('Bron bekor qilinsinmi? Ombordagi ushlab turilgan qoldiq qaytariladi.')) return
     const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]')?.value
     try {
@@ -496,6 +513,47 @@ async function cancelReservation(reservationId) {
     }
 }
 
+async function openReservationToCart(reservationId) {
+    if (cart.length) {
+        const ok = confirm(
+            'Hozirgi savat o‘chirilib, bron savatga yuklanadi. Davom etasizmi?'
+        )
+        if (!ok) return
+    }
+    const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]')?.value
+    try {
+        const response = await fetch(`/reservations/${reservationId}/to_cart/`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+        })
+        const data = await response.json().catch(() => ({}))
+        if (!response.ok || !data.success) {
+            alert(data.message || 'Bron savatga yuklanmadi')
+            return
+        }
+        const lines = Array.isArray(data.cart) ? data.cart : []
+        cart = lines.map((item) => ({
+            id: item.id,
+            name: item.name,
+            price: parseFloat(item.price) || 0,
+            originalPrice: parseFloat(item.originalPrice != null ? item.originalPrice : item.price) || 0,
+            priceAdjusted: !!item.priceAdjusted,
+            currency: normalizeCurrency(item.currency),
+            qty: parseInt(item.qty, 10) || 1,
+            img: item.img || '',
+            stock: parseInt(item.stock, 10) || (parseInt(item.qty, 10) || 1),
+        }))
+        localStorage.setItem(cartKey, JSON.stringify(cart))
+        checkoutCurrency = getCartCurrency()
+        renderCart()
+        toggleReservedOrdersDropdown(false)
+        await loadReservedOrders()
+        if (typeof syncCartStockFromGrid === 'function') syncCartStockFromGrid()
+    } catch (err) {
+        alert('Xatolik: ' + (err.message || err))
+    }
+}
+
 function formatReserveMoney(amount, currency) {
     const cur = normalizeCurrency(currency)
     const n = Number(amount) || 0
@@ -504,21 +562,27 @@ function formatReserveMoney(amount, currency) {
 }
 
 function renderReservedOrders() {
-    const panel = document.getElementById('reserved-orders-panel')
+    const badge = document.getElementById('reserve-count-badge')
     const list = document.getElementById('reserved-orders-list')
-    const countEl = document.getElementById('reserved-orders-count')
-    if (!panel || !list) return
-
+    const dropdown = document.getElementById('reserved-orders-dropdown')
     const rows = window._activeReservations || []
-    if (!rows.length) {
-        panel.classList.add('hidden')
-        list.innerHTML = ''
-        if (countEl) countEl.textContent = ''
-        return
+
+    if (badge) {
+        if (rows.length) {
+            badge.textContent = String(rows.length)
+            badge.classList.remove('hidden')
+        } else {
+            badge.textContent = '0'
+            badge.classList.add('hidden')
+            if (dropdown) dropdown.classList.add('hidden')
+        }
     }
 
-    panel.classList.remove('hidden')
-    if (countEl) countEl.textContent = String(rows.length)
+    if (!list) return
+    if (!rows.length) {
+        list.innerHTML = '<p class="text-xs text-gray-500 px-2 py-3 text-center">Faol bron yo‘q</p>'
+        return
+    }
 
     list.innerHTML = rows.map((row) => {
         const names = (row.items || []).slice(0, 2).map((i) => i.name).filter(Boolean).join(', ')
@@ -527,13 +591,14 @@ function renderReservedOrders() {
             ? new Date(row.created_at).toLocaleString('uz-UZ', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
             : ''
         return `
-            <div class="flex items-center gap-2 bg-amber-50 border border-amber-300 rounded-lg px-3 py-2.5 shadow-sm">
-                <div class="flex-grow text-left min-w-0">
+            <div class="flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-2 shadow-sm">
+                <button type="button" onclick="openReservationToCart(${row.id})"
+                        class="flex-grow text-left min-w-0 touch-manipulation">
                     <p class="font-semibold text-sm text-amber-950 truncate">${escapeHtml(row.customer_name)}</p>
                     <p class="text-[10px] text-amber-800 truncate">${row.unit_count || 0} dona · ${escapeHtml(formatReserveMoney(row.total_amount, row.currency))}${time ? ' · ' + time : ''}</p>
                     ${names ? `<p class="text-[10px] text-amber-700/80 truncate mt-0.5">${escapeHtml(names)}${more}</p>` : ''}
-                </div>
-                <button type="button" onclick="cancelReservation(${row.id})"
+                </button>
+                <button type="button" onclick="cancelReservation(${row.id}, event)"
                         class="shrink-0 inline-flex items-center justify-center w-8 h-8 rounded-md border border-red-200 text-red-600 bg-white hover:bg-red-600 hover:text-white transition touch-manipulation"
                         title="Bekor qilish" aria-label="Bekor qilish">&times;</button>
             </div>
