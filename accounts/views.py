@@ -259,7 +259,6 @@ def _reports_build_context(request):
     start_of_year = now.replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
 
     zero = Decimal('0.00')
-    money_field = DecimalField(max_digits=18, decimal_places=2)
     usd_rate = AppSettings.get_solo().usd_to_uzs
     start_dt = period['start_dt']
     end_dt = period['end_dt']
@@ -271,6 +270,49 @@ def _reports_build_context(request):
         if (currency or CURRENCY_UZS) == CURRENCY_USD:
             return convert_amount(amount, CURRENCY_USD, CURRENCY_UZS, usd_rate)
         return Decimal(amount)
+
+    def sum_order_items_uzs(item_qs):
+        revenue = zero
+        cost_sum = zero
+        units = 0
+        order_ids = set()
+        cash = zero
+        for item in item_qs.select_related('order').iterator():
+            order = item.order
+            cur = getattr(order, 'currency', None) or CURRENCY_UZS
+            line = (item.unit_price or zero) * (item.quantity or 0)
+            line_cost = (item.cost_price or zero) * (item.quantity or 0)
+            line_uzs = to_uzs(line, cur)
+            cost_uzs = to_uzs(line_cost, cur)
+            revenue += line_uzs
+            cost_sum += cost_uzs
+            units += int(item.quantity or 0)
+            if item.order_id:
+                order_ids.add(item.order_id)
+            if order and order.payment_method == 'CASH':
+                cash += line_uzs
+        return {
+            'revenue': revenue,
+            'cost': cost_sum,
+            'units': units,
+            'orders': len(order_ids),
+            'cash': cash,
+        }
+
+    def sum_orders_field_uzs(order_qs, field='total_amount'):
+        total = zero
+        for order in order_qs.only('currency', field).iterator():
+            total += to_uzs(getattr(order, field, zero) or zero, order.currency)
+        return total
+
+    def sum_money_rows_uzs(qs, amount_field, currency_field='currency'):
+        total = zero
+        for row in qs.only(amount_field, currency_field).iterator():
+            total += to_uzs(
+                getattr(row, amount_field, zero) or zero,
+                getattr(row, currency_field, CURRENCY_UZS),
+            )
+        return total
 
     stock_units = 0
     stock_cost_uzs = zero
@@ -302,134 +344,92 @@ def _reports_build_context(request):
         period_orders = period_orders.filter(order_date__gte=start_dt)
     active_order_ids = list(period_orders.values_list('id', flat=True))
 
-    stats = OrderItem.objects.filter(order_id__in=active_order_ids).aggregate(
-        total_revenue=Coalesce(
-            Sum(F('unit_price') * F('quantity'), output_field=money_field), zero
-        ),
-        total_cost=Coalesce(
-            Sum(F('quantity') * F('cost_price'), output_field=money_field), zero
-        ),
-        sold_units=Coalesce(Sum('quantity'), 0),
-        total_count=Count('order_id', distinct=True),
-    )
+    stats_uzs = sum_order_items_uzs(OrderItem.objects.filter(order_id__in=active_order_ids))
+    stats = {
+        'total_revenue': stats_uzs['revenue'],
+        'total_cost': stats_uzs['cost'],
+        'sold_units': stats_uzs['units'],
+        'total_count': stats_uzs['orders'],
+    }
 
-    all_sales = OrderItem.objects.filter(order__is_active=True).aggregate(
-        revenue=Coalesce(
-            Sum(F('unit_price') * F('quantity'), output_field=money_field), zero
-        ),
-        cost=Coalesce(
-            Sum(F('quantity') * F('cost_price'), output_field=money_field), zero
-        ),
-        units=Coalesce(Sum('quantity'), 0),
-        orders=Count('order_id', distinct=True),
-    )
+    all_sales = sum_order_items_uzs(OrderItem.objects.filter(order__is_active=True))
 
     def period_sales(start_date):
-        return OrderItem.objects.filter(
+        return sum_order_items_uzs(OrderItem.objects.filter(
             order__order_date__gte=start_date,
             order__is_active=True,
-        ).aggregate(
-            revenue=Coalesce(
-                Sum(F('unit_price') * F('quantity'), output_field=money_field), zero
-            ),
-            cost=Coalesce(
-                Sum(F('quantity') * F('cost_price'), output_field=money_field), zero
-            ),
-            units=Coalesce(Sum('quantity'), 0),
-        )
+        ))
 
     week = period_sales(start_of_week)
     month = period_sales(start_of_month)
     year = period_sales(start_of_year)
 
-    debt_stats = CustomerDebt.objects.aggregate(
-        open_remaining=Coalesce(
-            Sum('remaining_balance', filter=~Q(status='Paid'), output_field=money_field),
-            zero,
-        ),
-        open_original=Coalesce(
-            Sum('original_amount', filter=~Q(status='Paid'), output_field=money_field),
-            zero,
-        ),
-        total_paid_on_debts=Coalesce(
-            Sum('paid_amount', output_field=money_field), zero
-        ),
-        open_count=Count('id', filter=~Q(status='Paid')),
-        paid_count=Count('id', filter=Q(status='Paid')),
-        all_count=Count('id'),
-    )
-    debt_collected = DebtPayment.objects.aggregate(
-        total=Coalesce(Sum('amount', output_field=money_field), zero),
-        count=Count('id'),
-    )['total']
-    debt_pay_qs = DebtPayment.objects.filter(paid_at__lte=end_dt)
+    open_debts = CustomerDebt.objects.exclude(status='Paid')
+    debt_stats = {
+        'open_remaining': sum_money_rows_uzs(open_debts, 'remaining_balance'),
+        'open_original': sum_money_rows_uzs(open_debts, 'original_amount'),
+        'total_paid_on_debts': sum_money_rows_uzs(CustomerDebt.objects.all(), 'paid_amount'),
+        'open_count': open_debts.count(),
+        'paid_count': CustomerDebt.objects.filter(status='Paid').count(),
+        'all_count': CustomerDebt.objects.count(),
+    }
+    debt_pay_qs = DebtPayment.objects.filter(paid_at__lte=end_dt).select_related('debt')
     if start_dt:
         debt_pay_qs = debt_pay_qs.filter(paid_at__gte=start_dt)
-    debt_collected_period = debt_pay_qs.aggregate(
-        total=Coalesce(Sum('amount', output_field=money_field), zero)
-    )['total']
-    debt_collected_month = DebtPayment.objects.filter(
-        paid_at__gte=start_of_month
-    ).aggregate(
-        total=Coalesce(Sum('amount', output_field=money_field), zero)
-    )['total']
+
+    def sum_debt_payments_uzs(qs):
+        total = zero
+        for pay in qs.iterator():
+            cur = getattr(getattr(pay, 'debt', None), 'currency', None) or CURRENCY_UZS
+            total += to_uzs(pay.amount or zero, cur)
+        return total
+
+    debt_collected = sum_debt_payments_uzs(DebtPayment.objects.select_related('debt'))
+    debt_collected_period = sum_debt_payments_uzs(debt_pay_qs)
+    debt_collected_month = sum_debt_payments_uzs(
+        DebtPayment.objects.filter(paid_at__gte=start_of_month).select_related('debt')
+    )
 
     exp_all = Expense.objects.filter(is_active=True)
-    expense_total = exp_all.aggregate(
-        t=Coalesce(Sum('amount', output_field=money_field), zero)
-    )['t']
-    expense_month = exp_all.filter(expense_date__gte=start_of_month.date()).aggregate(
-        t=Coalesce(Sum('amount', output_field=money_field), zero)
-    )['t']
+    expense_total = sum_money_rows_uzs(exp_all, 'amount')
+    expense_month = sum_money_rows_uzs(
+        exp_all.filter(expense_date__gte=start_of_month.date()), 'amount'
+    )
     exp_period = exp_all.filter(expense_date__lte=end_d)
     if start_d:
         exp_period = exp_period.filter(expense_date__gte=start_d)
-    expense_period = exp_period.aggregate(
-        t=Coalesce(Sum('amount', output_field=money_field), zero)
-    )['t']
+    expense_period = sum_money_rows_uzs(exp_period, 'amount')
     expense_count = exp_period.count()
     top_expenses = exp_period.select_related('branch').order_by('-expense_date', '-id')[:8]
 
-    cash_received = CashPayment.objects.filter(
+    cash_received = zero
+    for cp in CashPayment.objects.filter(
         payment__order_id__in=active_order_ids,
         payment__order__is_active=True,
-    ).aggregate(
-        total=Coalesce(Sum('cash_received', output_field=money_field), zero)
-    )['total']
+    ).select_related('payment__order').iterator():
+        cur = getattr(getattr(cp.payment, 'order', None), 'currency', None) or CURRENCY_UZS
+        cash_received += to_uzs(cp.cash_received or zero, cur)
 
-    payments = OrderItem.objects.filter(order_id__in=active_order_ids).aggregate(
-        cash=Coalesce(
-            Sum(
-                F('unit_price') * F('quantity'),
-                filter=Q(order__payment_method='CASH'),
-                output_field=money_field,
-            ),
-            zero,
-        ),
-    )
+    payments = {'cash': stats_uzs['cash']}
 
-    branch_query = (
-        Order.objects.filter(id__in=active_order_ids)
-        .values('branch__name')
-        .annotate(total=Sum('total_amount'))
-        .order_by('-total')
-    )
+    branch_totals_map = {}
+    employee_totals_map = {}
+    for order in Order.objects.filter(id__in=active_order_ids).select_related('branch', 'employee'):
+        amount = to_uzs(order.total_amount or zero, order.currency)
+        bname = order.branch.name if order.branch_id else "Asosiy do‘kon"
+        ename = order.employee.name if order.employee_id else "Tizim administratori"
+        branch_totals_map[bname] = branch_totals_map.get(bname, zero) + amount
+        employee_totals_map[ename] = employee_totals_map.get(ename, zero) + amount
     branch_names = []
     branch_totals = []
-    for data_row in branch_query:
-        branch_names.append(data_row['branch__name'] or "Asosiy do‘kon")
-        branch_totals.append(float(data_row['total'] or 0))
-
-    employee_sales = (
-        Order.objects.filter(id__in=active_order_ids)
-        .values('employee__name')
-        .annotate(total=Sum('total_amount'))
-        .order_by('-total')
-    )
-    employee_names = [
-        item['employee__name'] or "Tizim administratori" for item in employee_sales
-    ]
-    employee_totals = [float(item['total'] or 0) for item in employee_sales]
+    for name, total in sorted(branch_totals_map.items(), key=lambda x: x[1], reverse=True):
+        branch_names.append(name)
+        branch_totals.append(float(total))
+    employee_names = []
+    employee_totals = []
+    for name, total in sorted(employee_totals_map.items(), key=lambda x: x[1], reverse=True):
+        employee_names.append(name)
+        employee_totals.append(float(total))
 
     product_sales = (
         OrderItem.objects.filter(order_id__in=active_order_ids)
@@ -480,24 +480,30 @@ def _reports_build_context(request):
     query_string = request.GET.urlencode()
 
     partner_orders = period_orders.filter(partner__isnull=False)
-    partner_sales_total = partner_orders.aggregate(
-        t=Coalesce(Sum('total_amount'), zero)
-    )['t']
-    partner_discount_total = partner_orders.aggregate(
-        t=Coalesce(Sum('discount_amount'), zero)
-    )['t']
-    loyalty_discount_total = period_orders.filter(
-        discount_percent__gt=0
-    ).aggregate(t=Coalesce(Sum('discount_amount'), zero))['t']
-    top_partners = (
-        partner_orders.values('partner_id', 'partner__name', 'partner__phone')
-        .annotate(
-            orders=Count('id'),
-            total=Coalesce(Sum('total_amount'), zero),
-            discount=Coalesce(Sum('discount_amount'), zero),
-        )
-        .order_by('-total')[:10]
+    partner_sales_total = sum_orders_field_uzs(partner_orders, 'total_amount')
+    partner_discount_total = sum_orders_field_uzs(partner_orders, 'discount_amount')
+    loyalty_discount_total = sum_orders_field_uzs(
+        period_orders.filter(discount_percent__gt=0), 'discount_amount'
     )
+
+    partner_map = {}
+    for order in partner_orders.select_related('partner').iterator():
+        pid = order.partner_id
+        if not pid:
+            continue
+        row = partner_map.setdefault(pid, {
+            'partner_id': pid,
+            'partner__name': order.partner.name if order.partner_id else '',
+            'partner__phone': order.partner.phone if order.partner_id else '',
+            'orders': 0,
+            'total': zero,
+            'discount': zero,
+        })
+        row['orders'] += 1
+        row['total'] += to_uzs(order.total_amount or zero, order.currency)
+        row['discount'] += to_uzs(order.discount_amount or zero, order.currency)
+    top_partners = sorted(partner_map.values(), key=lambda r: r['total'], reverse=True)[:10]
+
     discount_kinds = list(
         PriceTier.objects.exclude(kind=PriceTier.KIND_REGULAR)
         .filter(is_active=True)
@@ -505,23 +511,30 @@ def _reports_build_context(request):
     )
     if not discount_kinds:
         discount_kinds = [Customer.TYPE_LOYAL, Customer.TYPE_PARTNER]
-    customer_period_orders = period_orders.filter(customer__isnull=False)
-    top_loyal_customers = (
-        customer_period_orders.filter(customer__customer_type__in=discount_kinds)
-        .values(
-            'customer_id',
-            'customer__name',
-            'customer__phone',
-            'customer__customer_type',
-            'customer__bonus_discount_percent',
-        )
-        .annotate(
-            orders=Count('id'),
-            total=Coalesce(Sum('total_amount'), zero),
-            discount=Coalesce(Sum('discount_amount'), zero),
-        )
-        .order_by('-total')[:15]
+    customer_period_orders = period_orders.filter(
+        customer__isnull=False,
+        customer__customer_type__in=discount_kinds,
     )
+    loyal_map = {}
+    for order in customer_period_orders.select_related('customer').iterator():
+        cid = order.customer_id
+        if not cid:
+            continue
+        c = order.customer
+        row = loyal_map.setdefault(cid, {
+            'customer_id': cid,
+            'customer__name': c.name,
+            'customer__phone': c.phone or '',
+            'customer__customer_type': c.customer_type,
+            'customer__bonus_discount_percent': c.bonus_discount_percent or zero,
+            'orders': 0,
+            'total': zero,
+            'discount': zero,
+        })
+        row['orders'] += 1
+        row['total'] += to_uzs(order.total_amount or zero, order.currency)
+        row['discount'] += to_uzs(order.discount_amount or zero, order.currency)
+    top_loyal_customers = sorted(loyal_map.values(), key=lambda r: r['total'], reverse=True)[:15]
     tier_name_map = {
         t.kind: t.name
         for t in PriceTier.objects.filter(kind__in=discount_kinds)
@@ -868,10 +881,15 @@ def salesDisplay(request):
     filtered_items = myFilter.qs
     debt_order_count = debt_base.exclude(status='Paid').values('order_id').distinct().count()
     cash_sales = cash_base.count()
-    result = filtered_items.aggregate(
-        total_revenue=Sum(ExpressionWrapper(F('unit_price') * F('quantity'), output_field=models.DecimalField()))
-    )
-    grand_total = result['total_revenue'] or 0
+    usd_rate = AppSettings.get_solo().usd_to_uzs
+    grand_total = Decimal('0.00')
+    for item in filtered_items.select_related('order').iterator():
+        cur = getattr(item.order, 'currency', None) or CURRENCY_UZS
+        line = (item.unit_price or Decimal('0.00')) * (item.quantity or 0)
+        if cur == CURRENCY_USD:
+            grand_total += convert_amount(line, CURRENCY_USD, CURRENCY_UZS, usd_rate)
+        else:
+            grand_total += Decimal(line)
     paginator = Paginator(filtered_items, 7)
     page_obj = paginator.get_page(request.GET.get('page'))
     return render(request, 'accounts/sales_display.html', {
