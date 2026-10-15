@@ -653,6 +653,11 @@ class OrderItem(models.Model):
     list_unit_price = models.DecimalField('Asl birlik narxi', max_digits=14, decimal_places=2, default=0.00)
     unit_price = models.DecimalField('Birlik narxi', max_digits=14, decimal_places=2)
     discount_percent = models.DecimalField('Chegirma %', max_digits=5, decimal_places=2, default=Decimal('0.00'))
+    price_adjusted = models.BooleanField(
+        'Narx qo‘lda o‘zgartirilgan',
+        default=False,
+        help_text='Kassada bir martalik narx tahriri',
+    )
     warranty_days = models.PositiveIntegerField('Mahsulot kafolati (kun)', default=365)
     replacement_days = models.PositiveIntegerField('Almashtirish muddati (kun)', default=7)
     service_warranty_days = models.PositiveIntegerField('Ish kafolati (kun)', default=90)

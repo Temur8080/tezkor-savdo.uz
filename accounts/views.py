@@ -145,14 +145,22 @@ def _price_lines_from_cart(cart, adjust):
     for item in cart:
         product = Product.objects.get(id=item['id'])
         qty = int(item['qty'])
-        list_price = money_dec(item.get('price', product.base_price))
+        price_adjusted = bool(item.get('priceAdjusted') or item.get('price_adjusted'))
+        catalog_price = money_dec(
+            item.get('originalPrice', item.get('original_price', item.get('price', product.base_price)))
+        )
+        sale_base = money_dec(item.get('price', product.base_price))
+        # list_price for totals = price before secret discount/markup
+        list_price = sale_base
         if mode == 'markup':
             unit_price = apply_markup(list_price, percent)
         elif mode == 'discount':
             unit_price = apply_discount(list_price, percent)
         else:
             unit_price = list_price
-        priced_lines.append((product, qty, list_price, unit_price))
+        # Persist catalog as list when manually edited (audit); else sale base
+        stored_list = catalog_price if price_adjusted else list_price
+        priced_lines.append((product, qty, stored_list, unit_price, price_adjusted))
         list_total += list_price * qty
         net_total += unit_price * qty
     list_total = money_dec(list_total)
@@ -1993,7 +2001,7 @@ def checkout_cash(request):
                     order_status=order_status,
                 )
 
-                for product, qty, list_price, unit_price in priced_lines:
+                for product, qty, list_price, unit_price, price_adjusted in priced_lines:
                     OrderItem.objects.create(
                         order=order,
                         product=product,
@@ -2001,6 +2009,7 @@ def checkout_cash(request):
                         list_unit_price=list_price,
                         unit_price=unit_price,
                         discount_percent=discount_percent,
+                        price_adjusted=price_adjusted,
                         cost_price=product.cost_price,
                         warranty_days=product.warranty_days,
                         replacement_days=product.replacement_days,
@@ -2191,7 +2200,7 @@ def checkout_quote(request):
         discount_percent = priced['discount_percent']
         discount_amount = priced['discount_amount']
 
-        for product, qty, _lp, _up in priced_lines:
+        for product, qty, _lp, _up, _adj in priced_lines:
             inv = BranchInventory.objects.filter(branch=branch, product=product).first()
             if not inv:
                 raise ValueError(f"{product.product_name} ushbu filialda yo‘q.")
@@ -2215,7 +2224,7 @@ def checkout_quote(request):
             payment_method='CASH',
             order_status='AwaitingApproval',
         )
-        for product, qty, list_price, unit_price in priced_lines:
+        for product, qty, list_price, unit_price, price_adjusted in priced_lines:
             OrderItem.objects.create(
                 order=order,
                 product=product,
@@ -2223,6 +2232,7 @@ def checkout_quote(request):
                 list_unit_price=list_price,
                 unit_price=unit_price,
                 discount_percent=discount_percent,
+                price_adjusted=price_adjusted,
                 cost_price=product.cost_price,
                 warranty_days=product.warranty_days,
                 replacement_days=product.replacement_days,

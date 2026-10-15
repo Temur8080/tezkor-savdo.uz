@@ -99,11 +99,21 @@
                 <td class="px-6 py-4 font-medium text-gray-900">{{ i.order.employee }}</td>
                 {% endif %}
                 <td class="px-6 py-4">{{ i.order.customer }}</td>
-                <td class="px-6 py-4 font-medium text-gray-900">{{ i.product.product_name }}</td>
+                <td class="px-6 py-4 font-medium text-gray-900">
+                    {{ i.product.product_name }}
+                    {% if i.price_adjusted %}
+                    <span class="ml-1 inline-flex px-1.5 py-0.5 rounded text-[10px] font-bold bg-violet-100 text-violet-800 border border-violet-200">Narx o‘zgartirilgan</span>
+                    {% endif %}
+                </td>
                 <td class="px-6 py-4 font-medium text-gray-900">{{ i.order.branch }}</td>
                 <td class="px-6 py-4">{{ i.product.category }}</td>
                 <td class="px-6 py-4 font-medium text-gray-900">{{ i.quantity }}</td>
-                <td class="px-6 py-4">{{ i.product.base_price|money:i.product.currency }}</td>
+                <td class="px-6 py-4">
+                    {% if i.price_adjusted and i.list_unit_price and i.list_unit_price != i.unit_price %}
+                    <span class="block text-xs text-gray-400 line-through">{{ i.list_unit_price|money:i.order.currency }}</span>
+                    {% endif %}
+                    {{ i.unit_price|money:i.order.currency }}
+                </td>
                 <td class="px-6 py-4">{{ i.line_total|money:i.order.currency }}</td>
                 <td class="px-6 py-4 font-semibold text-emerald-700">
                     {% if i.order.order_status == 'AwaitingApproval' %}
@@ -130,9 +140,16 @@
                 <td class="px-6 py-4 font-medium text-gray-900">{{ i.order.payment_summary_label }}</td>
                 <td class="px-6 py-4 font-medium text-gray-900 whitespace-nowrap">{{ i.order.order_date|date:"d.m.Y H:i" }}</td>
                 <td class="px-6 py-4">
-                    {% if i.order.order_status == 'AwaitingApproval' %}
-                    <span class="inline-flex px-2 py-1 text-xs font-bold rounded-full bg-amber-100 text-amber-900 border border-amber-300">{{ i.order.get_order_status_display }}</span>
-                    {% else %}{{ i.order.get_order_status_display }}{% endif %}
+                    <div class="flex flex-col items-center gap-1">
+                        {% if i.order.order_status == 'AwaitingApproval' %}
+                        <span class="inline-flex px-2 py-1 text-xs font-bold rounded-full bg-amber-100 text-amber-900 border border-amber-300">{{ i.order.get_order_status_display }}</span>
+                        {% else %}
+                        <span>{{ i.order.get_order_status_display }}</span>
+                        {% endif %}
+                        {% if i.price_adjusted %}
+                        <span class="inline-flex px-2 py-0.5 text-[10px] font-bold rounded-full bg-violet-100 text-violet-800 border border-violet-200">Narx o‘zgartirilgan</span>
+                        {% endif %}
+                    </div>
                 </td>
                 {% if request.user.employee.branch %}
                 <td class="px-6 py-4 font-medium text-gray-900">

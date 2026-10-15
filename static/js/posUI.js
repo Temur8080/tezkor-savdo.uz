@@ -175,7 +175,13 @@ function renderCart(){
             item.qty = qty
         }
         const atStockLimit = stock !== null && qty >= stock
+        if (item.originalPrice == null || item.originalPrice === '') {
+            item.originalPrice = parseFloat(item.price) || 0
+        }
         let subTotal = item.price * qty
+        const adjustedBadge = item.priceAdjusted
+            ? '<span class="ml-1 inline-flex px-1.5 py-0.5 rounded text-[9px] font-bold bg-violet-100 text-violet-800">o‘zgartirilgan</span>'
+            : ''
         const imgHtml = item.img
             ? `<img src="${item.img}" class="h-12 w-12 object-cover rounded-md border border-sky-200 bg-white">`
             : `<div class="h-12 w-12 rounded-md border border-sky-200 bg-white flex items-center justify-center text-xs text-sky-400 font-semibold">N/A</div>`
@@ -184,7 +190,7 @@ function renderCart(){
                     <div class="flex items-center gap-3 bg-white/90 p-2.5 rounded-xl border border-sky-200 shadow-sm">
                         ${imgHtml}
                         <div class="flex-grow min-w-0">
-                            <h4 class="font-semibold text-sm text-sky-950 truncate">${item.name}</h4>
+                            <h4 class="font-semibold text-sm text-sky-950 truncate">${item.name}${adjustedBadge}</h4>
                             <p class="text-xs text-sky-700/70">${formatMoney(item.price, item.currency)} · ${item.currency === 'USD' ? 'USD' : 'UZS'}${stock !== null ? ` · max ${stock}` : ''}</p>
                             <div class="flex items-center gap-2 mt-1.5">
                                 <button type="button" onclick="changeCartQty(${item.id}, -1)"
@@ -197,11 +203,20 @@ function renderCart(){
                         </div>
                         <div class="self-stretch flex flex-col items-end justify-between shrink-0">
                             <p class="font-bold text-sm text-sky-900">${formatMoney(subTotal, item.currency)}</p>
-                            <button type="button" onclick="removeFromCart(${item.id})"
-                                    class="w-10 h-10 inline-flex items-center justify-center rounded-lg text-red-600 hover:text-red-700 hover:bg-red-50 transition-colors text-2xl font-black leading-none touch-manipulation"
-                                    title="O‘chirish" aria-label="O‘chirish">
-                                &times;
-                            </button>
+                            <div class="flex items-center gap-1">
+                                <button type="button" onclick="editCartItemPrice(${item.id})"
+                                        class="w-10 h-10 inline-flex items-center justify-center rounded-lg text-sky-700 hover:text-sky-900 hover:bg-sky-100 transition-colors touch-manipulation"
+                                        title="Narxni tahrirlash" aria-label="Narxni tahrirlash">
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125" />
+                                    </svg>
+                                </button>
+                                <button type="button" onclick="removeFromCart(${item.id})"
+                                        class="w-10 h-10 inline-flex items-center justify-center rounded-lg text-red-600 hover:text-red-700 hover:bg-red-50 transition-colors text-2xl font-black leading-none touch-manipulation"
+                                        title="O‘chirish" aria-label="O‘chirish">
+                                    &times;
+                                </button>
+                            </div>
                         </div>
                     </div>
                     `
@@ -262,6 +277,32 @@ function renderCart(){
     syncMobileCartBar()
 }
 
+function editCartItemPrice(id) {
+    const item = cart.find((i) => i.id === id)
+    if (!item) return
+    const qty = Math.max(1, parseInt(item.qty, 10) || 1)
+    const cur = normalizeCurrency(item.currency)
+    const currentLine = (parseFloat(item.price) || 0) * qty
+    const raw = prompt(
+        `«${item.name}» uchun yangi jami summa (${cur === 'USD' ? 'USD' : 'so‘m'}, ${qty} dona):`,
+        String(currentLine)
+    )
+    if (raw === null) return
+    const cleaned = String(raw).replace(/\s/g, '').replace(',', '.')
+    const lineTotal = parseFloat(cleaned)
+    if (!isFinite(lineTotal) || lineTotal < 0) {
+        alert('Noto‘g‘ri summa')
+        return
+    }
+    if (item.originalPrice === undefined || item.originalPrice === null) {
+        item.originalPrice = parseFloat(item.price) || 0
+    }
+    item.price = Math.round((lineTotal / qty) * 100) / 100
+    item.priceAdjusted = true
+    localStorage.setItem(cartKey, JSON.stringify(cart))
+    renderCart()
+}
+
 function addItemToCart(scannedItem) {
     if (!scannedItem || !scannedItem.id || isNaN(scannedItem.price)){
         console.error("Scanned Item is invalid");
@@ -303,12 +344,15 @@ function addItemToCart(scannedItem) {
             itemExist.currency = itemCurrency
         }
     } else {
+        const unitPrice = parseFloat(scannedItem.price)
         if (stock !== null && qtyToAdd > stock) {
             alert(stockLimitMessage(stock))
             cart.push({
                 ...scannedItem,
                 qty: stock,
-                price: parseFloat(scannedItem.price),
+                price: unitPrice,
+                originalPrice: unitPrice,
+                priceAdjusted: false,
                 currency: itemCurrency,
                 stock: stock,
             })
@@ -316,7 +360,9 @@ function addItemToCart(scannedItem) {
             cart.push({
                 ...scannedItem,
                 qty: qtyToAdd,
-                price: parseFloat(scannedItem.price),
+                price: unitPrice,
+                originalPrice: unitPrice,
+                priceAdjusted: false,
                 currency: itemCurrency,
                 stock: stock,
             })
