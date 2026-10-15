@@ -956,7 +956,8 @@ def salesDisplay(request):
     cash_sales = cash_base.count()
     usd_rate = AppSettings.get_solo().usd_to_uzs
     grand_total = Decimal('0.00')
-    for item in filtered_items.select_related('order').iterator():
+    # prefetch_related + iterator() requires chunk_size on Django 4+
+    for item in filtered_items.select_related('order').iterator(chunk_size=500):
         cur = getattr(item.order, 'currency', None) or CURRENCY_UZS
         line = (item.unit_price or Decimal('0.00')) * (item.quantity or 0)
         if cur == CURRENCY_USD:
