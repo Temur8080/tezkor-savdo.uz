@@ -3,7 +3,7 @@ from .models import (
     Employee, Product,
     Supplier, ProductCategory,
 )
-from .money import CURRENCY_CHOICES, CURRENCY_UZS, parse_decimal
+from .money import CURRENCY_CHOICES, CURRENCY_UZS, CURRENCY_USD, parse_decimal
 from decimal import Decimal
 
 
@@ -52,7 +52,7 @@ class InventoryEditForm(forms.Form):
     cost_currency = forms.ChoiceField(
         label='Tannarx valyutasi',
         choices=CURRENCY_CHOICES,
-        initial=CURRENCY_UZS,
+        initial=CURRENCY_USD,
         widget=forms.Select(attrs={'class': _INPUT}),
     )
     cost_price = forms.DecimalField(

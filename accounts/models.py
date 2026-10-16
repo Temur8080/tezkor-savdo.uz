@@ -8,7 +8,7 @@ from django.db import models
 from django.contrib.auth.models import User
 from django.contrib.contenttypes.models import ContentType
 from django.contrib.contenttypes.fields import GenericForeignKey
-from .money import CURRENCY_CHOICES, CURRENCY_UZS, format_money
+from .money import CURRENCY_CHOICES, CURRENCY_UZS, CURRENCY_USD, format_money
 
 class Viloyat(models.Model):
     name = models.CharField('Nomi', max_length=120, unique=True)
@@ -537,8 +537,8 @@ class Product(models.Model):
         'Tannarx valyutasi',
         max_length=3,
         choices=CURRENCY_CHOICES,
-        default=CURRENCY_UZS,
-        help_text='Tannarx shu valyutada saqlanadi (kirim valyutasi)',
+        default=CURRENCY_USD,
+        help_text='Tannarx odatda dollarda saqlanadi',
     )
     cost_price = models.DecimalField('Tannarx', max_digits=14, decimal_places=2)
     min_stock_level = models.DecimalField('Minimal zaxira', max_digits=12, decimal_places=3, default=Decimal('3'))
