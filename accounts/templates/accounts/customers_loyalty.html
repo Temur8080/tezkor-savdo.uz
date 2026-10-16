@@ -60,7 +60,7 @@
         </form>
 
         {% if ranking %}
-        <div class="p-4 border-b border-gray-200 bg-gradient-to-r from-amber-50/80 to-white">
+        <div class="loyalty-ranking p-4 border-b border-gray-200 bg-gradient-to-r from-amber-50/80 to-white">
             <div class="flex items-center justify-between gap-2 mb-3">
                 <h2 class="text-sm font-bold text-gray-900 uppercase tracking-wide">Eng yaxshi mijozlar (umumiy)</h2>
                 <a href="{% url 'admin_reports' %}" class="text-xs font-semibold text-blue-600 hover:underline">Davr bo‘yicha hisobot →</a>
@@ -68,7 +68,7 @@
             <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2">
                 {% for c in ranking %}
                 <a href="{% url 'customer_detail' c.pk %}"
-                   class="block rounded-lg border border-amber-100 bg-white px-3 py-2 hover:border-amber-300 transition">
+                   class="loyalty-rank-card block rounded-lg border border-amber-100 bg-white px-3 py-2 hover:border-amber-300 transition">
                     <div class="flex items-center gap-2">
                         <span class="text-xs font-black text-amber-600 w-5">#{{ forloop.counter }}</span>
                         <div class="min-w-0">

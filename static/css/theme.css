@@ -194,6 +194,46 @@ html.dark .to-emerald-50 {
   --tw-gradient-stops: var(--tw-gradient-from), #152033, var(--tw-gradient-to) !important;
 }
 
+/* Eng yaxshi mijozlar (umumiy) — amber gradient qora fonda */
+html.dark .loyalty-ranking,
+html.dark .from-amber-50\/80 {
+  background-color: #1a2332 !important;
+  background-image: linear-gradient(
+    to right,
+    rgba(245, 158, 11, 0.16),
+    #1e293b
+  ) !important;
+  --tw-gradient-from: rgba(245, 158, 11, 0.16) !important;
+  --tw-gradient-to: #1e293b !important;
+  --tw-gradient-stops: var(--tw-gradient-from), #1a2332, var(--tw-gradient-to) !important;
+}
+
+html.dark .bg-amber-50\/80 {
+  background-color: rgba(245, 158, 11, 0.14) !important;
+}
+
+html.dark .border-amber-100 {
+  border-color: rgba(245, 158, 11, 0.38) !important;
+}
+
+html.dark .hover\:border-amber-300:hover {
+  border-color: rgba(251, 191, 36, 0.6) !important;
+}
+
+html.dark .text-amber-600 {
+  color: #fbbf24 !important;
+}
+
+html.dark .loyalty-rank-card {
+  background-color: #1e293b !important;
+  border-color: rgba(245, 158, 11, 0.35) !important;
+}
+
+html.dark .loyalty-rank-card:hover {
+  background-color: #243044 !important;
+  border-color: rgba(251, 191, 36, 0.55) !important;
+}
+
 html.dark .shadow-sm,
 html.dark .shadow,
 html.dark .shadow-md,
