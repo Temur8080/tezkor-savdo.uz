@@ -57,7 +57,7 @@
                             @ {% if item.list_unit_price %}{{ item.list_unit_price|money:order.currency }}{% else %}{{ item.product.base_price|money:item.product.currency }}{% endif %}
                         </p>
                     </td>
-                    <td class="text-center py-3">{{ item.quantity }}</td>
+                    <td class="text-center py-3">{{ item.quantity|qty }}</td>
                     <td class="text-right py-3 font-bold">{{ item.list_line_total|money:order.currency }}</td>
                 </tr>
                 {% endfor %}

@@ -87,7 +87,7 @@
                     {% endif %}
                     <td class="px-4 py-3 text-left text-xs text-gray-600">
                         {% for it in r.items.all %}
-                        <div>{{ it.product.product_name }} × {{ it.quantity }}</div>
+                        <div>{{ it.product.product_name }} × {{ it.quantity|qty }}</div>
                         {% endfor %}
                     </td>
                     <td class="px-4 py-3 font-semibold">{{ r.unit_count }}</td>

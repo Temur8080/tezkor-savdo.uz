@@ -228,7 +228,7 @@
         <div class="grid grid-cols-2 lg:grid-cols-4 divide-y lg:divide-y-0 divide-x divide-gray-200">
             <div class="p-4 text-center">
                 <p class="text-xs uppercase text-gray-500 font-semibold">Zaxira (dona)</p>
-                <p class="text-xl font-bold text-gray-900 mt-1">{{ stock_units|intcomma }}</p>
+                <p class="text-xl font-bold text-gray-900 mt-1">{{ stock_units|qty }}</p>
             </div>
             <div class="p-4 text-center">
                 <p class="text-xs uppercase text-gray-500 font-semibold">Tannarx bo‘yicha</p>
@@ -257,7 +257,7 @@
         <div class="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 divide-y xl:divide-y-0 divide-x divide-gray-200 border-b border-gray-200">
             <div class="p-4 text-center">
                 <p class="text-xs uppercase text-gray-500 font-semibold">Sotilgan (dona)</p>
-                <p class="text-lg font-bold text-gray-900 mt-1">{{ sold_units|intcomma }}</p>
+                <p class="text-lg font-bold text-gray-900 mt-1">{{ sold_units|qty }}</p>
             </div>
             <div class="p-4 text-center">
                 <p class="text-xs uppercase text-gray-500 font-semibold">Yalpi daromad</p>
@@ -292,7 +292,7 @@
             <div class="p-4 text-center">
                 <p class="text-xs uppercase text-gray-500 font-semibold">Jami sotuv (barcha vaqt)</p>
                 <p class="text-base font-bold text-gray-900 mt-1">{{ all_revenue|money }}</p>
-                <p class="text-[11px] text-gray-400">{{ all_units|intcomma }} dona · {{ all_orders }} buyurtma</p>
+                <p class="text-[11px] text-gray-400">{{ all_units|qty }} dona · {{ all_orders }} buyurtma</p>
             </div>
             <div class="p-4 text-center">
                 <p class="text-xs uppercase text-gray-500 font-semibold">Jami foyda (barcha vaqt)</p>
@@ -515,17 +515,17 @@
             <div class="p-4 text-center">
                 <p class="text-xs uppercase text-gray-500 font-semibold">Haftalik</p>
                 <p class="text-base font-bold text-gray-900 mt-1">{{ weekly_total|money }}</p>
-                <p class="text-[11px] text-gray-400 mt-1">{{ weekly_units|intcomma }} dona · tannarx {{ weekly_cost|money }}</p>
+                <p class="text-[11px] text-gray-400 mt-1">{{ weekly_units|qty }} dona · tannarx {{ weekly_cost|money }}</p>
             </div>
             <div class="p-4 text-center">
                 <p class="text-xs uppercase text-gray-500 font-semibold">Oylik</p>
                 <p class="text-base font-bold text-gray-900 mt-1">{{ monthly_total|money }}</p>
-                <p class="text-[11px] text-gray-400 mt-1">{{ monthly_units|intcomma }} dona · tannarx {{ monthly_cost|money }}</p>
+                <p class="text-[11px] text-gray-400 mt-1">{{ monthly_units|qty }} dona · tannarx {{ monthly_cost|money }}</p>
             </div>
             <div class="p-4 text-center">
                 <p class="text-xs uppercase text-gray-500 font-semibold">Yillik</p>
                 <p class="text-base font-bold text-gray-900 mt-1">{{ yearly_total|money }}</p>
-                <p class="text-[11px] text-gray-400 mt-1">{{ yearly_units|intcomma }} dona · tannarx {{ yearly_cost|money }}</p>
+                <p class="text-[11px] text-gray-400 mt-1">{{ yearly_units|qty }} dona · tannarx {{ yearly_cost|money }}</p>
             </div>
         </div>
     </div>
@@ -600,7 +600,7 @@
                         <td class="px-4 py-3 text-gray-700">{{ tx.employee }}</td>
                         <td class="px-4 py-3 text-gray-700">{{ tx.branch }}</td>
                         <td class="px-4 py-3 text-left text-gray-900 font-medium">{{ tx.orderitem_set.first.product|default:"—" }}</td>
-                        <td class="px-4 py-3">{{ tx.orderitem_set.first.quantity|default:"—" }}</td>
+                        <td class="px-4 py-3">{% with q=tx.orderitem_set.first.quantity %}{% if q != None %}{{ q|qty }}{% else %}—{% endif %}{% endwith %}</td>
                         <td class="px-4 py-3 text-gray-500 whitespace-nowrap">{{ tx.order_date|date:"d.m.Y H:i" }}</td>
                         <td class="px-4 py-3 font-semibold text-gray-900">{{ tx.total_amount|money:tx.currency }}</td>
                         <td class="px-4 py-3">

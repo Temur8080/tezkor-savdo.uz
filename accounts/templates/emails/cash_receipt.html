@@ -34,7 +34,7 @@
                         <p style="margin: 0; font-weight: bold;">{{ item.product.product_name }}</p>
                         <p style="margin: 0; font-size: 12px; color: #6b7280;">@ {{ item.unit_price|floatformat:2|money }}</p>
                     </td>
-                    <td style="text-align: center;">{{ item.quantity }}</td>
+                    <td style="text-align: center;">{{ item.quantity|qty }}</td>
                     <td style="text-align: right; font-weight: bold;">{{ item.line_total|floatformat:2|money }}</td>
                 </tr>
                 {% endfor %}

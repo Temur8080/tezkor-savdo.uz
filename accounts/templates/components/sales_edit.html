@@ -104,7 +104,7 @@
                                 <p class="font-bold text-gray-800">{{ item.product.product_name }}</p>
                                 <p class="text-xs text-gray-500">@ {{ item.product.base_price|money:item.product.currency }}</p>
                             </td>
-                            <td class="text-center py-3">{{ item.quantity }}</td>
+                            <td class="text-center py-3">{{ item.quantity|qty }}</td>
                             <td class="text-right py-3 font-bold">{{ item.line_total|money }}</td>
                         </tr>
                         {% endfor %}

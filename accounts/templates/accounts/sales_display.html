@@ -109,7 +109,7 @@
                 </td>
                 <td class="px-6 py-4 font-medium text-gray-900">{{ i.order.branch }}</td>
                 <td class="px-6 py-4">{{ i.product.category }}</td>
-                <td class="px-6 py-4 font-medium text-gray-900">{{ i.quantity }}</td>
+                <td class="px-6 py-4 font-medium text-gray-900">{{ i.quantity|qty }}</td>
                 <td class="px-6 py-4">
                     {% if i.price_adjusted and i.list_unit_price and i.list_unit_price != i.unit_price %}
                     <span class="block text-xs text-gray-400 line-through">{{ i.list_unit_price|money:i.order.currency }}</span>

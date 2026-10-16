@@ -1092,7 +1092,7 @@ def export_sales_csv(request):
                 item.order.id,
                 item.order.customer.name if item.order.customer else 'Oddiy mijoz',
                 item.product.product_name,
-                item.quantity,
+                format_qty(item.quantity),
                 item.unit_price,
                 item.quantity * item.unit_price,
                 paid if paid is not None else '',
@@ -1213,7 +1213,7 @@ def export_branch_inventory_csv(request):
                 item.product.supplier.name if item.product.supplier else "Mavjud emas",
                 item.product.product_name,
                 item.product.get_category_display(),
-                item.quantity,
+                format_qty(item.quantity),
                 item.product.base_price,
                 item.product.barcode,
                 status

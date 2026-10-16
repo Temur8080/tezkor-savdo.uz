@@ -540,10 +540,15 @@ class ProductAdmin(BranchScopedAdminMixin, admin.ModelAdmin):
 
 @admin.register(BranchInventory)
 class BranchInventoryAdmin(BranchScopedAdminMixin, admin.ModelAdmin):
-    list_display = ('branch', 'product', 'product__category', 'quantity', 'get_is_active')
+    list_display = ('branch', 'product', 'product__category', 'quantity_display', 'get_is_active')
     list_filter = ('branch', 'product', 'product__category')
     date_hierarchy = 'date_added'
     branch_lookup = 'branch'
+
+    @admin.display(description='Miqdor', ordering='quantity')
+    def quantity_display(self, obj):
+        from .money import format_qty
+        return format_qty(obj.quantity)
 
     @admin.display(description='Mahsulot faol')
     def get_is_active(self, obj):
