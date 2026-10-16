@@ -91,6 +91,7 @@
                 <th class="px-6 py-3">Mahsulot nomi</th>
                 <th class="px-6 py-3">Kategoriya</th>
                 <th class="px-6 py-3">Miqdor</th>
+                <th class="px-6 py-3">Birlik</th>
                 <th class="px-6 py-3">Narx</th>
                 <th class="px-6 py-3">Shtrix-kod</th>
                 <th class="px-6 py-3">Holat</th>
@@ -107,6 +108,7 @@
                 <td class="px-6 py-4 font-medium text-gray-900">{{ i.product.product_name }}</td>
                 <td class="px-6 py-4">{{ i.product.category }}</td>
                 <td class="px-6 py-4 font-medium text-gray-900">{{ i.quantity }}</td>
+                <td class="px-6 py-4 text-gray-700">{{ i.product.unit|default:'ta' }}</td>
                 <td class="px-6 py-4">{{ i.product.base_price|money:i.product.currency }}</td>
                 <td class="px-6 py-4 font-medium text-gray-900">{{ i.product.barcode }}</td>
                 <td class="px-6 py-4">

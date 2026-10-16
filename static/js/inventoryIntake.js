@@ -20,9 +20,18 @@
     const supplierSelect = document.getElementById('supplier-select')
     const entryCurrency = document.getElementById('entry-currency')
     const storeCurrency = document.getElementById('store-currency')
+    const unitInput = document.getElementById('unit-input')
     const costPriceInput = document.getElementById('cost-price-input')
     const basePriceInput = document.getElementById('base-price-input')
     const minStockInput = document.getElementById('min-stock-input')
+    const FRACTIONAL_UNITS = new Set(['m', 'kg', 'l', 'm2'])
+
+    function syncQtyStep() {
+        if (!qtyInput || !unitInput) return
+        const frac = FRACTIONAL_UNITS.has(unitInput.value)
+        qtyInput.step = frac ? '0.001' : '1'
+        qtyInput.min = frac ? '0.001' : '1'
+    }
     const warrantyDaysInput = document.getElementById('warranty-days-input')
     const replacementDaysInput = document.getElementById('replacement-days-input')
     const serviceWarrantyInput = document.getElementById('service-warranty-input')
@@ -93,18 +102,18 @@
         const alt = entry === 'USD' ? 'UZS' : 'USD'
 
         costConverted.textContent = cost
-            ? `≈ ${fmtMoney(convert(cost, entry, alt), alt)} · saqlanadi: ${fmtMoney(convert(cost, entry, store), store)}`
+            ? `≈ ${fmtMoney(convert(cost, entry, alt), alt)} · saqlanadi: ${fmtMoney(cost, entry)} (tannarx valyutasi)`
             : ''
         sellConverted.textContent = sell
             ? `≈ ${fmtMoney(convert(sell, entry, alt), alt)} · saqlanadi: ${fmtMoney(convert(sell, entry, store), store)}`
             : ''
 
         if (entry === store) {
-            convertHint.textContent = `Narxlar ${entry === 'USD' ? 'dollar' : 'so‘m'}da kiritiladi va shu valyutada saqlanadi. Kurs: 1 USD = ${rate().toLocaleString('ru-RU')} so‘m.`
+            convertHint.textContent = `Tannarx va sotish ${entry === 'USD' ? 'dollar' : 'so‘m'}da saqlanadi. Kurs: 1 USD = ${rate().toLocaleString('ru-RU')} so‘m.`
         } else if (entry === 'USD' && store === 'UZS') {
-            convertHint.textContent = `Dollarda kiritilgan tannarx/sotish narxi so‘mga o‘girilib saqlanadi (× ${rate().toLocaleString('ru-RU')}).`
+            convertHint.textContent = `Tannarx dollarda saqlanadi; sotish narxi so‘mga o‘giriladi (× ${rate().toLocaleString('ru-RU')}).`
         } else {
-            convertHint.textContent = `So‘mda kiritilgan narxlar dollarga o‘girilib saqlanadi (÷ ${rate().toLocaleString('ru-RU')}).`
+            convertHint.textContent = `Tannarx so‘mda saqlanadi; sotish narxi dollarga o‘giriladi (÷ ${rate().toLocaleString('ru-RU')}).`
         }
     }
 
@@ -189,6 +198,7 @@
         costPriceInput.value = ''
         basePriceInput.value = ''
         minStockInput.value = 3
+        if (unitInput) unitInput.value = 'ta'
         if (warrantyDaysInput) warrantyDaysInput.value = 365
         if (replacementDaysInput) replacementDaysInput.value = 7
         if (serviceWarrantyInput) serviceWarrantyInput.value = 90
@@ -196,6 +206,7 @@
         if (noteInput) noteInput.value = ''
         entryCurrency.value = 'USD'
         storeCurrency.value = 'UZS'
+        syncQtyStep()
         setImagePreview(null)
         document.getElementById('product-meta').textContent =
             `Shtrix-kod: ${barcode} · Yangi yozuv yaratiladi`
@@ -222,8 +233,9 @@
         if (data.supplier_id && supplierSelect) {
             supplierSelect.value = String(data.supplier_id)
         }
+        if (unitInput) unitInput.value = data.unit || 'ta'
         storeCurrency.value = data.currency || 'UZS'
-        entryCurrency.value = data.currency || 'UZS'
+        entryCurrency.value = data.cost_currency || data.currency || 'UZS'
         costPriceInput.value = data.cost_price != null ? data.cost_price : ''
         basePriceInput.value = data.price != null ? data.price : ''
         minStockInput.value = data.min_stock_level != null ? data.min_stock_level : 3
@@ -231,6 +243,7 @@
         if (replacementDaysInput) replacementDaysInput.value = data.replacement_days != null ? data.replacement_days : 7
         if (serviceWarrantyInput) serviceWarrantyInput.value = data.service_warranty_days != null ? data.service_warranty_days : 90
         qtyInput.value = 1
+        syncQtyStep()
         if (noteInput) noteInput.value = ''
         setImagePreview(data.image || null)
 
@@ -279,7 +292,7 @@
             const qtyClass = positive ? 'text-green-700' : 'text-orange-700'
             const qtyText = positive ? `+${item.qty_added}` : String(item.qty_added)
             const prices = (item.cost_price || item.price)
-                ? `<p class="text-xs text-gray-500 mt-1">Tannarx: ${escapeHtml(item.cost_price || '—')} / Sotish: ${escapeHtml(item.price || '—')} ${escapeHtml(item.currency || '')}</p>`
+                ? `<p class="text-xs text-gray-500 mt-1">Tannarx: ${escapeHtml(item.cost_price || '—')} ${escapeHtml(item.cost_currency || '')} / Sotish: ${escapeHtml(item.price || '—')} ${escapeHtml(item.currency || '')}</p>`
                 : ''
             const note = item.note ? `<p class="text-xs text-gray-500 mt-1">${escapeHtml(item.note)}</p>` : ''
             const undone = item.undone
@@ -306,8 +319,11 @@
     }
 
     function adjustQty(delta) {
-        const current = parseInt(qtyInput.value, 10) || 1
-        qtyInput.value = Math.max(1, current + delta)
+        const frac = unitInput && FRACTIONAL_UNITS.has(unitInput.value)
+        const step = frac ? 0.1 : 1
+        const current = parseFloat(qtyInput.value) || (frac ? 0.1 : 1)
+        const next = Math.max(frac ? 0.001 : 1, Math.round((current + delta * step) * 1000) / 1000)
+        qtyInput.value = next
         qtyInput.focus()
         qtyInput.select()
     }
@@ -375,9 +391,9 @@
             return null
         }
 
-        const qty = parseInt(qtyInput.value, 10) || 0
-        if (qty < 1) {
-            setStatus('Miqdor kamida 1 bo‘lishi kerak', 'err')
+        const qty = parseFloat(qtyInput.value) || 0
+        if (qty <= 0) {
+            setStatus('Miqdor 0 dan katta bo‘lishi kerak', 'err')
             return null
         }
 
@@ -396,6 +412,7 @@
         form.append('product_name', name)
         form.append('category', categorySelect.value)
         form.append('supplier_id', supplierSelect.value)
+        form.append('unit', unitInput ? unitInput.value : 'ta')
         form.append('entry_currency', entryCurrency.value)
         form.append('store_currency', storeCurrency.value)
         form.append('cost_price', costPriceInput.value || '0')
@@ -621,6 +638,10 @@
         el.addEventListener('input', updateConversionHints)
         el.addEventListener('change', updateConversionHints)
     })
+    if (unitInput) {
+        unitInput.addEventListener('change', syncQtyStep)
+        syncQtyStep()
+    }
 
     imageInput.addEventListener('change', () => {
         const file = imageInput.files && imageInput.files[0]

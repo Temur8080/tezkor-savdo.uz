@@ -173,6 +173,7 @@ function consumePendingTerminalScan() {
                 name: data.product.name,
                 price: parseFloat(data.product.price),
                 currency: data.product.currency || 'UZS',
+                unit: data.product.unit || 'ta',
                 qty: 1,
                 img: data.product.image || '',
                 stock: data.product.stock,

@@ -150,6 +150,7 @@
                 name: product.name,
                 price: parseFloat(product.price),
                 currency: product.currency || 'UZS',
+                unit: product.unit || 'ta',
                 qty: 1,
                 img: product.image || '',
                 stock: product.stock,

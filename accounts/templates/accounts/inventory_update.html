@@ -80,20 +80,33 @@
                     {% if form.supplier.errors %}<p class="text-xs text-red-600 mt-1">{{ form.supplier.errors.0 }}</p>{% endif %}
                 </div>
                 <div>
-                    <label class="block text-xs font-semibold text-gray-600 mb-1">{{ form.currency.label }} *</label>
-                    {{ form.currency }}
-                    {% if form.currency.errors %}<p class="text-xs text-red-600 mt-1">{{ form.currency.errors.0 }}</p>{% endif %}
+                    <label class="block text-xs font-semibold text-gray-600 mb-1">{{ form.unit.label }} *</label>
+                    {{ form.unit }}
+                    {% if form.unit.errors %}<p class="text-xs text-red-600 mt-1">{{ form.unit.errors.0 }}</p>{% endif %}
+                    <p class="text-xs text-gray-500 mt-1">m/kg da savatda miqdorni qo‘lda yozish mumkin</p>
                 </div>
-
+                <div>
+                    <label class="block text-xs font-semibold text-gray-600 mb-1">{{ form.cost_currency.label }} *</label>
+                    {{ form.cost_currency }}
+                    {% if form.cost_currency.errors %}<p class="text-xs text-red-600 mt-1">{{ form.cost_currency.errors.0 }}</p>{% endif %}
+                </div>
                 <div>
                     <label class="block text-xs font-semibold text-gray-600 mb-1">{{ form.cost_price.label }} *</label>
                     {{ form.cost_price }}
                     {% if form.cost_price.errors %}<p class="text-xs text-red-600 mt-1">{{ form.cost_price.errors.0 }}</p>{% endif %}
+                    <p class="text-xs text-gray-500 mt-1">Kirimda kiritilgan tannarx valyutasi (masalan, dollar)</p>
+                </div>
+
+                <div>
+                    <label class="block text-xs font-semibold text-gray-600 mb-1">{{ form.currency.label }} *</label>
+                    {{ form.currency }}
+                    {% if form.currency.errors %}<p class="text-xs text-red-600 mt-1">{{ form.currency.errors.0 }}</p>{% endif %}
                 </div>
                 <div>
                     <label class="block text-xs font-semibold text-gray-600 mb-1">{{ form.base_price.label }} *</label>
                     {{ form.base_price }}
                     {% if form.base_price.errors %}<p class="text-xs text-red-600 mt-1">{{ form.base_price.errors.0 }}</p>{% endif %}
+                    <p class="text-xs text-gray-500 mt-1">Kassada ko‘rinadigan sotish narxi</p>
                 </div>
 
                 <div>
@@ -129,7 +142,8 @@
 
             <p class="text-xs text-gray-500 bg-gray-50 border border-gray-100 rounded-md px-3 py-2">
                 Valyuta kursi (ma’lumot): 1 USD ≈ {{ usd_rate }} so‘m.
-                Bu yerda narxlar tanlangan valyutada saqlanadi (ombor kirimidagi konvertatsiya alohida).
+                Tannarx va sotish narxi alohida valyutada saqlanishi mumkin
+                (masalan, tannarx dollar, sotish so‘m).
             </p>
 
             <div class="flex flex-wrap gap-2 pt-2 border-t border-gray-100">

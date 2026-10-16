@@ -18,6 +18,7 @@ async function processScan(code) {
             name: data.name,
             price: parseFloat(data.price),
             currency: data.currency || 'UZS',
+            unit: data.unit || 'ta',
             qty: 1,
             img: data.image || '',
             stock: data.stock,

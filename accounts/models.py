@@ -495,14 +495,53 @@ class Product(models.Model):
         ('Printer', 'Printer'),
     )
 
+    UNIT_TA = 'ta'
+    UNIT_M = 'm'
+    UNIT_KG = 'kg'
+    UNIT_L = 'l'
+    UNIT_M2 = 'm2'
+    UNIT_QUTI = 'quti'
+    UNIT_JUFT = 'juft'
+    UNIT_CHOICES = (
+        (UNIT_TA, 'ta (dona)'),
+        (UNIT_M, 'm (metr)'),
+        (UNIT_KG, 'kg'),
+        (UNIT_L, 'l (litr)'),
+        (UNIT_M2, 'm²'),
+        (UNIT_QUTI, 'quti'),
+        (UNIT_JUFT, 'juft'),
+    )
+    # Kasrli miqdorga ruxsat beriladigan birliklar
+    FRACTIONAL_UNITS = {UNIT_M, UNIT_KG, UNIT_L, UNIT_M2}
+
     supplier = models.ForeignKey(Supplier, on_delete=models.CASCADE, verbose_name='Yetkazib beruvchi')
     product_name = models.CharField('Mahsulot nomi', max_length=100)
     category = models.CharField('Kategoriya', max_length=100, default='Noutbuk')
-    currency = models.CharField('Valyuta', max_length=3, choices=CURRENCY_CHOICES, default=CURRENCY_UZS)
+    unit = models.CharField(
+        'O‘lchov birligi',
+        max_length=10,
+        choices=UNIT_CHOICES,
+        default=UNIT_TA,
+        help_text='ta, m, kg va h.k. — savatda miqdor shu birlikda',
+    )
+    currency = models.CharField(
+        'Sotish valyutasi',
+        max_length=3,
+        choices=CURRENCY_CHOICES,
+        default=CURRENCY_UZS,
+        help_text='Sotish narxi shu valyutada saqlanadi',
+    )
     base_price = models.DecimalField('Sotish narxi', max_digits=14, decimal_places=2)
     barcode = models.CharField('Shtrixkod', max_length=100, unique=True)
+    cost_currency = models.CharField(
+        'Tannarx valyutasi',
+        max_length=3,
+        choices=CURRENCY_CHOICES,
+        default=CURRENCY_UZS,
+        help_text='Tannarx shu valyutada saqlanadi (kirim valyutasi)',
+    )
     cost_price = models.DecimalField('Tannarx', max_digits=14, decimal_places=2)
-    min_stock_level = models.PositiveIntegerField('Minimal zaxira', default=3)
+    min_stock_level = models.DecimalField('Minimal zaxira', max_digits=12, decimal_places=3, default=Decimal('3'))
     warranty_days = models.PositiveIntegerField(
         'Mahsulot kafolati (kun)',
         default=365,
@@ -536,6 +575,12 @@ class Product(models.Model):
                 return label
         return self.category or '—'
 
+    def allows_fractional_qty(self):
+        return (self.unit or self.UNIT_TA) in self.FRACTIONAL_UNITS
+
+    def unit_label(self):
+        return dict(self.UNIT_CHOICES).get(self.unit, self.unit or 'ta')
+
     def soft_delete(self):
         self.is_active = False
         self.deleted_at = timezone.now()
@@ -544,7 +589,7 @@ class Product(models.Model):
 class BranchInventory(models.Model):
     branch = models.ForeignKey(Branch, on_delete=models.CASCADE, limit_choices_to={'is_active': True}, verbose_name='Filial')
     product = models.ForeignKey(Product, on_delete=models.CASCADE, verbose_name='Mahsulot')
-    quantity = models.IntegerField('Miqdor', default=0)
+    quantity = models.DecimalField('Miqdor', max_digits=12, decimal_places=3, default=Decimal('0'))
     date_added = models.DateTimeField('Qo‘shilgan sana', auto_now_add=True)
 
     class Meta:
@@ -649,7 +694,7 @@ class OrderItem(models.Model):
     order = models.ForeignKey(Order, on_delete=models.CASCADE, limit_choices_to={'is_active': True}, verbose_name='Buyurtma')
     cost_price = models.DecimalField('Tannarx', max_digits=14, decimal_places=2)
     product = models.ForeignKey(Product, on_delete=models.CASCADE, verbose_name='Mahsulot')
-    quantity = models.IntegerField('Miqdor', default=1)
+    quantity = models.DecimalField('Miqdor', max_digits=12, decimal_places=3, default=Decimal('1'))
     list_unit_price = models.DecimalField('Asl birlik narxi', max_digits=14, decimal_places=2, default=0.00)
     unit_price = models.DecimalField('Birlik narxi', max_digits=14, decimal_places=2)
     discount_percent = models.DecimalField('Chegirma %', max_digits=5, decimal_places=2, default=Decimal('0.00'))

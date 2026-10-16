@@ -25,15 +25,50 @@ function getCartCurrency() {
     return normalizeCurrency(cart[0].currency)
 }
 
-function parseStockLimit(value) {
-    if (value === null || value === undefined || value === '') return null
-    const n = parseInt(value, 10)
-    return isNaN(n) ? null : Math.max(0, n)
+const FRACTIONAL_UNITS = new Set(['m', 'kg', 'l', 'm2'])
+
+function normalizeUnit(value) {
+    const u = String(value || 'ta').trim().toLowerCase()
+    return u || 'ta'
 }
 
-function stockLimitMessage(stock) {
+function isFractionalUnit(unit) {
+    return FRACTIONAL_UNITS.has(normalizeUnit(unit))
+}
+
+function unitStep(unit) {
+    return isFractionalUnit(unit) ? 0.1 : 1
+}
+
+function formatQty(qty, unit) {
+    const n = parseFloat(qty)
+    if (isNaN(n)) return '0'
+    if (isFractionalUnit(unit)) {
+        const rounded = Math.round(n * 1000) / 1000
+        return String(rounded)
+    }
+    return String(Math.max(1, Math.round(n)))
+}
+
+function parseQtyValue(value, unit) {
+    const n = parseFloat(String(value || '').replace(',', '.'))
+    if (isNaN(n) || n <= 0) return null
+    if (isFractionalUnit(unit)) {
+        return Math.round(n * 1000) / 1000
+    }
+    return Math.max(1, Math.round(n))
+}
+
+function parseStockLimit(value) {
+    if (value === null || value === undefined || value === '') return null
+    const n = parseFloat(String(value).replace(',', '.'))
+    return isNaN(n) ? null : Math.max(0, Math.round(n * 1000) / 1000)
+}
+
+function stockLimitMessage(stock, unit) {
+    const u = normalizeUnit(unit)
     if (stock <= 0) return 'Mahsulot omborda tugagan'
-    return `Omborda faqat ${stock} dona bor`
+    return `Omborda faqat ${formatQty(stock, u)} ${u} bor`
 }
 
 function syncCartStockFromGrid() {
@@ -50,7 +85,8 @@ function syncCartStockFromGrid() {
             item.stock = stock
             changed = true
         }
-        const qty = parseInt(item.qty, 10) || 1
+        const unit = normalizeUnit(item.unit)
+        const qty = parseQtyValue(item.qty, unit) || unitStep(unit)
         if (stock > 0 && qty > stock) {
             item.qty = stock
             changed = true
@@ -65,8 +101,9 @@ function selectProductFromCard(card) {
     if (!card || card.disabled) return
 
     const stock = parseStockLimit(card.getAttribute('data-stock'))
+    const unit = normalizeUnit(card.getAttribute('data-unit'))
     if (stock !== null && stock <= 0) {
-        alert(stockLimitMessage(stock))
+        alert(stockLimitMessage(stock, unit))
         return
     }
 
@@ -75,7 +112,8 @@ function selectProductFromCard(card) {
         name: card.getAttribute('data-name') || '',
         price: parseFloat(card.getAttribute('data-price')),
         currency: normalizeCurrency(card.getAttribute('data-currency')),
-        qty: 1,
+        unit: unit,
+        qty: isFractionalUnit(unit) ? 1 : 1,
         img: card.getAttribute('data-image') || '',
         stock: stock,
     })
@@ -85,7 +123,8 @@ function getCartTotalsByCurrency() {
     const totals = { UZS: 0, USD: 0 }
     cart.forEach((item) => {
         const cur = normalizeCurrency(item.currency)
-        const qty = Math.max(1, parseInt(item.qty, 10) || 1)
+        const unit = normalizeUnit(item.unit)
+        const qty = parseQtyValue(item.qty, unit) || unitStep(unit)
         totals[cur] += (parseFloat(item.price) || 0) * qty
     })
     return totals
@@ -95,7 +134,10 @@ function syncMobileCartBar() {
     const countEl = document.getElementById('pos-mobile-count')
     const totalEl = document.getElementById('pos-mobile-total')
     const payBtn = document.getElementById('pos-mobile-pay')
-    const count = (cart || []).reduce((n, item) => n + (parseInt(item.qty, 10) || 0), 0)
+    const count = (cart || []).reduce((n, item) => {
+        const unit = normalizeUnit(item.unit)
+        return n + (parseQtyValue(item.qty, unit) || 0)
+    }, 0)
     if (countEl) countEl.textContent = String(count)
     if (payBtn) payBtn.disabled = count === 0
 
@@ -166,10 +208,12 @@ function renderCart(){
 
     cart.forEach(item => {
         item.currency = normalizeCurrency(item.currency)
-        let qty = Math.max(1, parseInt(item.qty, 10) || 1)
+        item.unit = normalizeUnit(item.unit)
+        const step = unitStep(item.unit)
+        let qty = parseQtyValue(item.qty, item.unit) || step
         const stock = parseStockLimit(item.stock)
         if (stock !== null && qty > stock) {
-            qty = Math.max(1, stock)
+            qty = Math.max(step, stock)
             item.qty = qty
         } else {
             item.qty = qty
@@ -185,19 +229,29 @@ function renderCart(){
         const imgHtml = item.img
             ? `<img src="${item.img}" class="h-12 w-12 object-cover rounded-md border border-sky-200 bg-white">`
             : `<div class="h-12 w-12 rounded-md border border-sky-200 bg-white flex items-center justify-center text-xs text-sky-400 font-semibold">N/A</div>`
+        const qtyStepAttr = isFractionalUnit(item.unit) ? '0.001' : '1'
+        const qtyMinAttr = isFractionalUnit(item.unit) ? '0.001' : '1'
 
         cartContainer.innerHTML += `
                     <div class="flex items-center gap-3 bg-white/90 p-2.5 rounded-xl border border-sky-200 shadow-sm">
                         ${imgHtml}
                         <div class="flex-grow min-w-0">
                             <h4 class="font-semibold text-sm text-sky-950 truncate">${item.name}${adjustedBadge}</h4>
-                            <p class="text-xs text-sky-700/70">${formatMoney(item.price, item.currency)} · ${item.currency === 'USD' ? 'USD' : 'UZS'}${stock !== null ? ` · max ${stock}` : ''}</p>
-                            <div class="flex items-center gap-2 mt-1.5">
+                            <p class="text-xs text-sky-700/70">${formatMoney(item.price, item.currency)} / ${item.unit}${stock !== null ? ` · max ${formatQty(stock, item.unit)} ${item.unit}` : ''}</p>
+                            <div class="flex items-center gap-1.5 mt-1.5">
                                 <button type="button" onclick="changeCartQty(${item.id}, -1)"
-                                        class="w-10 h-10 rounded-lg border border-sky-200 bg-sky-50 text-sky-800 text-lg font-bold hover:bg-sky-100 touch-manipulation">-</button>
-                                <span class="min-w-[2.25rem] h-10 px-2 inline-flex items-center justify-center rounded-lg border border-sky-200 text-sky-950 font-semibold text-sm bg-white select-none">${qty}</span>
+                                        class="w-9 h-10 rounded-lg border border-sky-200 bg-sky-50 text-sky-800 text-lg font-bold hover:bg-sky-100 touch-manipulation shrink-0">-</button>
+                                <input type="number" inputmode="decimal"
+                                       value="${formatQty(qty, item.unit)}"
+                                       min="${qtyMinAttr}" step="${qtyStepAttr}"
+                                       ${stock !== null ? `max="${stock}"` : ''}
+                                       onchange="setCartQty(${item.id}, this.value)"
+                                       onkeydown="if(event.key==='Enter'){event.preventDefault();this.blur();}"
+                                       class="w-16 h-10 px-1 text-center rounded-lg border border-sky-300 text-sky-950 font-semibold text-sm bg-white focus:ring-2 focus:ring-sky-400 outline-none"
+                                       aria-label="Miqdor (${item.unit})" title="Miqdorni yozing (${item.unit})">
+                                <span class="text-xs font-semibold text-sky-700 shrink-0">${item.unit}</span>
                                 <button type="button" onclick="changeCartQty(${item.id}, 1)"
-                                        class="w-10 h-10 rounded-lg border border-sky-200 bg-sky-50 text-sky-800 text-lg font-bold hover:bg-sky-100 touch-manipulation disabled:opacity-40 disabled:cursor-not-allowed"
+                                        class="w-9 h-10 rounded-lg border border-sky-200 bg-sky-50 text-sky-800 text-lg font-bold hover:bg-sky-100 touch-manipulation disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
                                         ${atStockLimit ? 'disabled' : ''}>+</button>
                             </div>
                         </div>
@@ -280,11 +334,12 @@ function renderCart(){
 function editCartItemPrice(id) {
     const item = cart.find((i) => i.id === id)
     if (!item) return
-    const qty = Math.max(1, parseInt(item.qty, 10) || 1)
+    item.unit = normalizeUnit(item.unit)
+    const qty = parseQtyValue(item.qty, item.unit) || unitStep(item.unit)
     const cur = normalizeCurrency(item.currency)
     const currentLine = (parseFloat(item.price) || 0) * qty
     const raw = prompt(
-        `«${item.name}» uchun yangi jami summa (${cur === 'USD' ? 'USD' : 'so‘m'}, ${qty} dona):`,
+        `«${item.name}» uchun yangi jami summa (${cur === 'USD' ? 'USD' : 'so‘m'}, ${formatQty(qty, item.unit)} ${item.unit}):`,
         String(currentLine)
     )
     if (raw === null) return
@@ -311,10 +366,13 @@ function addItemToCart(scannedItem) {
 
     cart.forEach((item) => {
         item.currency = normalizeCurrency(item.currency)
+        item.unit = normalizeUnit(item.unit)
     })
 
     const itemCurrency = normalizeCurrency(scannedItem.currency)
-    const qtyToAdd = Math.max(1, parseInt(scannedItem.qty, 10) || 1)
+    const itemUnit = normalizeUnit(scannedItem.unit)
+    const step = unitStep(itemUnit)
+    const qtyToAdd = parseQtyValue(scannedItem.qty, itemUnit) || step
     const itemExist = cart.find(item => item.id === scannedItem.id)
     const stock = parseStockLimit(
         scannedItem.stock !== undefined && scannedItem.stock !== null
@@ -323,50 +381,43 @@ function addItemToCart(scannedItem) {
     )
 
     if (stock !== null && stock <= 0) {
-        alert(stockLimitMessage(stock))
+        alert(stockLimitMessage(stock, itemUnit))
         return
     }
 
     if (itemExist) {
-        const currentQty = parseInt(itemExist.qty, 10) || 0
+        const currentQty = parseQtyValue(itemExist.qty, itemExist.unit || itemUnit) || 0
         if (stock !== null) itemExist.stock = stock
+        if (!itemExist.unit) itemExist.unit = itemUnit
         const limit = parseStockLimit(itemExist.stock)
         if (limit !== null && currentQty + qtyToAdd > limit) {
             if (currentQty >= limit) {
-                alert(stockLimitMessage(limit))
+                alert(stockLimitMessage(limit, itemExist.unit))
                 return
             }
             itemExist.qty = limit
             itemExist.currency = itemCurrency
-            alert(stockLimitMessage(limit))
+            alert(stockLimitMessage(limit, itemExist.unit))
         } else {
-            itemExist.qty = currentQty + qtyToAdd
+            itemExist.qty = Math.round((currentQty + qtyToAdd) * 1000) / 1000
             itemExist.currency = itemCurrency
         }
     } else {
         const unitPrice = parseFloat(scannedItem.price)
+        const pushQty = (stock !== null && qtyToAdd > stock) ? stock : qtyToAdd
         if (stock !== null && qtyToAdd > stock) {
-            alert(stockLimitMessage(stock))
-            cart.push({
-                ...scannedItem,
-                qty: stock,
-                price: unitPrice,
-                originalPrice: unitPrice,
-                priceAdjusted: false,
-                currency: itemCurrency,
-                stock: stock,
-            })
-        } else {
-            cart.push({
-                ...scannedItem,
-                qty: qtyToAdd,
-                price: unitPrice,
-                originalPrice: unitPrice,
-                priceAdjusted: false,
-                currency: itemCurrency,
-                stock: stock,
-            })
+            alert(stockLimitMessage(stock, itemUnit))
         }
+        cart.push({
+            ...scannedItem,
+            unit: itemUnit,
+            qty: pushQty,
+            price: unitPrice,
+            originalPrice: unitPrice,
+            priceAdjusted: false,
+            currency: itemCurrency,
+            stock: stock,
+        })
     }
 
     if (!cart.some((item) => normalizeCurrency(item.currency) === normalizeCurrency(checkoutCurrency))) {
@@ -715,15 +766,19 @@ function changeCartQty(id, delta) {
     const item = cart.find(i => i.id === id)
     if (!item) return
 
-    const next = (parseInt(item.qty, 10) || 1) + delta
-    if (next < 1) {
+    item.unit = normalizeUnit(item.unit)
+    const step = unitStep(item.unit)
+    const current = parseQtyValue(item.qty, item.unit) || step
+    const next = Math.round((current + delta * step) * 1000) / 1000
+    const minQty = isFractionalUnit(item.unit) ? 0.001 : 1
+    if (next < minQty) {
         removeFromCart(id)
         return
     }
 
     const stock = parseStockLimit(item.stock)
     if (delta > 0 && stock !== null && next > stock) {
-        alert(stockLimitMessage(stock))
+        alert(stockLimitMessage(stock, item.unit))
         return
     }
 
@@ -736,8 +791,9 @@ function setCartQty(id, value) {
     const item = cart.find(i => i.id === id)
     if (!item) return
 
-    let next = parseInt(value, 10)
-    if (!next || next < 1) {
+    item.unit = normalizeUnit(item.unit)
+    let next = parseQtyValue(value, item.unit)
+    if (next === null) {
         removeFromCart(id)
         return
     }
@@ -745,7 +801,7 @@ function setCartQty(id, value) {
     const stock = parseStockLimit(item.stock)
     if (stock !== null && next > stock) {
         next = stock
-        alert(stockLimitMessage(stock))
+        alert(stockLimitMessage(stock, item.unit))
     }
 
     item.qty = next

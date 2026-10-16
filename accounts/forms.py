@@ -4,6 +4,7 @@ from .models import (
     Supplier, ProductCategory,
 )
 from .money import CURRENCY_CHOICES, CURRENCY_UZS
+from decimal import Decimal
 
 _INPUT = (
     'w-full px-3 py-2 border border-gray-300 rounded-md text-sm '
@@ -40,8 +41,8 @@ class InventoryEditForm(forms.Form):
         queryset=Supplier.objects.filter(is_active=True).order_by('name'),
         widget=forms.Select(attrs={'class': _INPUT}),
     )
-    currency = forms.ChoiceField(
-        label='Valyuta',
+    cost_currency = forms.ChoiceField(
+        label='Tannarx valyutasi',
         choices=CURRENCY_CHOICES,
         initial=CURRENCY_UZS,
         widget=forms.Select(attrs={'class': _INPUT}),
@@ -53,6 +54,18 @@ class InventoryEditForm(forms.Form):
         min_value=0,
         widget=forms.NumberInput(attrs={'class': _INPUT, 'step': '0.01', 'min': '0'}),
     )
+    unit = forms.ChoiceField(
+        label='O‘lchov birligi',
+        choices=Product.UNIT_CHOICES,
+        initial=Product.UNIT_TA,
+        widget=forms.Select(attrs={'class': _INPUT}),
+    )
+    currency = forms.ChoiceField(
+        label='Sotish valyutasi',
+        choices=CURRENCY_CHOICES,
+        initial=CURRENCY_UZS,
+        widget=forms.Select(attrs={'class': _INPUT}),
+    )
     base_price = forms.DecimalField(
         label='Sotish narxi',
         max_digits=14,
@@ -60,11 +73,13 @@ class InventoryEditForm(forms.Form):
         min_value=0,
         widget=forms.NumberInput(attrs={'class': _INPUT, 'step': '0.01', 'min': '0'}),
     )
-    min_stock_level = forms.IntegerField(
+    min_stock_level = forms.DecimalField(
         label='Minimal zaxira',
+        max_digits=12,
+        decimal_places=3,
         min_value=0,
-        initial=3,
-        widget=forms.NumberInput(attrs={'class': _INPUT, 'min': '0'}),
+        initial=Decimal('3'),
+        widget=forms.NumberInput(attrs={'class': _INPUT, 'step': '0.001', 'min': '0'}),
     )
     warranty_days = forms.IntegerField(
         label='Mahsulot kafolati (kun)',
@@ -86,10 +101,12 @@ class InventoryEditForm(forms.Form):
         widget=forms.NumberInput(attrs={'class': _INPUT, 'min': '0'}),
         help_text='Ta’mirlashdan keyin qo‘shimcha kafolat',
     )
-    quantity = forms.IntegerField(
+    quantity = forms.DecimalField(
         label='Filial qoldig‘i',
+        max_digits=12,
+        decimal_places=3,
         min_value=0,
-        widget=forms.NumberInput(attrs={'class': _INPUT, 'min': '0'}),
+        widget=forms.NumberInput(attrs={'class': _INPUT, 'step': '0.001', 'min': '0'}),
     )
     image = forms.ImageField(
         label='Rasm',
@@ -123,8 +140,10 @@ class InventoryEditForm(forms.Form):
             self.fields['barcode'].initial = p.barcode
             self.fields['category'].initial = p.category
             self.fields['supplier'].initial = p.supplier_id
-            self.fields['currency'].initial = p.currency
+            self.fields['cost_currency'].initial = getattr(p, 'cost_currency', None) or p.currency
             self.fields['cost_price'].initial = p.cost_price
+            self.fields['unit'].initial = getattr(p, 'unit', None) or Product.UNIT_TA
+            self.fields['currency'].initial = p.currency
             self.fields['base_price'].initial = p.base_price
             self.fields['min_stock_level'].initial = p.min_stock_level
             self.fields['warranty_days'].initial = p.warranty_days
@@ -167,8 +186,10 @@ class InventoryEditForm(forms.Form):
         product.barcode = data['barcode']
         product.category = category
         product.supplier = data['supplier']
-        product.currency = data['currency']
+        product.cost_currency = data['cost_currency']
         product.cost_price = data['cost_price']
+        product.unit = data['unit']
+        product.currency = data['currency']
         product.base_price = data['base_price']
         product.min_stock_level = data['min_stock_level']
         product.warranty_days = data['warranty_days']

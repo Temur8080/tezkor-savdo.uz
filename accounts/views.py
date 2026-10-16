@@ -148,6 +148,19 @@ def _checkout_price_adjust(customer, secret_code):
     return {'mode': 'none', 'percent': money_dec(0)}
 
 
+def _parse_cart_qty(raw, product=None):
+    """Savat miqdorini Decimal qilib olish (m/kg uchun kasr ruxsat)."""
+    qty = parse_decimal(raw)
+    if qty <= 0:
+        raise ValueError('Miqdor 0 dan katta bo‘lishi kerak')
+    fractional = product.allows_fractional_qty() if product else True
+    if not fractional:
+        if qty != qty.to_integral_value():
+            raise ValueError('Bu mahsulot uchun butun son kerak')
+        qty = qty.to_integral_value()
+    return qty.quantize(Decimal('0.001'))
+
+
 def _price_lines_from_cart(cart, adjust):
     priced_lines = []
     list_total = Decimal('0.00')
@@ -156,7 +169,7 @@ def _price_lines_from_cart(cart, adjust):
     percent = money_dec(adjust.get('percent') or 0)
     for item in cart:
         product = Product.objects.get(id=item['id'])
-        qty = int(item['qty'])
+        qty = _parse_cart_qty(item.get('qty'), product)
         price_adjusted = bool(item.get('priceAdjusted') or item.get('price_adjusted'))
         catalog_price = money_dec(
             item.get('originalPrice', item.get('original_price', item.get('price', product.base_price)))
@@ -371,7 +384,7 @@ def _reports_build_context(request):
             cost_uzs = to_uzs(line_cost, cur)
             revenue += line_uzs
             cost_sum += cost_uzs
-            units += int(item.quantity or 0)
+            units += float(item.quantity or 0)
             if item.order_id:
                 order_ids.add(item.order_id)
             if order and order.payment_method == 'CASH':
@@ -409,13 +422,14 @@ def _reports_build_context(request):
         .select_related('product')
     )
     for row in inv_rows.iterator():
-        qty = int(row.quantity or 0)
+        qty = parse_decimal(row.quantity or 0)
         if qty <= 0:
             continue
         stock_units += qty
-        stock_cost_uzs += to_uzs(row.product.cost_price * qty, row.product.currency)
+        cost_cur = getattr(row.product, 'cost_currency', None) or row.product.currency
+        stock_cost_uzs += to_uzs(row.product.cost_price * qty, cost_cur)
         stock_retail_uzs += to_uzs(row.product.base_price * qty, row.product.currency)
-        min_lvl = row.product.min_stock_level or 0
+        min_lvl = parse_decimal(row.product.min_stock_level or 0)
         if qty <= min_lvl:
             low_stock_count += 1
 
@@ -1482,7 +1496,9 @@ def scanProduct(request):
         'name': product.product_name,
         'price': str(product.base_price),
         'currency': product.currency,
-        'stock': inventory_item.quantity,
+        'unit': getattr(product, 'unit', None) or Product.UNIT_TA,
+        'fractional': product.allows_fractional_qty(),
+        'stock': str(inventory_item.quantity),
         'category': product.get_category_display(),
         'image': image_url,
     })
@@ -1520,7 +1536,9 @@ def product_scan_info(request):
         'name': product.product_name,
         'price': str(product.base_price),
         'currency': product.currency,
-        'stock': stock,
+        'unit': getattr(product, 'unit', None) or Product.UNIT_TA,
+        'fractional': product.allows_fractional_qty(),
+        'stock': str(stock) if stock is not None else None,
         'category': product.get_category_display(),
         'image': image_url,
         'branch_name': branch_name,
@@ -1531,6 +1549,15 @@ def _is_inventory_manager(user):
     return user.is_superuser or (
         hasattr(user, 'employee') and user.employee.role == 'Manager'
     )
+
+
+def _product_cost_in_currency(product, to_currency, usd_rate=None):
+    """Tannarxni kerakli valyutaga o‘girish (hisobot / buyurtma bandi uchun)."""
+    from_cur = getattr(product, 'cost_currency', None) or product.currency or CURRENCY_UZS
+    to_cur = (to_currency or CURRENCY_UZS).upper()
+    if usd_rate is None:
+        usd_rate = AppSettings.get_solo().usd_to_uzs
+    return convert_amount(product.cost_price or 0, from_cur, to_cur, usd_rate)
 
 def _resolve_intake_branch(request, branch_id=None):
     is_manager = _is_inventory_manager(request.user)
@@ -1578,7 +1605,11 @@ def _product_payload(product, branch):
         'barcode': product.barcode,
         'price': str(product.base_price),
         'cost_price': str(product.cost_price),
+        'cost_currency': getattr(product, 'cost_currency', None) or product.currency,
         'currency': product.currency,
+        'unit': getattr(product, 'unit', None) or Product.UNIT_TA,
+        'unit_label': product.unit_label() if hasattr(product, 'unit_label') else 'ta',
+        'fractional': product.allows_fractional_qty() if hasattr(product, 'allows_fractional_qty') else False,
         'category': product.get_category_display(),
         'supplier_id': product.supplier_id,
         'supplier': product.supplier.name if product.supplier else '',
@@ -1662,17 +1693,15 @@ def inventory_stock_in(request):
     barcode = (data.get('barcode') or '').strip()
     note = (data.get('note') or '').strip()[:200]
     undo = bool(data.get('undo'))
-    try:
-        qty = int(data.get('qty', 1))
-    except (TypeError, ValueError):
-        qty = 0
+    qty = parse_decimal(data.get('qty', 1))
 
     branch_id = data.get('branch_id')
 
     if not barcode:
         return JsonResponse({'error': 'Shtrix-kod kiritilmagan'}, status=400)
-    if qty < 1:
-        return JsonResponse({'error': 'Miqdor kamida 1 bo‘lishi kerak'}, status=400)
+    if qty <= 0:
+        return JsonResponse({'error': 'Miqdor 0 dan katta bo‘lishi kerak'}, status=400)
+    qty = qty.quantize(Decimal('0.001'))
 
     branch = _resolve_intake_branch(request, branch_id)
     if not branch:
@@ -1717,6 +1746,7 @@ def inventory_stock_in(request):
         'supplier': product.supplier.name if product.supplier else '',
         'price': str(product.base_price),
         'cost_price': str(product.cost_price),
+        'cost_currency': getattr(product, 'cost_currency', None) or product.currency,
         'currency': product.currency,
         'branch_id': branch.id,
         'branch_name': branch.name,
@@ -1748,15 +1778,15 @@ def inventory_product_save(request):
     if entry_currency not in (CURRENCY_UZS, CURRENCY_USD):
         entry_currency = store_currency
 
-    try:
-        qty = int(data.get('qty', 1))
-    except (TypeError, ValueError):
-        qty = 0
+    unit = (data.get('unit') or Product.UNIT_TA).strip().lower()
+    valid_units = {c[0] for c in Product.UNIT_CHOICES}
+    if unit not in valid_units:
+        unit = Product.UNIT_TA
 
-    try:
-        min_stock = int(data.get('min_stock_level', 3))
-    except (TypeError, ValueError):
-        min_stock = 3
+    qty = parse_decimal(data.get('qty', 1))
+    min_stock = parse_decimal(data.get('min_stock_level', 3))
+    if min_stock < 0:
+        min_stock = Decimal('0')
 
     def _pos_int(key, default):
         try:
@@ -1774,8 +1804,11 @@ def inventory_product_save(request):
         return JsonResponse({'error': 'Mahsulot nomi majburiy'}, status=400)
     if not category:
         return JsonResponse({'error': 'Kategoriya tanlang yoki yarating'}, status=400)
-    if qty < 1:
-        return JsonResponse({'error': 'Miqdor kamida 1 bo‘lishi kerak'}, status=400)
+    if qty <= 0:
+        return JsonResponse({'error': 'Miqdor 0 dan katta bo‘lishi kerak'}, status=400)
+    if unit not in Product.FRACTIONAL_UNITS and qty != qty.to_integral_value():
+        return JsonResponse({'error': 'Bu birlik uchun butun son kerak'}, status=400)
+    qty = qty.quantize(Decimal('0.001'))
 
     branch = _resolve_intake_branch(request, data.get('branch_id'))
     if not branch:
@@ -1804,7 +1837,9 @@ def inventory_product_save(request):
     try:
         cost_entered = parse_decimal(data.get('cost_price'))
         sell_entered = parse_decimal(data.get('base_price'))
-        cost_price = convert_amount(cost_entered, entry_currency, store_currency, rate)
+        # Tannarx kirim valyutasida saqlanadi; sotish narxi — saqlash valyutasida
+        cost_price = cost_entered
+        cost_currency = entry_currency
         base_price = convert_amount(sell_entered, entry_currency, store_currency, rate)
     except ValueError as exc:
         return JsonResponse({'error': str(exc)}, status=400)
@@ -1823,10 +1858,12 @@ def inventory_product_save(request):
         product.product_name = product_name
         product.category = category
         product.supplier = supplier
+        product.unit = unit
         product.currency = store_currency
+        product.cost_currency = cost_currency
         product.cost_price = cost_price
         product.base_price = base_price
-        product.min_stock_level = max(0, min_stock)
+        product.min_stock_level = min_stock
         product.warranty_days = warranty_days
         product.replacement_days = replacement_days
         product.service_warranty_days = service_warranty_days
@@ -1840,10 +1877,12 @@ def inventory_product_save(request):
             product_name=product_name,
             category=category,
             supplier=supplier,
+            unit=unit,
             currency=store_currency,
+            cost_currency=cost_currency,
             cost_price=cost_price,
             base_price=base_price,
-            min_stock_level=max(0, min_stock),
+            min_stock_level=min_stock,
             warranty_days=warranty_days,
             replacement_days=replacement_days,
             service_warranty_days=service_warranty_days,
@@ -1861,8 +1900,18 @@ def inventory_product_save(request):
     inventory_item.quantity = (inventory_item.quantity or 0) + qty
     inventory_item.save(update_fields=['quantity'])
 
-    cost_alt = convert_amount(cost_price, store_currency, CURRENCY_USD if store_currency == CURRENCY_UZS else CURRENCY_UZS, rate)
-    sell_alt = convert_amount(base_price, store_currency, CURRENCY_USD if store_currency == CURRENCY_UZS else CURRENCY_UZS, rate)
+    cost_alt = convert_amount(
+        cost_price,
+        cost_currency,
+        CURRENCY_USD if cost_currency == CURRENCY_UZS else CURRENCY_UZS,
+        rate,
+    )
+    sell_alt = convert_amount(
+        base_price,
+        store_currency,
+        CURRENCY_USD if store_currency == CURRENCY_UZS else CURRENCY_UZS,
+        rate,
+    )
 
     return JsonResponse({
         'success': True,
@@ -1880,7 +1929,10 @@ def inventory_product_save(request):
         'supplier': product.supplier.name if product.supplier else '',
         'price': str(product.base_price),
         'cost_price': str(product.cost_price),
+        'cost_currency': product.cost_currency,
         'currency': product.currency,
+        'unit': product.unit,
+        'unit_label': product.unit_label(),
         'category': product.get_category_display(),
         'image': product.image.url if product.image else '',
         'branch_id': branch.id,
@@ -1890,9 +1942,9 @@ def inventory_product_save(request):
         'note': note,
         'usd_rate': str(rate),
         'converted_hint': (
-            f"Saqlangan: tannarx {format_money(cost_price, store_currency)}, "
+            f"Saqlangan: tannarx {format_money(cost_price, cost_currency)}, "
             f"sotish {format_money(base_price, store_currency)} "
-            f"(≈ {format_money(cost_alt, CURRENCY_USD if store_currency == CURRENCY_UZS else CURRENCY_UZS)} / "
+            f"(≈ {format_money(cost_alt, CURRENCY_USD if cost_currency == CURRENCY_UZS else CURRENCY_UZS)} / "
             f"{format_money(sell_alt, CURRENCY_USD if store_currency == CURRENCY_UZS else CURRENCY_UZS)})"
         ),
         'time': timezone.localtime().strftime('%H:%M:%S'),
@@ -2080,6 +2132,7 @@ def checkout_cash(request):
                     order_status=order_status,
                 )
 
+                usd_rate = AppSettings.get_solo().usd_to_uzs
                 for product, qty, list_price, unit_price, price_adjusted in priced_lines:
                     OrderItem.objects.create(
                         order=order,
@@ -2089,7 +2142,7 @@ def checkout_cash(request):
                         unit_price=unit_price,
                         discount_percent=discount_percent,
                         price_adjusted=price_adjusted,
-                        cost_price=product.cost_price,
+                        cost_price=_product_cost_in_currency(product, order_currency, usd_rate),
                         warranty_days=product.warranty_days,
                         replacement_days=product.replacement_days,
                         service_warranty_days=product.service_warranty_days,
@@ -2303,6 +2356,7 @@ def checkout_quote(request):
             payment_method='CASH',
             order_status='AwaitingApproval',
         )
+        usd_rate = AppSettings.get_solo().usd_to_uzs
         for product, qty, list_price, unit_price, price_adjusted in priced_lines:
             OrderItem.objects.create(
                 order=order,
@@ -2312,7 +2366,7 @@ def checkout_quote(request):
                 unit_price=unit_price,
                 discount_percent=discount_percent,
                 price_adjusted=price_adjusted,
-                cost_price=product.cost_price,
+                cost_price=_product_cost_in_currency(product, order_currency, usd_rate),
                 warranty_days=product.warranty_days,
                 replacement_days=product.replacement_days,
                 service_warranty_days=product.service_warranty_days,

@@ -496,19 +496,22 @@ class AppSettingsAdmin(admin.ModelAdmin):
 @admin.register(Product)
 class ProductAdmin(BranchScopedAdminMixin, admin.ModelAdmin):
     list_display = (
-        'supplier', 'product_name', 'category', 'currency', 'base_price', 'cost_price',
+        'supplier', 'product_name', 'category', 'unit', 'cost_currency', 'cost_price',
+        'currency', 'base_price',
         'warranty_days', 'replacement_days', 'service_warranty_days', 'barcode', 'is_active',
     )
     search_fields = ('product_name', 'barcode')
-    list_filter = ('is_active', 'supplier', 'category', 'currency',)
+    list_filter = ('is_active', 'supplier', 'category', 'unit', 'currency', 'cost_currency',)
     list_select_related = ('supplier',)
     ordering = ('category', 'product_name')
     branch_lookup = 'branchinventory__branch'
     fieldsets = (
         (None, {
             'fields': (
-                'supplier', 'product_name', 'category', 'barcode', 'currency',
-                'base_price', 'cost_price', 'min_stock_level', 'image', 'is_active',
+                'supplier', 'product_name', 'category', 'barcode', 'unit',
+                'cost_currency', 'cost_price',
+                'currency', 'base_price',
+                'min_stock_level', 'image', 'is_active',
             ),
         }),
         ('Kafolat muddatlari', {

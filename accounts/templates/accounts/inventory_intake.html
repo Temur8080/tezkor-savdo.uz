@@ -145,7 +145,20 @@
                         </div>
                     </div>
 
-                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                        <div>
+                            <label class="block text-xs font-semibold text-gray-600 mb-1">O‘lchov birligi</label>
+                            <select id="unit-input"
+                                    class="w-full px-3 py-2.5 border border-gray-300 rounded-md text-sm focus:ring-teal-500 focus:border-teal-500 outline-none bg-white">
+                                <option value="ta">ta (dona)</option>
+                                <option value="m">m (metr)</option>
+                                <option value="kg">kg</option>
+                                <option value="l">l (litr)</option>
+                                <option value="m2">m²</option>
+                                <option value="quti">quti</option>
+                                <option value="juft">juft</option>
+                            </select>
+                        </div>
                         <div>
                             <label class="block text-xs font-semibold text-gray-600 mb-1">Kiritish valyutasi</label>
                             <select id="entry-currency"
@@ -164,7 +177,7 @@
                         </div>
                         <div>
                             <label class="block text-xs font-semibold text-gray-600 mb-1">Min. zaxira</label>
-                            <input id="min-stock-input" type="number" min="0" value="3"
+                            <input id="min-stock-input" type="number" min="0" step="0.001" value="3"
                                    class="w-full px-3 py-2.5 border border-gray-300 rounded-md text-sm focus:ring-teal-500 focus:border-teal-500 outline-none bg-white">
                         </div>
                     </div>
@@ -212,7 +225,7 @@
                             <div class="flex items-center gap-2">
                                 <button type="button" id="qty-minus"
                                         class="h-11 w-11 rounded-md border border-gray-300 bg-white text-lg font-bold text-gray-700 hover:bg-gray-50">−</button>
-                                <input id="qty-input" type="number" min="1" value="1"
+                                <input id="qty-input" type="number" min="0.001" step="0.001" value="1"
                                        class="w-full h-11 px-3 border border-gray-300 rounded-md text-center text-sm font-bold focus:ring-teal-500 focus:border-teal-500 outline-none bg-white">
                                 <button type="button" id="qty-plus"
                                         class="h-11 w-11 rounded-md border border-gray-300 bg-white text-lg font-bold text-gray-700 hover:bg-gray-50">+</button>

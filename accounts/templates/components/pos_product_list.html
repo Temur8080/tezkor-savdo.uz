@@ -47,6 +47,7 @@
                     data-name="{{ item.product.product_name }}"
                     data-price="{{ item.product.base_price }}"
                     data-currency="{{ item.product.currency }}"
+                    data-unit="{{ item.product.unit|default:'ta' }}"
                     data-category="{{ item.product.get_category_display }}"
                     data-image="{% if item.product.image %}{{ item.product.image.url }}{% endif %}"
                     data-stock="{{ item.quantity }}"
@@ -66,7 +67,7 @@
                 <div class="mt-auto pt-2 flex items-center justify-between gap-2">
                     <span class="text-sm font-bold text-blue-700">{{ item.product.base_price|money:item.product.currency }}</span>
                     <span class="text-[10px] font-semibold uppercase {% if item.quantity > 0 %}text-emerald-600{% else %}text-red-600{% endif %}">
-                        {{ item.quantity }} dona
+                        {{ item.quantity }} {{ item.product.unit|default:'ta' }}
                     </span>
                 </div>
             </button>
