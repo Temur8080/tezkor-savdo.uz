@@ -3,8 +3,16 @@ from .models import (
     Employee, Product,
     Supplier, ProductCategory,
 )
-from .money import CURRENCY_CHOICES, CURRENCY_UZS
+from .money import CURRENCY_CHOICES, CURRENCY_UZS, parse_decimal
 from decimal import Decimal
+
+
+def _qty_initial(value):
+    """Formada 5.000 o‘rniga 5 ko‘rsatish."""
+    amount = parse_decimal(value)
+    if amount == amount.to_integral_value():
+        return int(amount)
+    return amount.normalize()
 
 _INPUT = (
     'w-full px-3 py-2 border border-gray-300 rounded-md text-sm '
@@ -145,11 +153,11 @@ class InventoryEditForm(forms.Form):
             self.fields['unit'].initial = getattr(p, 'unit', None) or Product.UNIT_TA
             self.fields['currency'].initial = p.currency
             self.fields['base_price'].initial = p.base_price
-            self.fields['min_stock_level'].initial = p.min_stock_level
+            self.fields['min_stock_level'].initial = _qty_initial(p.min_stock_level)
             self.fields['warranty_days'].initial = p.warranty_days
             self.fields['replacement_days'].initial = p.replacement_days
             self.fields['service_warranty_days'].initial = p.service_warranty_days
-            self.fields['quantity'].initial = self.inventory.quantity
+            self.fields['quantity'].initial = _qty_initial(self.inventory.quantity)
             if p.image:
                 self.fields['image'].initial = p.image
 

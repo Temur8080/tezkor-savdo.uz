@@ -1,4 +1,5 @@
 {% extends 'accounts/main.html' %}
+{% load money_tags %}
 
 {% block content %}
 <div class="max-w-4xl mx-auto">
@@ -40,7 +41,7 @@
                     <p class="text-sm text-gray-600">
                         Shtrix-kod: {{ inventory.product.barcode }} ·
                         Kategoriya: {{ inventory.product.get_category_display }} ·
-                        Qoldiq: {{ inventory.quantity }}
+                        Qoldiq: {{ inventory.quantity|qty }} {{ inventory.product.unit|default:'ta' }}
                     </p>
                     <div>
                         <label class="block text-xs font-semibold text-gray-600 mb-1">{{ form.image.label }}</label>

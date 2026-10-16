@@ -70,6 +70,18 @@ def format_money(value, currency=CURRENCY_UZS, decimals=None):
         return mark_safe(f"${number}")
     return mark_safe(f"{number} so‘m")
 
+
+def format_qty(value):
+    """Miqdor ko‘rsatish: 5.000 → 5, 12.500 → 12.5 (vergul/000 chalkashmasin)."""
+    if value is None or value == '':
+        return '0'
+    amount = parse_decimal(value)
+    quantized = amount.quantize(Decimal('0.001'), rounding=ROUND_HALF_UP)
+    if quantized == quantized.to_integral_value():
+        return str(int(quantized))
+    text = f'{quantized:.3f}'.rstrip('0').rstrip('.')
+    return text or '0'
+
 def convert_amount(amount, from_currency, to_currency, usd_rate):
 
     amount = parse_decimal(amount)

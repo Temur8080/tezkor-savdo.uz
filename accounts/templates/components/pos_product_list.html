@@ -50,7 +50,7 @@
                     data-unit="{{ item.product.unit|default:'ta' }}"
                     data-category="{{ item.product.get_category_display }}"
                     data-image="{% if item.product.image %}{{ item.product.image.url }}{% endif %}"
-                    data-stock="{{ item.quantity }}"
+                    data-stock="{{ item.quantity|qty }}"
                     {% if item.quantity <= 0 %}disabled{% endif %}>
                 <div class="h-24 sm:h-28 w-full bg-gray-50 border border-gray-100 rounded-md mb-2 sm:mb-3 flex items-center justify-center overflow-hidden">
                     {% if item.product.image %}
@@ -67,7 +67,7 @@
                 <div class="mt-auto pt-2 flex items-center justify-between gap-2">
                     <span class="text-sm font-bold text-blue-700">{{ item.product.base_price|money:item.product.currency }}</span>
                     <span class="text-[10px] font-semibold uppercase {% if item.quantity > 0 %}text-emerald-600{% else %}text-red-600{% endif %}">
-                        {{ item.quantity }} {{ item.product.unit|default:'ta' }}
+                        {{ item.quantity|qty }} {{ item.product.unit|default:'ta' }}
                     </span>
                 </div>
             </button>

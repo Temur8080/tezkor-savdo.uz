@@ -22,7 +22,7 @@ from .models import Product, Employee, Branch, BranchInventory, Customer, Order,
     SalesAgent, ProductReservation, ProductReservationItem
 from .loyalty import apply_discount, apply_markup, customer_payload, money as money_dec
 from .money import (
-    CURRENCY_UZS, CURRENCY_USD, parse_decimal, convert_amount, format_money,
+    CURRENCY_UZS, CURRENCY_USD, parse_decimal, convert_amount, format_money, format_qty,
 )
 from .filters import InventoryFilter, salesFilter
 from django.core.paginator import Paginator
@@ -1498,7 +1498,7 @@ def scanProduct(request):
         'currency': product.currency,
         'unit': getattr(product, 'unit', None) or Product.UNIT_TA,
         'fractional': product.allows_fractional_qty(),
-        'stock': str(inventory_item.quantity),
+        'stock': format_qty(inventory_item.quantity),
         'category': product.get_category_display(),
         'image': image_url,
     })
@@ -1538,7 +1538,7 @@ def product_scan_info(request):
         'currency': product.currency,
         'unit': getattr(product, 'unit', None) or Product.UNIT_TA,
         'fractional': product.allows_fractional_qty(),
-        'stock': str(stock) if stock is not None else None,
+        'stock': format_qty(stock) if stock is not None else None,
         'category': product.get_category_display(),
         'image': image_url,
         'branch_name': branch_name,
@@ -1614,8 +1614,8 @@ def _product_payload(product, branch):
         'supplier_id': product.supplier_id,
         'supplier': product.supplier.name if product.supplier else '',
         'image': image_url,
-        'stock': stock,
-        'min_stock_level': min_stock,
+        'stock': format_qty(stock),
+        'min_stock_level': format_qty(min_stock),
         'warranty_days': product.warranty_days,
         'replacement_days': product.replacement_days,
         'service_warranty_days': product.service_warranty_days,
@@ -1739,9 +1739,9 @@ def inventory_stock_in(request):
         'id': product.id,
         'name': product.product_name,
         'barcode': product.barcode,
-        'qty_added': action_qty,
-        'stock': inventory_item.quantity,
-        'min_stock_level': product.min_stock_level or 0,
+        'qty_added': format_qty(action_qty),
+        'stock': format_qty(inventory_item.quantity),
+        'min_stock_level': format_qty(product.min_stock_level or 0),
         'is_low_stock': inventory_item.quantity <= (product.min_stock_level or 0),
         'supplier': product.supplier.name if product.supplier else '',
         'price': str(product.base_price),
@@ -1922,9 +1922,9 @@ def inventory_product_save(request):
         'id': product.id,
         'name': product.product_name,
         'barcode': product.barcode,
-        'qty_added': qty,
-        'stock': inventory_item.quantity,
-        'min_stock_level': product.min_stock_level or 0,
+        'qty_added': format_qty(qty),
+        'stock': format_qty(inventory_item.quantity),
+        'min_stock_level': format_qty(product.min_stock_level or 0),
         'is_low_stock': inventory_item.quantity <= (product.min_stock_level or 0),
         'supplier': product.supplier.name if product.supplier else '',
         'price': str(product.base_price),
