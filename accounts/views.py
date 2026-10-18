@@ -17,6 +17,7 @@ from .decorators import (
     ROLE_CONSULTANT,
     ROLE_SALES,
 )
+from .admin_branch import get_admin_branch_ids, scope_queryset_by_branch
 from .models import Product, Employee, Branch, BranchInventory, Customer, Order, OrderItem, Payment, CashPayment, \
     Invoice, WarrantyClaims, DefectiveInventory, ReplacementRecord, AuditTrail, \
     Organization, Supplier, ProductCategory, AppSettings, CustomerDebt, DebtPayment, Expense, PriceTier, \
@@ -71,6 +72,29 @@ def _list_page_size(request, default=15, minimum=7, maximum=50):
     except (TypeError, ValueError):
         n = default
     return max(minimum, min(maximum, n))
+
+
+def _allowed_branches_qs(request):
+    """StaffAccess / employee bo‘yicha ruxsat etilgan faol filiallar."""
+    ids = get_admin_branch_ids(request)
+    qs = Branch.objects.filter(is_active=True).order_by('name')
+    if ids is None:
+        return qs
+    if ids is False:
+        return qs.none()
+    return qs.filter(pk__in=ids)
+
+
+def _branch_scope_label(request):
+    ids = get_admin_branch_ids(request)
+    if ids is None:
+        return 'Barcha filiallar'
+    if ids is False or not ids:
+        return 'Tayinlanmagan'
+    if len(ids) == 1:
+        b = Branch.objects.filter(pk=ids[0]).first()
+        return b.name if b else 'Filial'
+    return f'{len(ids)} ta filial'
 
 
 def _active_order_stats_qs():
@@ -621,9 +645,13 @@ def _reports_build_context(request):
         }
 
     def returns_in_range(start=None, end=None):
-        qs = SaleReturnItem.objects.filter(
-            sale_return__status='Completed',
-            sale_return__is_active=True,
+        qs = scope_queryset_by_branch(
+            SaleReturnItem.objects.filter(
+                sale_return__status='Completed',
+                sale_return__is_active=True,
+            ),
+            request,
+            field='sale_return__branch_id',
         )
         if end is not None:
             qs = qs.filter(sale_return__return_date__lte=end)
@@ -650,11 +678,11 @@ def _reports_build_context(request):
     stock_cost_uzs = zero
     stock_retail_uzs = zero
     low_stock_count = 0
-    inv_rows = (
+    inv_rows = scope_queryset_by_branch(
         BranchInventory.objects
-        .filter(branch__is_active=True, product__is_active=True)
-        .select_related('product')
-    )
+        .filter(branch__is_active=True, product__is_active=True),
+        request,
+    ).select_related('product')
     for row in inv_rows.iterator():
         qty = parse_decimal(row.quantity or 0)
         if qty <= 0:
@@ -667,12 +695,15 @@ def _reports_build_context(request):
         if qty <= min_lvl:
             low_stock_count += 1
 
-    period_orders = Order.objects.filter(
-        order_date__lte=end_dt,
-        employee__is_active=True,
-        branch__is_active=True,
-        is_active=True,
-    ).exclude(order_status__in=['AwaitingApproval', 'Cancelled'])
+    period_orders = scope_queryset_by_branch(
+        Order.objects.filter(
+            order_date__lte=end_dt,
+            employee__is_active=True,
+            branch__is_active=True,
+            is_active=True,
+        ).exclude(order_status__in=['AwaitingApproval', 'Cancelled']),
+        request,
+    )
     if start_dt:
         period_orders = period_orders.filter(order_date__gte=start_dt)
     active_order_ids = list(period_orders.values_list('id', flat=True))
@@ -694,15 +725,15 @@ def _reports_build_context(request):
     year = stats_uzs
 
     # Operatsiya hisoblari (davr)
-    ops_awaiting = Order.objects.filter(
+    ops_awaiting = scope_queryset_by_branch(Order.objects.filter(
         is_active=True, order_status='AwaitingApproval', order_date__lte=end_dt,
-    )
-    ops_cancelled = Order.objects.filter(
+    ), request)
+    ops_cancelled = scope_queryset_by_branch(Order.objects.filter(
         is_active=True, order_status='Cancelled', order_date__lte=end_dt,
-    )
-    ops_returned_full = Order.objects.filter(
+    ), request)
+    ops_returned_full = scope_queryset_by_branch(Order.objects.filter(
         is_active=True, order_status='Returned', order_date__lte=end_dt,
-    )
+    ), request)
     if start_dt:
         ops_awaiting = ops_awaiting.filter(order_date__gte=start_dt)
         ops_cancelled = ops_cancelled.filter(order_date__gte=start_dt)
@@ -710,9 +741,9 @@ def _reports_build_context(request):
     ops_awaiting_count = ops_awaiting.count()
     ops_cancelled_count = ops_cancelled.count()
     ops_returned_full_count = ops_returned_full.count()
-    period_returns_qs = SaleReturn.objects.filter(
+    period_returns_qs = scope_queryset_by_branch(SaleReturn.objects.filter(
         status='Completed', is_active=True, return_date__lte=end_dt,
-    )
+    ), request)
     if start_dt:
         period_returns_qs = period_returns_qs.filter(return_date__gte=start_dt)
     top_returns = (
@@ -722,7 +753,9 @@ def _reports_build_context(request):
     )
 
     # Qarzlar — faqat tanlangan davr (yaratilgan / to‘langan)
-    debts_period = CustomerDebt.objects.filter(created_at__lte=end_dt)
+    debts_period = scope_queryset_by_branch(
+        CustomerDebt.objects.filter(created_at__lte=end_dt), request
+    )
     if start_dt:
         debts_period = debts_period.filter(created_at__gte=start_dt)
     open_debts = debts_period.exclude(status='Paid')
@@ -735,7 +768,11 @@ def _reports_build_context(request):
         'paid_count': paid_debts_period.count(),
         'all_count': debts_period.count(),
     }
-    debt_pay_qs = DebtPayment.objects.filter(paid_at__lte=end_dt).select_related('debt')
+    debt_pay_qs = scope_queryset_by_branch(
+        DebtPayment.objects.filter(paid_at__lte=end_dt).select_related('debt'),
+        request,
+        field='debt__branch_id',
+    )
     if start_dt:
         debt_pay_qs = debt_pay_qs.filter(paid_at__gte=start_dt)
 
@@ -750,7 +787,9 @@ def _reports_build_context(request):
     debt_collected = debt_collected_period
     debt_collected_month = debt_collected_period
 
-    exp_period = Expense.objects.filter(is_active=True, expense_date__lte=end_d)
+    exp_period = scope_queryset_by_branch(
+        Expense.objects.filter(is_active=True, expense_date__lte=end_d), request
+    )
     if start_d:
         exp_period = exp_period.filter(expense_date__gte=start_d)
     expense_period = sum_money_rows_uzs(exp_period, 'amount')
@@ -804,10 +843,14 @@ def _reports_build_context(request):
     ):
         name = row['product__product_name'] or "Noma’lum"
         product_qty_map[name] = float(row['total'] or 0)
-    ret_product_qs = SaleReturnItem.objects.filter(
-        sale_return__status='Completed',
-        sale_return__is_active=True,
-        sale_return__return_date__lte=end_dt,
+    ret_product_qs = scope_queryset_by_branch(
+        SaleReturnItem.objects.filter(
+            sale_return__status='Completed',
+            sale_return__is_active=True,
+            sale_return__return_date__lte=end_dt,
+        ),
+        request,
+        field='sale_return__branch_id',
     )
     if start_dt:
         ret_product_qs = ret_product_qs.filter(sale_return__return_date__gte=start_dt)
@@ -847,7 +890,9 @@ def _reports_build_context(request):
         .order_by('-remaining_balance')[:8]
     )
 
-    reservation_period = ProductReservation.objects.filter(created_at__lte=end_dt)
+    reservation_period = scope_queryset_by_branch(
+        ProductReservation.objects.filter(created_at__lte=end_dt), request
+    )
     if start_dt:
         reservation_period = reservation_period.filter(created_at__gte=start_dt)
     active_reservations = reservation_period.filter(status='Active')
@@ -873,12 +918,12 @@ def _reports_build_context(request):
         .order_by('-created_at')[:8]
     )
 
-    transactions = Order.objects.filter(
+    transactions = scope_queryset_by_branch(Order.objects.filter(
         employee__is_active=True,
         branch__is_active=True,
         is_active=True,
         order_date__lte=end_dt,
-    )
+    ), request)
     if start_dt:
         transactions = transactions.filter(order_date__gte=start_dt)
     transactions = (
@@ -1306,14 +1351,21 @@ def salesDisplay(request):
     emp = get_active_employee(request.user)
     sales_prefetch = ('order__debts', 'order__payment_set__cashpayment')
     if is_manager:
-        queryset = (
-            OrderItem.objects.filter(order__is_active=True)
-            .select_related('order', 'order__customer', 'product', 'order__employee', 'order__branch')
-            .prefetch_related(*sales_prefetch)
+        queryset = scope_queryset_by_branch(
+            OrderItem.objects.filter(order__is_active=True),
+            request,
+            field='order__branch_id',
+        ).select_related(
+            'order', 'order__customer', 'product', 'order__employee', 'order__branch'
+        ).prefetch_related(*sales_prefetch)
+        debt_base = scope_queryset_by_branch(
+            CustomerDebt.objects.filter(order__is_active=True), request
         )
-        debt_base = CustomerDebt.objects.filter(order__is_active=True)
-        cash_base = Order.objects.filter(payment_method='CASH', is_active=True).exclude(
-            order_status__in=['AwaitingApproval', 'Cancelled', 'Returned']
+        cash_base = scope_queryset_by_branch(
+            Order.objects.filter(payment_method='CASH', is_active=True).exclude(
+                order_status__in=['AwaitingApproval', 'Cancelled', 'Returned']
+            ),
+            request,
         )
     elif emp:
         queryset = (
@@ -1374,7 +1426,11 @@ def export_sales_csv(request):
     is_manager = request.user.is_superuser or hasattr(request.user, 'employee') and request.user.employee.role == 'Manager'
 
     if is_manager:
-        queryset = OrderItem.objects.filter(order__is_active=True).select_related('order', 'order__customer', 'product', 'order__employee')
+        queryset = scope_queryset_by_branch(
+            OrderItem.objects.filter(order__is_active=True),
+            request,
+            field='order__branch_id',
+        ).select_related('order', 'order__customer', 'product', 'order__employee')
     else:
         try:
             assigned_branch = request.user.employee.branch
@@ -1455,11 +1511,12 @@ def branchInventory(request):
     show_counts = request.GET.get('counts') == '1'
 
     if is_manager:
-        count_base = BranchInventory.objects.all()
-        items = BranchInventory.objects.filter(
-            product__is_active=(not show_archived),
+        count_base = scope_queryset_by_branch(BranchInventory.objects.all(), request)
+        items = scope_queryset_by_branch(
+            BranchInventory.objects.filter(product__is_active=(not show_archived)),
+            request,
         ).select_related('branch', 'product', 'product__supplier')
-        assigned_branch = 'Barcha filiallar'
+        assigned_branch = _branch_scope_label(request)
     else:
         try:
             login_employee = Employee.objects.get(user=request.user)
@@ -1508,8 +1565,11 @@ def export_branch_inventory_csv(request):
     is_manager = request.user.is_superuser or hasattr(request.user, 'employee') and request.user.employee.role == 'Manager'
 
     if is_manager:
-        items = BranchInventory.objects.filter(product__is_active=True).select_related('branch', 'product')
-        assigned_branch = 'Barcha filiallar'
+        items = scope_queryset_by_branch(
+            BranchInventory.objects.filter(product__is_active=True),
+            request,
+        ).select_related('branch', 'product')
+        assigned_branch = _branch_scope_label(request)
     else:
         try:
             login_employee = Employee.objects.get(user=request.user)
@@ -1912,13 +1972,14 @@ def _resolve_intake_branch(request, branch_id=None):
     if not is_manager:
         return employee_branch
 
+    allowed = _allowed_branches_qs(request)
     if branch_id:
-        return get_object_or_404(Branch, pk=branch_id, is_active=True)
+        return get_object_or_404(allowed, pk=branch_id)
 
-    if employee_branch:
+    if employee_branch and allowed.filter(pk=employee_branch.pk).exists():
         return employee_branch
 
-    return Branch.objects.filter(is_active=True).first()
+    return allowed.first()
 
 def _ensure_product_categories():
 
@@ -1976,7 +2037,7 @@ def inventory_intake(request):
         return redirect('pos_terminal')
     is_manager = _is_inventory_manager(request.user)
     branch = _resolve_intake_branch(request)
-    branches = Branch.objects.filter(is_active=True).order_by('name') if is_manager else Branch.objects.none()
+    branches = _allowed_branches_qs(request) if is_manager else Branch.objects.none()
 
     _ensure_product_categories()
     settings_obj = AppSettings.get_solo()
@@ -2981,7 +3042,9 @@ def reservations_list(request):
     qs = ProductReservation.objects.select_related(
         'branch', 'employee', 'customer'
     ).prefetch_related('items__product')
-    if not is_manager:
+    if is_manager:
+        qs = scope_queryset_by_branch(qs, request)
+    else:
         emp = get_active_employee(request.user)
         if emp:
             qs = qs.filter(branch=emp.branch)
@@ -3000,6 +3063,11 @@ def reservations_list(request):
         )
     qs = qs.order_by('-created_at')
     active_qs = ProductReservation.objects.filter(status='Active')
+    if is_manager:
+        active_qs = scope_queryset_by_branch(active_qs, request)
+    else:
+        emp = get_active_employee(request.user)
+        active_qs = active_qs.filter(branch=emp.branch) if emp else active_qs.none()
     if not is_manager:
         emp = get_active_employee(request.user)
         if emp:
@@ -3258,11 +3326,12 @@ def returns_list(request):
         .prefetch_related('items')
         .order_by('-return_date')
     )
-    if not is_manager:
-        if emp is None:
-            qs = SaleReturn.objects.none()
-        else:
-            qs = qs.filter(branch=emp.branch)
+    if is_manager:
+        qs = scope_queryset_by_branch(qs, request)
+    elif emp is None:
+        qs = SaleReturn.objects.none()
+    else:
+        qs = qs.filter(branch=emp.branch)
     per_page = _list_page_size(request, default=15)
     page_obj = Paginator(qs, per_page).get_page(request.GET.get('page'))
     return render(request, 'accounts/returns_list.html', {
@@ -3506,25 +3575,36 @@ def dashboard(request):
         total=Coalesce(Sum('cost_impact'), Decimal('0.00'))
     )['total']
 
-    low_stock = BranchInventory.objects.filter(quantity__lte=F('product__min_stock_level'), quantity__gt=0, product__is_active=True).count()
+    inv_scope = scope_queryset_by_branch(BranchInventory.objects.all(), request)
+    low_stock = inv_scope.filter(quantity__lte=F('product__min_stock_level'), quantity__gt=0, product__is_active=True).count()
 
-    out_of_stocks = BranchInventory.objects.filter(quantity=0, product__is_active=True).count()
+    out_of_stocks = inv_scope.filter(quantity=0, product__is_active=True).count()
 
-    healthy_stocks = BranchInventory.objects.filter(quantity__gt=F('product__min_stock_level'), product__is_active=True).count()
+    healthy_stocks = inv_scope.filter(quantity__gt=F('product__min_stock_level'), product__is_active=True).count()
 
     last_24_hrs = timezone.now() - timedelta(days=1)
 
-    recent_stock = BranchInventory.objects.filter(date_added__gte=last_24_hrs).count()
+    recent_stock = inv_scope.filter(date_added__gte=last_24_hrs).count()
 
     today = timezone.localtime(timezone.now()).date()
 
     yesterday = timezone.localtime(timezone.now()).date() - timedelta(days=1)
 
-    today_total = OrderItem.objects.filter(order__order_date=today, order__is_active=True).aggregate(
+    today_oi = scope_queryset_by_branch(
+        OrderItem.objects.filter(order__order_date=today, order__is_active=True),
+        request,
+        field='order__branch_id',
+    )
+    yesterday_oi = scope_queryset_by_branch(
+        OrderItem.objects.filter(order__order_date=yesterday, order__is_active=True),
+        request,
+        field='order__branch_id',
+    )
+    today_total = today_oi.aggregate(
         total=Coalesce(Sum(F('order__total_amount') * F('quantity')), Decimal('0.00'))
     )['total']
 
-    yesterday_total = OrderItem.objects.filter(order__order_date=yesterday, order__is_active=True).aggregate(
+    yesterday_total = yesterday_oi.aggregate(
         total=Coalesce(Sum(F('unit_price') * F('quantity')), Decimal('0.00'))
     )['total']
 
@@ -3780,7 +3860,9 @@ def debtors_list(request):
         'order__orderitem_set__product'
     ).all()
 
-    if not is_manager and hasattr(request.user, 'employee'):
+    if is_manager:
+        debts = scope_queryset_by_branch(debts, request)
+    elif hasattr(request.user, 'employee'):
         debts = debts.filter(branch=request.user.employee.branch)
 
     status = request.GET.get('status') or 'Active'
@@ -3803,7 +3885,9 @@ def debtors_list(request):
     debts = debts.order_by('-created_at')
 
     open_qs = CustomerDebt.objects.exclude(status='Paid')
-    if not is_manager and hasattr(request.user, 'employee'):
+    if is_manager:
+        open_qs = scope_queryset_by_branch(open_qs, request)
+    elif hasattr(request.user, 'employee'):
         open_qs = open_qs.filter(branch=request.user.employee.branch)
 
     total_remaining = open_qs.aggregate(
@@ -3836,7 +3920,11 @@ def debt_pay(request, pk):
     is_manager = request.user.is_superuser or (
         hasattr(request.user, 'employee') and request.user.employee.role == 'Manager'
     )
-    if not is_manager and hasattr(request.user, 'employee'):
+    if is_manager:
+        allowed = get_admin_branch_ids(request)
+        if allowed is False or (allowed is not None and debt.branch_id not in allowed):
+            raise PermissionDenied
+    elif hasattr(request.user, 'employee'):
         if debt.branch_id != request.user.employee.branch_id:
             raise PermissionDenied
 
@@ -3878,7 +3966,11 @@ def debt_edit(request, pk):
         pk=pk,
     )
     is_manager = is_app_manager(request.user)
-    if not is_manager and hasattr(request.user, 'employee'):
+    if is_manager:
+        allowed = get_admin_branch_ids(request)
+        if allowed is False or (allowed is not None and debt.branch_id not in allowed):
+            raise PermissionDenied
+    elif hasattr(request.user, 'employee'):
         if debt.branch_id != request.user.employee.branch_id:
             raise PermissionDenied
 
@@ -3925,7 +4017,11 @@ def debt_delete(request, pk):
         return redirect('debtors_list')
     debt = get_object_or_404(CustomerDebt, pk=pk)
     is_manager = is_app_manager(request.user)
-    if not is_manager and hasattr(request.user, 'employee'):
+    if is_manager:
+        allowed = get_admin_branch_ids(request)
+        if allowed is False or (allowed is not None and debt.branch_id not in allowed):
+            raise PermissionDenied
+    elif hasattr(request.user, 'employee'):
         if debt.branch_id != request.user.employee.branch_id:
             raise PermissionDenied
     name = debt.customer.name if debt.customer_id else f'#{debt.id}'
@@ -3954,7 +4050,9 @@ def debtors_export_csv(request):
         hasattr(request.user, 'employee') and request.user.employee.role == 'Manager'
     )
     debts = CustomerDebt.objects.select_related('customer', 'branch').all()
-    if not is_manager and hasattr(request.user, 'employee'):
+    if is_manager:
+        debts = scope_queryset_by_branch(debts, request)
+    elif hasattr(request.user, 'employee'):
         debts = debts.filter(branch=request.user.employee.branch)
 
     status = request.GET.get('status') or 'Active'
@@ -3992,7 +4090,9 @@ def _expense_queryset_for(request):
         hasattr(request.user, 'employee') and request.user.employee.role == 'Manager'
     )
     qs = Expense.objects.filter(is_active=True).select_related('branch', 'created_by')
-    if not is_manager and hasattr(request.user, 'employee'):
+    if is_manager:
+        qs = scope_queryset_by_branch(qs, request)
+    elif hasattr(request.user, 'employee'):
         qs = qs.filter(branch=request.user.employee.branch)
     return qs, is_manager
 
@@ -4024,11 +4124,12 @@ def expenses_list(request):
 
         branch = None
         if is_manager:
+            allowed = _allowed_branches_qs(request)
             branch_id = request.POST.get('branch')
             if branch_id:
-                branch = Branch.objects.filter(pk=branch_id, is_active=True).first()
+                branch = allowed.filter(pk=branch_id).first()
             if not branch:
-                branch = Branch.objects.filter(is_active=True).first()
+                branch = allowed.first()
         else:
             emp = getattr(request.user, 'employee', None)
             branch = emp.branch if emp else None
@@ -4073,7 +4174,7 @@ def expenses_list(request):
         .order_by('-total')
     )
 
-    branches = Branch.objects.filter(is_active=True).order_by('name') if is_manager else []
+    branches = list(_allowed_branches_qs(request)) if is_manager else []
     page_obj = Paginator(qs, 15).get_page(request.GET.get('page'))
 
     return render(request, 'accounts/expenses_list.html', {

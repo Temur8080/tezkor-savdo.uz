@@ -9,6 +9,7 @@ from .models import *
 from .admin_branch import (
     BranchScopedAdminMixin,
     get_admin_organizations,
+    get_admin_branch_ids,
 )
 
 admin.site.site_header = "Tezkor boshqaruvi"
@@ -93,7 +94,8 @@ class StaffAccessInline(admin.StackedInline):
                 super().__init__(*args, **kw)
                 help_txt = (
                     'Chap — mavjudlar. O‘ng — biriktirilganlar. '
-                    'Viloyat / tuman / tashkilot / filial: o‘ngdagilarini admin ko‘radi.'
+                    'Agar filial tanlansa — faqat shu filial (viloyat/tuman kengaytirmaydi). '
+                    'Filial bo‘lmasa: tashkilot → tuman → viloyat bo‘yicha.'
                 )
                 for form in self.forms:
                     v = form.fields.get('viloyats')
@@ -196,12 +198,18 @@ class TezkorUserAdmin(DjangoUserAdmin):
     def get_queryset(self, request):
         qs = super().get_queryset(request).select_related(
             'employee__branch__organization', 'staff_access'
-        ).prefetch_related('staff_access__organizations')
+        ).prefetch_related('staff_access__organizations', 'staff_access__branches')
         orgs = get_admin_organizations(request)
         if orgs is None:
             return qs
         if orgs is False:
             return qs.none()
+        branch_ids = get_admin_branch_ids(request)
+        if branch_ids is not None and branch_ids is not False:
+            return qs.filter(
+                Q(staff_access__branches__in=branch_ids)
+                | Q(employee__branch_id__in=branch_ids)
+            ).distinct()
         return qs.filter(
             Q(staff_access__organizations__in=orgs)
             | Q(employee__branch__organization__in=orgs)
@@ -280,6 +288,13 @@ class TezkorUserAdmin(DjangoUserAdmin):
             return True
         if orgs is False:
             return False
+        branch_ids = get_admin_branch_ids(request)
+        if branch_ids is not None and branch_ids is not False:
+            access = getattr(obj, 'staff_access', None)
+            if access and access.branches.filter(id__in=branch_ids).exists():
+                return True
+            emp = getattr(obj, 'employee', None)
+            return bool(emp and emp.branch_id in branch_ids)
         allowed = set(orgs.values_list('id', flat=True))
         access = getattr(obj, 'staff_access', None)
         if access and access.organizations.filter(id__in=allowed).exists():

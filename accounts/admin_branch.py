@@ -1,15 +1,6 @@
-\
-\
-\
-\
-
 def get_admin_organizations(request):
-\
-\
-\
-\
-
-    from .models import Organization, Branch
+    """None = superuser (cheklovsiz). False = ruxsat yo‘q. QuerySet = ruxsat etilgan tashkilotlar."""
+    from .models import Organization
 
     user = getattr(request, 'user', None)
     if not user or not user.is_authenticated:
@@ -19,31 +10,34 @@ def get_admin_organizations(request):
 
     access = getattr(user, 'staff_access', None)
     if access is not None:
-        org_ids = set()
-
-        if access.organizations.exists():
-            org_ids.update(access.organizations.filter(is_active=True).values_list('id', flat=True))
-
+        # Aniq filiallar berilgan bo‘lsa — faqat shu filiallarnning tashkiloti
+        # (viloyat/tuman/tashkilot M2M kengaytirmaydi).
         if access.branches.exists():
-            org_ids.update(
+            org_ids = set(
                 access.branches.filter(is_active=True, organization__isnull=False)
                 .values_list('organization_id', flat=True)
             )
+            if org_ids:
+                return Organization.objects.filter(pk__in=org_ids, is_active=True)
+            return False
 
+        org_ids = set()
+        if access.organizations.exists():
+            org_ids.update(
+                access.organizations.filter(is_active=True).values_list('id', flat=True)
+            )
         if access.districts.exists():
             org_ids.update(
                 Organization.objects.filter(
                     is_active=True, district__in=access.districts.all()
                 ).values_list('id', flat=True)
             )
-
         if access.viloyats.exists():
             org_ids.update(
                 Organization.objects.filter(
                     is_active=True, district__viloyat__in=access.viloyats.all()
                 ).values_list('id', flat=True)
             )
-
         if org_ids:
             return Organization.objects.filter(pk__in=org_ids, is_active=True)
 
@@ -53,11 +47,10 @@ def get_admin_organizations(request):
 
     return False
 
+
 def get_admin_branch_ids(request):
-\
-\
-\
-\
+    """None = cheklovsiz. False = hech narsa. list[int] = ruxsat etilgan filiallar."""
+    from .models import Branch
 
     user = getattr(request, 'user', None)
     if not user or not user.is_authenticated:
@@ -72,8 +65,6 @@ def get_admin_branch_ids(request):
         return None
 
     access = getattr(user, 'staff_access', None)
-    from .models import Branch
-
     if access is not None and access.branches.exists():
         ids = list(
             access.branches.filter(is_active=True, organization__in=orgs)
@@ -81,7 +72,22 @@ def get_admin_branch_ids(request):
         )
         return ids if ids else False
 
-    return list(Branch.objects.filter(organization__in=orgs, is_active=True).values_list('id', flat=True))
+    return list(
+        Branch.objects.filter(organization__in=orgs, is_active=True).values_list('id', flat=True)
+    )
+
+
+def scope_queryset_by_branch(qs, request, field='branch_id'):
+    """Portal/admin querysetni StaffAccess filialiga qisqartirish."""
+    branch_ids = get_admin_branch_ids(request)
+    if branch_ids is None:
+        return qs
+    if branch_ids is False:
+        return qs.none()
+    if field.endswith('_id'):
+        return qs.filter(**{f'{field}__in': branch_ids})
+    return qs.filter(**{f'{field}_id__in': branch_ids})
+
 
 def get_admin_branch(request):
     user = getattr(request, 'user', None)
@@ -99,6 +105,7 @@ def get_admin_branch(request):
         return False
     from .models import Branch
     return Branch.objects.filter(pk=branch_ids[0]).first() or False
+
 
 class BranchScopedAdminMixin:
 
