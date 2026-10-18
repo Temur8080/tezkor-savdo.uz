@@ -578,6 +578,65 @@ def _reports_build_context(request):
             'cash': cash,
         }
 
+    def sum_return_items_uzs(return_item_qs):
+        """Qaytarilgan mahsulotlar: savdo/tannarx/dona kamaytirish uchun."""
+        revenue = zero
+        cost_sum = zero
+        units = 0
+        return_ids = set()
+        cash_refund = zero
+        debt_reduced = zero
+        for ri in return_item_qs.select_related(
+            'sale_return', 'order_item', 'product'
+        ).iterator():
+            ret = ri.sale_return
+            if not ret or ret.status != 'Completed' or not ret.is_active:
+                continue
+            cur = getattr(ret, 'currency', None) or CURRENCY_UZS
+            line = ri.line_total if ri.line_total is not None else (
+                (ri.unit_price or zero) * (ri.quantity or 0)
+            )
+            oi = ri.order_item
+            line_cost = (getattr(oi, 'cost_price', None) or zero) * (ri.quantity or 0)
+            revenue += to_uzs(line, cur)
+            cost_sum += to_uzs(line_cost, cur)
+            units += float(ri.quantity or 0)
+            if ret.id:
+                return_ids.add(ret.id)
+        # Naqd/qarz qaytarish — SaleReturn header bo‘yicha (takrorlanmasin)
+        for ret in SaleReturn.objects.filter(id__in=return_ids).iterator():
+            cur = getattr(ret, 'currency', None) or CURRENCY_UZS
+            cash_refund += to_uzs(ret.cash_refunded or zero, cur)
+            debt_reduced += to_uzs(ret.debt_reduced or zero, cur)
+        return {
+            'revenue': revenue,
+            'cost': cost_sum,
+            'units': units,
+            'returns': len(return_ids),
+            'cash_refunded': cash_refund,
+            'debt_reduced': debt_reduced,
+        }
+
+    def apply_returns_net(sales, returns):
+        return {
+            'revenue': (sales['revenue'] or zero) - (returns['revenue'] or zero),
+            'cost': (sales['cost'] or zero) - (returns['cost'] or zero),
+            'units': float(sales['units'] or 0) - float(returns['units'] or 0),
+            'orders': sales['orders'],
+            'cash': (sales['cash'] or zero) - (returns['cash_refunded'] or zero),
+        }
+
+    def returns_in_range(start=None, end=None):
+        qs = SaleReturnItem.objects.filter(
+            sale_return__status='Completed',
+            sale_return__is_active=True,
+        )
+        if end is not None:
+            qs = qs.filter(sale_return__return_date__lte=end)
+        if start is not None:
+            qs = qs.filter(sale_return__return_date__gte=start)
+        return sum_return_items_uzs(qs)
+
     def sum_orders_field_uzs(order_qs, field='total_amount'):
         total = zero
         for order in order_qs.only('currency', field).iterator():
@@ -624,7 +683,9 @@ def _reports_build_context(request):
         period_orders = period_orders.filter(order_date__gte=start_dt)
     active_order_ids = list(period_orders.values_list('id', flat=True))
 
-    stats_uzs = sum_order_items_uzs(OrderItem.objects.filter(order_id__in=active_order_ids))
+    sales_gross = sum_order_items_uzs(OrderItem.objects.filter(order_id__in=active_order_ids))
+    returns_period = returns_in_range(start_dt, end_dt)
+    stats_uzs = apply_returns_net(sales_gross, returns_period)
     stats = {
         'total_revenue': stats_uzs['revenue'],
         'total_cost': stats_uzs['cost'],
@@ -632,17 +693,49 @@ def _reports_build_context(request):
         'total_count': stats_uzs['orders'],
     }
 
-    all_sales = sum_order_items_uzs(OrderItem.objects.filter(order__is_active=True))
+    all_sales_gross = sum_order_items_uzs(OrderItem.objects.filter(order__is_active=True))
+    all_returns = returns_in_range(None, None)
+    all_sales = apply_returns_net(all_sales_gross, all_returns)
 
     def period_sales(start_date):
-        return sum_order_items_uzs(OrderItem.objects.filter(
+        sales = sum_order_items_uzs(OrderItem.objects.filter(
             order__order_date__gte=start_date,
             order__is_active=True,
-        ))
+        ).exclude(order__order_status__in=['AwaitingApproval', 'Cancelled']))
+        rets = returns_in_range(start_date, None)
+        return apply_returns_net(sales, rets)
 
     week = period_sales(start_of_week)
     month = period_sales(start_of_month)
     year = period_sales(start_of_year)
+
+    # Operatsiya hisoblari (davr)
+    ops_awaiting = Order.objects.filter(
+        is_active=True, order_status='AwaitingApproval', order_date__lte=end_dt,
+    )
+    ops_cancelled = Order.objects.filter(
+        is_active=True, order_status='Cancelled', order_date__lte=end_dt,
+    )
+    ops_returned_full = Order.objects.filter(
+        is_active=True, order_status='Returned', order_date__lte=end_dt,
+    )
+    if start_dt:
+        ops_awaiting = ops_awaiting.filter(order_date__gte=start_dt)
+        ops_cancelled = ops_cancelled.filter(order_date__gte=start_dt)
+        ops_returned_full = ops_returned_full.filter(order_date__gte=start_dt)
+    ops_awaiting_count = ops_awaiting.count()
+    ops_cancelled_count = ops_cancelled.count()
+    ops_returned_full_count = ops_returned_full.count()
+    period_returns_qs = SaleReturn.objects.filter(
+        status='Completed', is_active=True, return_date__lte=end_dt,
+    )
+    if start_dt:
+        period_returns_qs = period_returns_qs.filter(return_date__gte=start_dt)
+    top_returns = (
+        period_returns_qs
+        .select_related('order', 'branch', 'employee', 'customer')
+        .order_by('-return_date')[:8]
+    )
 
     open_debts = CustomerDebt.objects.exclude(status='Paid')
     debt_stats = {
@@ -689,6 +782,8 @@ def _reports_build_context(request):
     ).select_related('payment__order').iterator():
         cur = getattr(getattr(cp.payment, 'order', None), 'currency', None) or CURRENCY_UZS
         cash_received += to_uzs(cp.cash_received or zero, cur)
+    cash_refunded = returns_period['cash_refunded'] or zero
+    cash_net = cash_received - cash_refunded
 
     payments = {'cash': stats_uzs['cash']}
 
@@ -700,6 +795,12 @@ def _reports_build_context(request):
         ename = order.employee.name if order.employee_id else "Tizim administratori"
         branch_totals_map[bname] = branch_totals_map.get(bname, zero) + amount
         employee_totals_map[ename] = employee_totals_map.get(ename, zero) + amount
+    for ret in period_returns_qs.select_related('branch', 'employee').iterator():
+        amount = to_uzs(ret.total_amount or zero, ret.currency)
+        bname = ret.branch.name if ret.branch_id else "Asosiy do‘kon"
+        ename = ret.employee.name if ret.employee_id else "Tizim administratori"
+        branch_totals_map[bname] = branch_totals_map.get(bname, zero) - amount
+        employee_totals_map[ename] = employee_totals_map.get(ename, zero) - amount
     branch_names = []
     branch_totals = []
     for name, total in sorted(branch_totals_map.items(), key=lambda x: x[1], reverse=True):
@@ -711,21 +812,41 @@ def _reports_build_context(request):
         employee_names.append(name)
         employee_totals.append(float(total))
 
-    product_sales = (
+    product_qty_map = {}
+    for row in (
         OrderItem.objects.filter(order_id__in=active_order_ids)
         .values('product__product_name')
         .annotate(total=Sum('quantity'))
-        .order_by('-total')[:5]
+    ):
+        name = row['product__product_name'] or "Noma’lum"
+        product_qty_map[name] = float(row['total'] or 0)
+    ret_product_qs = SaleReturnItem.objects.filter(
+        sale_return__status='Completed',
+        sale_return__is_active=True,
+        sale_return__return_date__lte=end_dt,
     )
-    product_name = [
-        item['product__product_name'] or "Noma’lum" for item in product_sales
-    ]
-    product_totals = [float(item['total'] or 0) for item in product_sales]
+    if start_dt:
+        ret_product_qs = ret_product_qs.filter(sale_return__return_date__gte=start_dt)
+    for row in ret_product_qs.values('product__product_name').annotate(total=Sum('quantity')):
+        name = row['product__product_name'] or "Noma’lum"
+        product_qty_map[name] = product_qty_map.get(name, 0.0) - float(row['total'] or 0)
+    product_ranked = sorted(product_qty_map.items(), key=lambda x: x[1], reverse=True)[:5]
+    product_name = [n for n, _ in product_ranked]
+    product_totals = [t for _, t in product_ranked]
 
-    gross_revenue = stats['total_revenue'] or zero
+    sales_gross_revenue = sales_gross['revenue'] or zero
+    returns_revenue = returns_period['revenue'] or zero
+    returns_cost = returns_period['cost'] or zero
+    returns_units = returns_period['units'] or 0
+    returns_count = returns_period['returns'] or 0
+    returns_debt_reduced = returns_period['debt_reduced'] or zero
+
+    gross_revenue = stats['total_revenue'] or zero  # sof savdo (yalpi − qaytarish)
     cost = stats['total_cost'] or zero
     total_count = stats['total_count'] or 0
     sold_units = stats['sold_units'] or 0
+    if sold_units < 0:
+        sold_units = 0
     net_profit = gross_revenue - cost
     net_after_expenses = net_profit - (expense_period or zero)
     summary_sof_foyda = (
@@ -872,7 +993,18 @@ def _reports_build_context(request):
         'start_date_str': period['start_str'],
         'end_date_str': period['end_str'],
         'query_string': query_string,
+        'sales_gross_revenue': sales_gross_revenue,
         'gross_revenue': gross_revenue,
+        'returns_revenue': returns_revenue,
+        'returns_cost': returns_cost,
+        'returns_units': returns_units,
+        'returns_count': returns_count,
+        'returns_cash_refunded': cash_refunded,
+        'returns_debt_reduced': returns_debt_reduced,
+        'top_returns': top_returns,
+        'ops_awaiting_count': ops_awaiting_count,
+        'ops_cancelled_count': ops_cancelled_count,
+        'ops_returned_full_count': ops_returned_full_count,
         'partner_sales_total': partner_sales_total,
         'partner_discount_total': partner_discount_total,
         'loyalty_discount_total': loyalty_discount_total,
@@ -888,6 +1020,8 @@ def _reports_build_context(request):
         'total_transactions': total_count,
         'cash_total': cash_total,
         'cash_received': cash_received,
+        'cash_refunded': cash_refunded,
+        'cash_net': cash_net,
         'stock_units': stock_units,
         'stock_cost_uzs': stock_cost_uzs,
         'stock_retail_uzs': stock_retail_uzs,
@@ -896,17 +1030,17 @@ def _reports_build_context(request):
         'all_revenue': all_sales['revenue'],
         'all_cost': all_sales['cost'],
         'all_profit': (all_sales['revenue'] or zero) - (all_sales['cost'] or zero),
-        'all_units': all_sales['units'],
+        'all_units': max(0, all_sales['units'] or 0),
         'all_orders': all_sales['orders'],
         'weekly_total': week['revenue'],
         'weekly_cost': week['cost'],
-        'weekly_units': week['units'],
+        'weekly_units': max(0, week['units'] or 0),
         'monthly_total': month['revenue'],
         'monthly_cost': month['cost'],
-        'monthly_units': month['units'],
+        'monthly_units': max(0, month['units'] or 0),
         'yearly_total': year['revenue'],
         'yearly_cost': year['cost'],
-        'yearly_units': year['units'],
+        'yearly_units': max(0, year['units'] or 0),
         'outstanding_balance': debt_stats['open_remaining'],
         'debt_open_original': debt_stats['open_original'],
         'debt_total_paid': debt_stats['total_paid_on_debts'],
@@ -964,16 +1098,26 @@ def admin_reports_export_csv(request):
     writer.writerow(['Tugash', ctx['end_date_str']])
     writer.writerow([])
     writer.writerow(['Ko‘rsatkich', 'Summa'])
-    writer.writerow(['Sotuvlar', ctx['gross_revenue']])
-    writer.writerow(['Tannarx', ctx['cost']])
+    writer.writerow(['Yalpi sotuv', ctx['sales_gross_revenue']])
+    writer.writerow(['Qaytarish summasi', ctx['returns_revenue']])
+    writer.writerow(['Sof sotuv', ctx['gross_revenue']])
+    writer.writerow(['Tannarx (sof)', ctx['cost']])
     writer.writerow(['Foyda', ctx['net_profit']])
     writer.writerow(['Ochiq qarz', ctx['outstanding_balance']])
     writer.writerow(['Xarajat (davr)', ctx['expense_period']])
     writer.writerow(['Sof foyda (foyda−qarz−xarajat)', ctx['summary_sof_foyda']])
-    writer.writerow(['Sotilgan dona', ctx['sold_units']])
+    writer.writerow(['Sof dona', ctx['sold_units']])
+    writer.writerow(['Qaytarilgan dona', ctx['returns_units']])
+    writer.writerow(['Qaytarishlar soni', ctx['returns_count']])
+    writer.writerow(['Naqd qaytarilgan', ctx['cash_refunded']])
+    writer.writerow(['Qarz kamaytirilgan (qaytarish)', ctx['returns_debt_reduced']])
     writer.writerow(['Buyurtmalar', ctx['total_transactions']])
-    writer.writerow(['Naqd savdo', ctx['cash_total']])
+    writer.writerow(['Tasdiq kutilmoqda', ctx['ops_awaiting_count']])
+    writer.writerow(['Bekor qilingan', ctx['ops_cancelled_count']])
+    writer.writerow(['To‘liq qaytarilgan buyurtma', ctx['ops_returned_full_count']])
+    writer.writerow(['Naqd savdo (sof)', ctx['cash_total']])
     writer.writerow(['Kassaga tushgan', ctx['cash_received']])
+    writer.writerow(['Sof kassa', ctx['cash_net']])
     writer.writerow(['Ombor dona', ctx['stock_units']])
     writer.writerow(['Ombor tannarx', ctx['stock_cost_uzs']])
     writer.writerow(['Ombor sotish narxi', ctx['stock_retail_uzs']])
