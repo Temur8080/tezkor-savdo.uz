@@ -44,6 +44,14 @@ def can_complete_sale(user):
     return emp is not None and emp.role == ROLE_SALES
 
 
+def can_process_return(user):
+    """Qaytarish: menejer yoki sotuvchi (consultant emas)."""
+    if is_app_manager(user):
+        return True
+    emp = get_active_employee(user)
+    return emp is not None and emp.role == ROLE_SALES
+
+
 def post_login_redirect_name(user):
     if not user or not getattr(user, 'is_authenticated', False):
         return 'login'

@@ -1,0 +1,89 @@
+{% extends 'accounts/main.html' %}
+{% load static money_tags %}
+
+{% block content %}
+<div class="w-full flex flex-col justify-center items-center">
+    <div class="lg:w-7/12 mt-10 bg-white p-8 rounded-sm shadow-2xl border-t-8 border-rose-700 relative overflow-hidden" style="font-family: 'Courier New', Courier, monospace;">
+        <div class="text-center mb-6">
+            {% if org_logo %}
+                <img src="{{ org_logo }}" alt="{{ brand_name }}" class="mx-auto h-16 w-auto object-contain mb-3">
+            {% else %}
+                <img src="{% static 'images/tezkor-logo.jpg' %}" alt="{{ brand_name }}" class="mx-auto h-16 w-auto object-contain mb-3">
+            {% endif %}
+            <h1 class="text-2xl font-black text-gray-900 tracking-tight">{{ brand_name|upper }} — QAYTARISH</h1>
+            <p class="text-sm font-bold text-rose-800 mt-2">{{ organization_name|upper }}</p>
+            <p class="text-sm text-gray-600 mt-1">Filial: {{ sale_return.branch.name }}</p>
+            <p class="text-sm font-semibold text-gray-800 mt-3">QAYTARISH №: {{ sale_return.receipt_number }}</p>
+            <p class="text-xs text-gray-500">Asl buyurtma: #{{ order.id }}</p>
+            <div class="border-b-2 border-dashed border-gray-300 my-4"></div>
+        </div>
+
+        <div class="flex justify-between text-xs mb-4">
+            <div>
+                <p><span class="font-bold">SANA:</span> {{ sale_return.return_date|date:"d.m.Y H:i" }}</p>
+                <p><span class="font-bold">MIJOZ:</span> {{ sale_return.customer|default:order.customer|default:"Oddiy mijoz"|upper }}</p>
+            </div>
+            <div class="text-right">
+                <p><span class="font-bold">QAYTARGAN:</span>
+                    {% if sale_return.employee %}
+                        {{ sale_return.employee.name|default:sale_return.employee.user.get_full_name|default:sale_return.employee.user.username|upper }}
+                    {% else %}—{% endif %}
+                </p>
+            </div>
+        </div>
+
+        {% if sale_return.reason %}
+        <p class="text-xs mb-3"><span class="font-bold">SABAB:</span> {{ sale_return.reason }}</p>
+        {% endif %}
+
+        <table class="w-full text-sm mb-6">
+            <thead class="border-b border-gray-800">
+                <tr>
+                    <th class="text-left py-2">MAHSULOT</th>
+                    <th class="text-center py-2">MIQDOR</th>
+                    <th class="text-right py-2">JAMI</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-dashed divide-gray-200">
+                {% for item in sale_return.items.all %}
+                <tr>
+                    <td class="py-3">
+                        <p class="font-bold text-gray-800">{{ item.product.product_name }}</p>
+                        <p class="text-xs text-gray-500">@ {{ item.unit_price|money:sale_return.currency }}</p>
+                    </td>
+                    <td class="text-center py-3">{{ item.quantity|qty }}</td>
+                    <td class="text-right py-3 font-bold">{{ item.line_total|money:sale_return.currency }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+
+        <div class="space-y-2 border-t-2 border-gray-800 pt-4 text-sm">
+            <div class="flex justify-between font-bold text-base">
+                <span>JAMI QAYTARISH</span>
+                <span>{{ sale_return.total_amount|money:sale_return.currency }}</span>
+            </div>
+            {% if sale_return.debt_reduced > 0 %}
+            <div class="flex justify-between text-amber-800">
+                <span>QARZ KAMAYTIRILDI</span>
+                <span>−{{ sale_return.debt_reduced|money:sale_return.currency }}</span>
+            </div>
+            {% endif %}
+            <div class="flex justify-between text-rose-800 font-bold text-lg">
+                <span>NAQD QAYTARILDI</span>
+                <span>{{ sale_return.cash_refunded|money:sale_return.currency }}</span>
+            </div>
+        </div>
+
+        <div class="mt-8 flex flex-wrap gap-2 justify-center print:hidden">
+            <button type="button" onclick="window.print()" class="px-5 py-2.5 bg-rose-700 text-white text-sm font-semibold rounded-md">Chop etish</button>
+            <a href="{% url 'order_return' order.id %}" class="px-5 py-2.5 bg-gray-100 text-gray-700 text-sm font-semibold rounded-md">Yana qaytarish</a>
+            <a href="{% url 'returns_list' %}" class="px-5 py-2.5 bg-blue-50 text-blue-700 border border-blue-200 text-sm font-semibold rounded-md">Qaytarishlar</a>
+            <a href="{% url 'sales_display' %}" class="px-5 py-2.5 bg-gray-100 text-gray-700 text-sm font-semibold rounded-md">Sotuvlar</a>
+        </div>
+    </div>
+</div>
+{% if autoprint %}
+<script>window.addEventListener('load', function () { setTimeout(function () { window.print(); }, 400); });</script>
+{% endif %}
+{% endblock %}

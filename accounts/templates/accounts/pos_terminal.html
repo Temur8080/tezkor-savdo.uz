@@ -3,18 +3,52 @@
 
 {% block content %}
 {% csrf_token %}
-<div class="pos-shell h-[calc(100dvh-5.5rem)] sm:h-[calc(100vh-110px)] flex flex-col lg:flex-row gap-3 sm:gap-4 min-h-0 pb-safe overflow-x-auto overflow-y-hidden">
-    <div class="pos-products flex-1 min-h-[180px] lg:min-h-0 min-w-0 lg:min-w-[320px] overflow-hidden order-2 lg:order-1">
+<div class="pos-shell h-[calc(100dvh-5.5rem)] sm:h-[calc(100vh-110px)] flex flex-col lg:flex-row gap-0 lg:gap-4 min-h-0 pb-safe overflow-hidden">
+    <div class="pos-products flex-1 min-h-0 min-w-0 overflow-hidden order-1 lg:order-1">
         {% include 'components/pos_product_list.html' %}
     </div>
-    <div class="pos-cart-wrap h-[46%] max-h-[480px] lg:h-full lg:max-h-none min-h-[240px] lg:min-h-0 shrink-0 order-1 lg:order-2 w-full min-w-[280px] lg:w-[400px] overflow-hidden">
+
+    <div id="pos-cart-backdrop"
+         class="pos-cart-backdrop fixed inset-0 z-[90] bg-slate-900/40 opacity-0 pointer-events-none transition-opacity duration-200 lg:hidden"
+         aria-hidden="true"></div>
+
+    <div id="pos-cart-panel"
+         class="pos-cart-wrap pos-cart-panel translate-y-[110%] lg:relative lg:inset-auto lg:translate-y-0 lg:h-full lg:max-h-none lg:w-[400px] lg:shrink-0 lg:overflow-hidden order-2">
+        <div class="pos-cart-sheet-handle lg:hidden" aria-hidden="true">
+            <span></span>
+        </div>
+        <button type="button" id="pos-cart-close"
+                class="pos-cart-close lg:hidden"
+                aria-label="Savatni yopish">&times;</button>
         {% include 'components/cart.html' %}
     </div>
 </div>
 
+{# Sticky bottom bar — faqat mobil #}
+<div id="pos-mobile-bar" class="pos-mobile-bar lg:hidden" role="toolbar" aria-label="Savat">
+    <button type="button" id="pos-mobile-open"
+            class="pos-mobile-open touch-manipulation"
+            aria-expanded="false" aria-controls="pos-cart-panel">
+        <span class="pos-mobile-icon" aria-hidden="true">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M3 3h2l.4 2M7 13h10l3-8H6.4M7 13L5.4 5M7 13l-2 7h14M10 20a1 1 0 100 2 1 1 0 000-2zm8 0a1 1 0 100 2 1 1 0 000-2z"/>
+            </svg>
+            <span id="pos-mobile-count" class="pos-mobile-badge">0</span>
+        </span>
+        <span class="pos-mobile-meta">
+            <span class="pos-mobile-label">Savat</span>
+            <span id="pos-mobile-total" class="pos-mobile-total">0</span>
+        </span>
+    </button>
+    <button type="button" id="pos-mobile-pay"
+            class="pos-mobile-pay touch-manipulation" disabled>
+        To‘lov
+    </button>
+</div>
+
 <div id="modal-container" class="fixed inset-0 z-[200] hidden
             bg-gray-900/45 backdrop-blur-sm
-            flex items-end sm:items-center justify-center p-0 sm:p-4 overflow-x-auto overflow-y-auto">
+            flex items-end sm:items-center justify-center p-0 sm:p-4 overflow-x-hidden overflow-y-auto">
     {% include 'components/cash_modal.html' %}
 </div>
 
@@ -41,6 +75,6 @@
 
 <script src="{% static 'js/moneyFormat.js' %}?v=48"></script>
 <script src="{% static 'js/posScanner.js' %}?v=48"></script>
-<script src="{% static 'js/posUI.js' %}?v=50"></script>
-<script src="{% static 'js/posInit.js' %}?v=50"></script>
+<script src="{% static 'js/posUI.js' %}?v=52"></script>
+<script src="{% static 'js/posInit.js' %}?v=52"></script>
 {% endblock %}

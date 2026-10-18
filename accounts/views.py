@@ -11,6 +11,7 @@ from .decorators import (
     is_app_manager,
     is_consultant,
     can_complete_sale,
+    can_process_return,
     manager_required,
     ManagerRequiredMixin,
     ROLE_CONSULTANT,
@@ -19,12 +20,12 @@ from .decorators import (
 from .models import Product, Employee, Branch, BranchInventory, Customer, Order, OrderItem, Payment, CashPayment, \
     Invoice, WarrantyClaims, DefectiveInventory, ReplacementRecord, AuditTrail, \
     Organization, Supplier, ProductCategory, AppSettings, CustomerDebt, DebtPayment, Expense, PriceTier, \
-    SalesAgent, ProductReservation, ProductReservationItem
+    SalesAgent, ProductReservation, ProductReservationItem, SaleReturn, SaleReturnItem
 from .loyalty import apply_discount, apply_markup, customer_payload, money as money_dec
 from .money import (
     CURRENCY_UZS, CURRENCY_USD, parse_decimal, convert_amount, format_money, format_qty,
 )
-from .filters import InventoryFilter, salesFilter
+from .filters import InventoryFilter, salesFilter, product_category_choices
 from django.core.paginator import Paginator
 from django.views.generic.edit import UpdateView, CreateView
 from django.urls import reverse, reverse_lazy
@@ -75,8 +76,169 @@ def _list_page_size(request, default=15, minimum=7, maximum=50):
 def _active_order_stats_qs():
     return (
         Order.objects.filter(is_active=True, deleted_at__isnull=True)
-        .exclude(order_status__in=['AwaitingApproval', 'Cancelled'])
+        .exclude(order_status__in=['AwaitingApproval', 'Cancelled', 'Returned'])
     )
+
+
+def _user_can_access_order_return(user, order):
+    if not can_process_return(user):
+        return False
+    if is_app_manager(user):
+        return True
+    emp = get_active_employee(user)
+    if emp is None:
+        return False
+    return order.branch_id == emp.branch_id
+
+
+def _parse_return_lines(order, raw_items):
+    """
+    raw_items: [{order_item_id, quantity}, ...]
+    Returns list of (OrderItem, qty Decimal) and raises ValueError on bad input.
+    """
+    if not raw_items:
+        raise ValueError('Qaytariladigan mahsulot tanlanmagan.')
+
+    order_items = {
+        oi.id: oi
+        for oi in order.orderitem_set.select_related('product').all()
+    }
+    parsed = []
+    seen = set()
+    for row in raw_items:
+        try:
+            item_id = int(row.get('order_item_id') or row.get('id'))
+        except (TypeError, ValueError):
+            raise ValueError('Noto‘g‘ri mahsulot ID.')
+        if item_id in seen:
+            raise ValueError('Bir xil band ikki marta yuborilgan.')
+        seen.add(item_id)
+        oi = order_items.get(item_id)
+        if oi is None:
+            raise ValueError(f'Buyurtmada #{item_id} bandi yo‘q.')
+        try:
+            qty = parse_decimal(row.get('quantity'))
+        except Exception:
+            raise ValueError(f'{oi.product.product_name}: miqdor noto‘g‘ri.')
+        if qty <= 0:
+            raise ValueError(f'{oi.product.product_name}: miqdor 0 dan katta bo‘lishi kerak.')
+        returnable = oi.returnable_quantity()
+        if qty > returnable:
+            raise ValueError(
+                f'{oi.product.product_name}: faqat {format_qty(returnable)} qaytarish mumkin '
+                f'(so‘ralgan {format_qty(qty)}).'
+            )
+        parsed.append((oi, qty))
+    if not parsed:
+        raise ValueError('Qaytariladigan mahsulot tanlanmagan.')
+    return parsed
+
+
+@transaction.atomic
+def _execute_sale_return(*, order, employee, lines, reason=''):
+    """
+    Ishonchli qaytarish: stock +, qarz kamaytirish, naqd qaytarish, komissiya tuzatish.
+    lines: [(OrderItem, qty), ...]
+    """
+    order = (
+        Order.objects
+        .select_for_update()
+        .select_related('branch', 'customer', 'employee')
+        .prefetch_related('orderitem_set', 'debts')
+        .get(pk=order.pk)
+    )
+    if not order.is_active or order.deleted_at:
+        raise ValueError('Buyurtma arxivlangan — qaytarish mumkin emas.')
+    if order.order_status in ('AwaitingApproval', 'Cancelled', 'Returned'):
+        raise ValueError('Bu buyurtma holatida qaytarish mumkin emas.')
+
+    # Re-validate under lock
+    total = Decimal('0.00')
+    prepared = []
+    for oi, qty in lines:
+        locked_oi = OrderItem.objects.select_for_update().get(pk=oi.pk, order=order)
+        returnable = locked_oi.returnable_quantity()
+        if qty > returnable:
+            raise ValueError(
+                f'{locked_oi.product.product_name}: faqat {format_qty(returnable)} qaytarish mumkin.'
+            )
+        line_total = (qty * locked_oi.unit_price).quantize(Decimal('0.01'))
+        total += line_total
+        prepared.append((locked_oi, qty, line_total))
+
+    if total <= 0:
+        raise ValueError('Qaytarish summasi 0.')
+
+    # Debt first, then cash refund
+    debt = order.get_primary_debt()
+    debt_remaining = debt.remaining_balance if debt and debt.remaining_balance > 0 else Decimal('0.00')
+    debt_reduced = min(total, debt_remaining)
+    cash_refunded = (total - debt_reduced).quantize(Decimal('0.01'))
+
+    receipt_number = f"RT-{uuid.uuid4().hex[:10].upper()}"
+    sale_return = SaleReturn.objects.create(
+        order=order,
+        branch=order.branch,
+        employee=employee,
+        customer=order.customer,
+        total_amount=total,
+        cash_refunded=cash_refunded,
+        debt_reduced=debt_reduced,
+        currency=order.currency,
+        reason=(reason or '')[:255],
+        status='Completed',
+        receipt_number=receipt_number,
+    )
+
+    for locked_oi, qty, line_total in prepared:
+        SaleReturnItem.objects.create(
+            sale_return=sale_return,
+            order_item=locked_oi,
+            product=locked_oi.product,
+            quantity=qty,
+            unit_price=locked_oi.unit_price,
+            line_total=line_total,
+        )
+        inventory, _created = BranchInventory.objects.select_for_update().get_or_create(
+            branch=order.branch,
+            product=locked_oi.product,
+            defaults={'quantity': Decimal('0')},
+        )
+        inventory.quantity = (inventory.quantity or Decimal('0')) + qty
+        inventory.save(update_fields=['quantity'])
+
+    if debt_reduced > 0 and debt:
+        debt = CustomerDebt.objects.select_for_update().get(pk=debt.pk)
+        debt.remaining_balance = (debt.remaining_balance - debt_reduced).quantize(Decimal('0.01'))
+        if debt.remaining_balance < 0:
+            debt.remaining_balance = Decimal('0.00')
+        debt.refresh_status()
+        debt.save(update_fields=['remaining_balance', 'status', 'updated_at'])
+
+    # Fully returned?
+    remaining_any = False
+    for oi in order.orderitem_set.all():
+        if oi.returnable_quantity() > 0:
+            remaining_any = True
+            break
+    if not remaining_any:
+        order.order_status = 'Returned'
+        order.save(update_fields=['order_status'])
+
+    # Reverse sales-agent commission on return total
+    try:
+        agent = order.employee.salesagent
+        agent.total_sales = max(Decimal('0.00'), (agent.total_sales or Decimal('0')) - total)
+        commission_cut = (total * (agent.commission_rate or Decimal('0'))).quantize(Decimal('0.01'))
+        agent.total_commission_earned = max(
+            Decimal('0.00'),
+            (agent.total_commission_earned or Decimal('0')) - commission_cut,
+        )
+        agent.save(update_fields=['total_sales', 'total_commission_earned'])
+    except Exception:
+        pass
+
+    return sale_return
 
 
 def _customer_purchase_stats(customer):
@@ -996,7 +1158,7 @@ def salesDisplay(request):
         )
         debt_base = CustomerDebt.objects.filter(order__is_active=True)
         cash_base = Order.objects.filter(payment_method='CASH', is_active=True).exclude(
-            order_status__in=['AwaitingApproval', 'Cancelled']
+            order_status__in=['AwaitingApproval', 'Cancelled', 'Returned']
         )
     elif emp:
         queryset = (
@@ -1006,7 +1168,7 @@ def salesDisplay(request):
         )
         debt_base = CustomerDebt.objects.filter(order__employee=emp, order__is_active=True)
         cash_base = Order.objects.filter(employee=emp, payment_method='CASH', is_active=True).exclude(
-            order_status__in=['AwaitingApproval', 'Cancelled']
+            order_status__in=['AwaitingApproval', 'Cancelled', 'Returned']
         )
     else:
         queryset = OrderItem.objects.none()
@@ -1135,8 +1297,10 @@ def branchInventory(request):
         return redirect('pos_terminal')
     is_manager = request.user.is_superuser or hasattr(request.user, 'employee') and request.user.employee.role == 'Manager'
     show_archived = request.GET.get('archived') == '1' and is_manager
+    show_counts = request.GET.get('counts') == '1'
 
     if is_manager:
+        count_base = BranchInventory.objects.all()
         items = BranchInventory.objects.filter(
             product__is_active=(not show_archived),
         ).select_related('branch', 'product', 'product__supplier')
@@ -1145,13 +1309,21 @@ def branchInventory(request):
         try:
             login_employee = Employee.objects.get(user=request.user)
             assigned_branch = login_employee.branch
+            count_base = BranchInventory.objects.filter(branch=assigned_branch)
             items = BranchInventory.objects.filter(
                 branch=assigned_branch,
                 product__is_active=True,
             ).select_related('product', 'product__supplier')
         except Employee.DoesNotExist:
+            count_base = BranchInventory.objects.none()
             items = BranchInventory.objects.none()
             assigned_branch = 'Tayinlanmagan'
+
+    active_count = count_base.filter(product__is_active=True).count()
+    archived_count = count_base.filter(product__is_active=False).count() if is_manager else 0
+    total_count = active_count + archived_count
+    in_stock_count = count_base.filter(product__is_active=True, quantity__gt=0).count()
+    out_of_stock_count = count_base.filter(product__is_active=True, quantity__lte=0).count()
 
     myFilter = InventoryFilter(request.GET, queryset=items)
     filtered_items = myFilter.qs
@@ -1165,7 +1337,13 @@ def branchInventory(request):
         'assigned_branch': assigned_branch,
         'is_manager': is_manager,
         'show_archived': show_archived,
+        'show_counts': show_counts,
         'per_page': per_page,
+        'active_count': active_count,
+        'archived_count': archived_count,
+        'total_count': total_count,
+        'in_stock_count': in_stock_count,
+        'out_of_stock_count': out_of_stock_count,
     })
 
 @login_required(login_url='login')
@@ -1413,11 +1591,18 @@ def posTerminal(request):
         product__is_active=True,
     ).select_related('product')
 
-    query = request.GET.get('q')
+    query = (request.GET.get('q') or '').strip()
     if query:
         branch_products = branch_products.filter(
             Q(product__product_name__icontains=query)
+            | Q(product__barcode__icontains=query)
         )
+
+    category = (request.GET.get('category') or '').strip()
+    if category:
+        branch_products = branch_products.filter(product__category=category)
+
+    pos_categories = product_category_choices()
 
     app_settings = AppSettings.get_solo()
     tiers_qs = list(PriceTier.objects.filter(is_active=True).order_by('kind'))
@@ -1429,6 +1614,8 @@ def posTerminal(request):
     context = {
         'employee': employee,
         'branch_products': branch_products,
+        'pos_categories': pos_categories,
+        'selected_category': category,
         'vat_enabled': app_settings.vat_enabled,
         'vat_percent': str(app_settings.vat_percent),
         'loyalty_tiers_json': json.dumps(tier_map),
@@ -2740,6 +2927,165 @@ def order_reject(request, pk):
     messages.success(request, f'Buyurtma #{order.id} bekor qilindi.')
     return redirect('sales_display')
 
+
+@login_required(login_url='login')
+def order_return(request, pk):
+    """GET: qaytarish formasi. POST: qaytarishni bajarish."""
+    order = get_object_or_404(
+        Order.objects.select_related('branch', 'customer', 'employee').prefetch_related(
+            'orderitem_set__product', 'debts', 'returns__items',
+        ),
+        pk=pk,
+        is_active=True,
+    )
+    if not _user_can_access_order_return(request.user, order):
+        raise PermissionDenied('Qaytarish uchun ruxsat yo‘q.')
+
+    emp = get_active_employee(request.user)
+    if emp is None and not request.user.is_superuser:
+        raise PermissionDenied('Xodim profili topilmadi.')
+
+    items = []
+    for oi in order.orderitem_set.all():
+        returnable = oi.returnable_quantity()
+        items.append({
+            'order_item': oi,
+            'returnable': returnable,
+            'returned': oi.returned_quantity(),
+        })
+
+    debt = order.get_primary_debt()
+    prior_returns = order.returns.filter(status='Completed', is_active=True).order_by('-return_date')
+
+    if request.method == 'POST':
+        wants_json = (
+            'application/json' in (request.content_type or '')
+            or 'application/json' in (request.headers.get('Accept') or '')
+            or request.headers.get('x-requested-with') == 'XMLHttpRequest'
+        )
+        try:
+            if wants_json or (request.content_type or '').startswith('application/json'):
+                data = json.loads(request.body or '{}')
+                reason = (data.get('reason') or '').strip()
+                raw_items = data.get('items') or []
+            else:
+                reason = (request.POST.get('reason') or '').strip()
+                raw_items = []
+                for oi in order.orderitem_set.all():
+                    raw_qty = request.POST.get(f'qty_{oi.id}', '').strip()
+                    if not raw_qty:
+                        continue
+                    qty = parse_decimal(raw_qty)
+                    if qty > 0:
+                        raw_items.append({'order_item_id': oi.id, 'quantity': str(qty)})
+
+            if not order.can_be_returned():
+                raise ValueError('Bu buyurtmadan qaytarish mumkin emas.')
+
+            lines = _parse_return_lines(order, raw_items)
+            processor = emp
+            if processor is None and request.user.is_superuser:
+                processor = order.employee
+            sale_return = _execute_sale_return(
+                order=order, employee=processor, lines=lines, reason=reason,
+            )
+        except ValueError as exc:
+            if wants_json:
+                return JsonResponse({'success': False, 'message': str(exc)}, status=400)
+            messages.error(request, str(exc))
+            return redirect('order_return', pk=order.id)
+        except Exception as exc:
+            if wants_json:
+                return JsonResponse({'success': False, 'message': str(exc)}, status=500)
+            messages.error(request, f'Qaytarish xatosi: {exc}')
+            return redirect('order_return', pk=order.id)
+
+        if wants_json:
+            return JsonResponse({
+                'success': True,
+                'return_id': sale_return.id,
+                'receipt_number': sale_return.receipt_number,
+                'total_amount': str(sale_return.total_amount),
+                'cash_refunded': str(sale_return.cash_refunded),
+                'debt_reduced': str(sale_return.debt_reduced),
+                'redirect': reverse('return_receipt', kwargs={'pk': sale_return.id}),
+            })
+        msg = (
+            f'Qaytarish #{sale_return.receipt_number}: '
+            f'{format_money(sale_return.total_amount, sale_return.currency)} '
+            f'(naqd {format_money(sale_return.cash_refunded, sale_return.currency)}'
+        )
+        if sale_return.debt_reduced:
+            msg += f', qarz −{format_money(sale_return.debt_reduced, sale_return.currency)}'
+        msg += ').'
+        messages.success(request, msg)
+        return redirect('return_receipt', pk=sale_return.id)
+
+    return render(request, 'accounts/order_return.html', {
+        'order': order,
+        'items': items,
+        'debt': debt,
+        'prior_returns': prior_returns,
+        'can_return': order.can_be_returned(),
+        'is_manager': is_app_manager(request.user),
+    })
+
+
+@login_required(login_url='login')
+def return_receipt(request, pk):
+    sale_return = get_object_or_404(
+        SaleReturn.objects.select_related(
+            'order', 'order__branch', 'order__customer', 'employee', 'customer', 'branch',
+        ).prefetch_related('items__product'),
+        pk=pk,
+        is_active=True,
+    )
+    if not _user_can_access_order_return(request.user, sale_return.order):
+        raise PermissionDenied
+    org = getattr(sale_return.branch, 'organization', None) or Organization.get_default()
+    org_logo = None
+    if org and org.logo:
+        try:
+            org_logo = org.logo.url
+        except Exception:
+            org_logo = None
+    return render(request, 'accounts/return_receipt.html', {
+        'sale_return': sale_return,
+        'order': sale_return.order,
+        'brand_name': (org.brand_name if org else None) or 'Tezkor Savdo',
+        'organization_name': sale_return.branch.organization_name,
+        'org_logo': org_logo,
+        'autoprint': request.GET.get('autoprint') == '1',
+    })
+
+
+@login_required(login_url='login')
+def returns_list(request):
+    if not can_process_return(request.user):
+        raise PermissionDenied('Qaytarishlar ro‘yxati uchun ruxsat yo‘q.')
+    is_manager = is_app_manager(request.user)
+    emp = get_active_employee(request.user)
+    qs = (
+        SaleReturn.objects
+        .filter(is_active=True, status='Completed')
+        .select_related('order', 'branch', 'employee', 'customer')
+        .prefetch_related('items')
+        .order_by('-return_date')
+    )
+    if not is_manager:
+        if emp is None:
+            qs = SaleReturn.objects.none()
+        else:
+            qs = qs.filter(branch=emp.branch)
+    per_page = _list_page_size(request, default=15)
+    page_obj = Paginator(qs, per_page).get_page(request.GET.get('page'))
+    return render(request, 'accounts/returns_list.html', {
+        'returns': page_obj,
+        'is_manager': is_manager,
+        'per_page': per_page,
+    })
+
+
 @login_required(login_url='login')
 def warranty(request, pk):
 
@@ -3242,7 +3588,11 @@ def debtors_list(request):
     is_manager = request.user.is_superuser or (
         hasattr(request.user, 'employee') and request.user.employee.role == 'Manager'
     )
-    debts = CustomerDebt.objects.select_related('customer', 'branch', 'order', 'created_by').all()
+    debts = CustomerDebt.objects.select_related(
+        'customer', 'branch', 'order', 'created_by'
+    ).prefetch_related(
+        'order__orderitem_set__product'
+    ).all()
 
     if not is_manager and hasattr(request.user, 'employee'):
         debts = debts.filter(branch=request.user.employee.branch)
@@ -3260,8 +3610,9 @@ def debtors_list(request):
         debts = debts.filter(
             Q(customer__name__icontains=q) |
             Q(customer__phone__icontains=q) |
-            Q(note__icontains=q)
-        )
+            Q(note__icontains=q) |
+            Q(order__orderitem__product__product_name__icontains=q)
+        ).distinct()
 
     debts = debts.order_by('-created_at')
 
@@ -3334,7 +3685,10 @@ def debt_edit(request, pk):
     if is_consultant(request.user):
         return redirect('pos_terminal')
     debt = get_object_or_404(
-        CustomerDebt.objects.select_related('customer', 'branch', 'order'),
+        CustomerDebt.objects.select_related('customer', 'branch', 'order').prefetch_related(
+            'order__orderitem_set__product',
+            'payments__received_by',
+        ),
         pk=pk,
     )
     is_manager = is_app_manager(request.user)
@@ -3364,10 +3718,15 @@ def debt_edit(request, pk):
         messages.success(request, f'Qarz #{debt.id} yangilandi.')
         return redirect('debtors_list')
 
+    order_items = []
+    if debt.order_id:
+        order_items = list(debt.order.orderitem_set.all())
+
     return render(request, 'accounts/debt_edit.html', {
         'debt': debt,
         'is_manager': is_manager,
         'status_choices': CustomerDebt.STATUS_CHOICES,
+        'order_items': order_items,
     })
 
 

@@ -130,16 +130,23 @@ function getCartTotalsByCurrency() {
     return totals
 }
 
+function isPosMobileLayout() {
+    return window.matchMedia('(max-width: 1023px)').matches
+}
+
 function syncMobileCartBar() {
     const countEl = document.getElementById('pos-mobile-count')
     const totalEl = document.getElementById('pos-mobile-total')
     const payBtn = document.getElementById('pos-mobile-pay')
+    const openBtn = document.getElementById('pos-mobile-open')
     const count = (cart || []).reduce((n, item) => {
         const unit = normalizeUnit(item.unit)
         return n + (parseQtyValue(item.qty, unit) || 0)
     }, 0)
-    if (countEl) countEl.textContent = String(count)
+    const countLabel = Number.isInteger(count) ? String(count) : String(Math.round(count * 1000) / 1000)
+    if (countEl) countEl.textContent = countLabel
     if (payBtn) payBtn.disabled = count === 0
+    if (openBtn) openBtn.setAttribute('aria-expanded', document.body.classList.contains('pos-cart-open') ? 'true' : 'false')
 
     const totals = typeof getCartTotalsByCurrency === 'function'
         ? getCartTotalsByCurrency()
@@ -156,15 +163,16 @@ function syncMobileCartBar() {
 function setMobileCartOpen(open) {
     const panel = document.getElementById('pos-cart-panel')
     const backdrop = document.getElementById('pos-cart-backdrop')
+    const openBtn = document.getElementById('pos-mobile-open')
     if (!panel) return
-    const isMobile = window.matchMedia('(max-width: 1023px)').matches
-    if (!isMobile) {
+    if (!isPosMobileLayout()) {
         panel.classList.remove('translate-y-[110%]', 'pos-cart-open')
         if (backdrop) {
             backdrop.classList.add('opacity-0', 'pointer-events-none')
             backdrop.setAttribute('aria-hidden', 'true')
         }
         document.body.classList.remove('pos-cart-open')
+        if (openBtn) openBtn.setAttribute('aria-expanded', 'false')
         return
     }
     if (open) {
@@ -175,6 +183,7 @@ function setMobileCartOpen(open) {
             backdrop.setAttribute('aria-hidden', 'false')
         }
         document.body.classList.add('pos-cart-open')
+        if (openBtn) openBtn.setAttribute('aria-expanded', 'true')
     } else {
         panel.classList.add('translate-y-[110%]')
         panel.classList.remove('pos-cart-open')
@@ -183,6 +192,7 @@ function setMobileCartOpen(open) {
             backdrop.setAttribute('aria-hidden', 'true')
         }
         document.body.classList.remove('pos-cart-open')
+        if (openBtn) openBtn.setAttribute('aria-expanded', 'false')
     }
 }
 
@@ -830,17 +840,102 @@ function syncCashCurrencyUI() {
     const usdBtn = document.getElementById('cash-currency-usd')
     if (label) label.textContent = cur === 'USD' ? '$' : 'so‘m'
     if (uzsBtn && usdBtn) {
+        const on = 'flex-1 py-2.5 rounded-lg text-sm font-semibold bg-blue-600 text-white touch-manipulation'
+        const off = 'flex-1 py-2.5 rounded-lg text-sm font-semibold bg-gray-100 text-gray-600 touch-manipulation'
         if (cur === 'USD') {
-            usdBtn.className = 'flex-1 py-2 rounded-md text-sm font-semibold bg-blue-600 text-white'
-            uzsBtn.className = 'flex-1 py-2 rounded-md text-sm font-semibold bg-gray-100 text-gray-600'
+            usdBtn.className = on
+            uzsBtn.className = off
         } else {
-            uzsBtn.className = 'flex-1 py-2 rounded-md text-sm font-semibold bg-blue-600 text-white'
-            usdBtn.className = 'flex-1 py-2 rounded-md text-sm font-semibold bg-gray-100 text-gray-600'
+            uzsBtn.className = on
+            usdBtn.className = off
         }
     }
-    const priceEl = document.getElementById('cash-modal-price')
-    if (priceEl) priceEl.textContent = formatMoney(currentGrandTotal, cur)
+    syncCheckoutPriceDisplays()
     calculateChange()
+}
+
+function syncCheckoutPriceDisplays() {
+    const cur = checkoutCurrency || getCartCurrency()
+    const totalText = formatMoney(currentGrandTotal, cur)
+    ;['cash-modal-price', 'cash-modal-price-mobile', 'cash-modal-price-foot'].forEach((id) => {
+        const el = document.getElementById(id)
+        if (el) el.textContent = totalText
+    })
+    const checkoutCart = typeof getCheckoutCart === 'function' ? getCheckoutCart() : []
+    const count = checkoutCart.reduce((n, item) => n + (parseInt(item.qty, 10) || 1), 0)
+    const countEl = document.getElementById('cash-modal-items-count')
+    if (countEl) countEl.textContent = `${count} ta`
+    const itemsSummary = document.getElementById('cash-items-summary')
+    if (itemsSummary) itemsSummary.textContent = `${checkoutCart.length} tur · ${count} ta`
+}
+
+function renderCheckoutCartRows(targetIds) {
+    const checkoutCart = getCheckoutCart()
+    const cartRows = checkoutCart.map((item) => `
+                <div class="flex flex-row items-center justify-between border-b border-gray-100 p-2 gap-3">
+                    <div class="text-left flex-grow min-w-0">
+                        <p class="text-sm font-bold text-gray-900 truncate">${item.name}</p>
+                        <p class="text-xs text-gray-500">Miqdor: ${item.qty}</p>
+                        <p class="text-xs font-bold text-blue-700">${formatMoney(item.price * item.qty, item.currency)}</p>
+                    </div>
+                    <div class="flex-shrink-0">
+                        ${item.img
+                            ? `<img src="${item.img}" class="h-12 w-12 object-cover rounded-md border border-gray-200">`
+                            : `<div class="h-12 w-12 rounded-md bg-gray-50 border border-gray-200 flex items-center justify-center text-xs text-gray-400 font-semibold">N/A</div>`}
+                    </div>
+                </div>
+                `).join('')
+    ;(targetIds || ['cash-modal-image', 'cash-modal-image-mobile']).forEach((id) => {
+        const el = document.getElementById(id)
+        if (el) el.innerHTML = cartRows || '<p class="text-sm text-gray-400 text-center py-4">Bo‘sh</p>'
+    })
+}
+
+function getQuickCashSuggestions(total, currency) {
+    const cur = normalizeCurrency(currency)
+    const t = Math.max(0, parseFloat(total) || 0)
+    if (t <= 0) return []
+    const roundUp = (n, step) => Math.ceil(n / step) * step
+    const vals = new Set([t])
+    if (cur === 'USD') {
+        ;[1, 5, 10, 20, 50, 100].forEach((step) => {
+            const v = roundUp(t, step)
+            if (v > t) vals.add(v)
+        })
+    } else {
+        ;[1000, 5000, 10000, 50000, 100000].forEach((step) => {
+            const v = roundUp(t, step)
+            if (v > t) vals.add(v)
+        })
+    }
+    return [...vals].sort((a, b) => a - b).slice(0, 4)
+}
+
+function renderQuickCashAmounts() {
+    const wrap = document.getElementById('cash-quick-amounts')
+    if (!wrap) return
+    const cur = checkoutCurrency || getCartCurrency()
+    const suggestions = getQuickCashSuggestions(currentGrandTotal, cur)
+    wrap.innerHTML = suggestions.map((amount) => {
+        const label = cur === 'USD'
+            ? (Number.isInteger(amount) ? String(amount) : String(Math.round(amount * 100) / 100))
+            : String(Math.round(amount)).replace(/\B(?=(\d{3})+(?!\d))/g, ' ')
+        return `<button type="button" data-cash-amount="${amount}" class="touch-manipulation">${label}</button>`
+    }).join('')
+}
+
+function setCashReceivedAmount(amount) {
+    const input = document.getElementById('cash-received-input')
+    if (!input) return
+    const n = parseFloat(amount)
+    if (!isFinite(n) || n < 0) return
+    input.value = String(n)
+    if (typeof onCashReceivedInput === 'function') onCashReceivedInput()
+    else calculateChange()
+}
+
+function setExactCashAmount() {
+    setCashReceivedAmount(currentGrandTotal || getCheckoutTotal())
 }
 
 function getCheckoutCart() {
@@ -937,8 +1032,7 @@ function refreshCheckoutTotalsUI() {
     const net = getCheckoutNetSubtotal()
     const save = Math.max(0, list - net)
     const markup = Math.max(0, net - list)
-    const priceEl = document.getElementById('cash-modal-price')
-    if (priceEl) priceEl.textContent = formatMoney(currentGrandTotal, cur)
+    syncCheckoutPriceDisplays()
     const listRow = document.getElementById('cash-list-row')
     const saveRow = document.getElementById('cash-save-row')
     const listEl = document.getElementById('cash-list-price')
@@ -968,6 +1062,7 @@ function refreshCheckoutTotalsUI() {
         if (saveRow) saveRow.classList.add('hidden')
         if (saveLabel) saveLabel.textContent = 'Chegirma'
     }
+    renderQuickCashAmounts()
     calculateChange()
 }
 
@@ -1038,24 +1133,8 @@ function setCheckoutCurrency(currency) {
     if (typeof refreshCheckoutTotalsUI === 'function') refreshCheckoutTotalsUI()
 
     const modal = document.getElementById('modal-container')
-    if (modal && !modal.classList.contains('hidden')) {
-        const checkoutCart = getCheckoutCart()
-        const cartRows = checkoutCart.map(item => `
-                <div class="flex flex-row items-center justify-between border-b border-gray-100 p-2 gap-4">
-                    <div class="text-left flex-grow">
-                        <p class="text-sm font-bold text-gray-900">${item.name}</p>
-                        <p class="text-xs text-gray-500">Miqdor: ${item.qty}</p>
-                        <p class="text-xs font-bold text-blue-700">${formatMoney(item.price * item.qty, item.currency)}</p>
-                    </div>
-                    <div class="flex-shrink-0">
-                        ${item.img
-                            ? `<img src="${item.img}" class="h-14 w-14 object-cover rounded-md border border-gray-200">`
-                            : `<div class="h-14 w-14 rounded-md bg-gray-50 border border-gray-200 flex items-center justify-center text-xs text-gray-400 font-semibold">N/A</div>`}
-                    </div>
-                </div>
-        `).join('')
-        const cashModalImage = document.getElementById('cash-modal-image')
-        if (cashModalImage) cashModalImage.innerHTML = cartRows
+    if (modal && !modal.classList.contains('hidden') && typeof renderCheckoutCartRows === 'function') {
+        renderCheckoutCartRows()
     }
 }
 
@@ -1088,33 +1167,40 @@ function openCheckoutModal(type){
         hint.classList.add('hidden')
     }
 
+    const phoneEl = document.getElementById('cash-cust-phone')
+    if (phoneEl && !(phoneEl.value || '').trim()) phoneEl.value = '+998'
+    const nameEl = document.getElementById('cash-cust-name')
+    if (nameEl) nameEl.value = ''
+    const addrEl = document.getElementById('cash-cust-address')
+    if (addrEl) addrEl.value = ''
+
     currentGrandTotal = getCheckoutTotal()
 
-    const cartRows = checkoutCart.map(item => {
-        return `
-                <div class="flex flex-row items-center justify-between border-b border-gray-100 p-2 gap-4">
-                    <div class="text-left flex-grow">
-                        <p class="text-sm font-bold text-gray-900">${item.name}</p>
-                        <p class="text-xs text-gray-500">Miqdor: ${item.qty}</p>
-                        <p class="text-xs font-bold text-blue-700">${formatMoney(item.price * item.qty, item.currency)}</p>
-                    </div>
-                    <div class="flex-shrink-0">
-                        ${item.img
-                            ? `<img src="${item.img}" class="h-14 w-14 object-cover rounded-md border border-gray-200">`
-                            : `<div class="h-14 w-14 rounded-md bg-gray-50 border border-gray-200 flex items-center justify-center text-xs text-gray-400 font-semibold">N/A</div>`}
-                    </div>
-                </div>
-                `
-    }).join("")
+    if (typeof setMobileCartOpen === 'function') setMobileCartOpen(false)
 
-    let cashModalImage = document.getElementById("cash-modal-image");
+    const custDetails = document.getElementById('cash-customer-details')
+    const itemsDetails = document.getElementById('cash-items-details')
+    const isMobile = window.matchMedia('(max-width: 767px)').matches
+    if (custDetails) custDetails.open = !isMobile
+    if (itemsDetails) itemsDetails.open = false
 
     modalContainer.classList.remove('hidden');
     cashModal.classList.remove('hidden');
     document.body.classList.add('checkout-modal-open')
-    if (cashModalImage) cashModalImage.innerHTML = cartRows
+    renderCheckoutCartRows()
     syncCashCurrencyUI()
     refreshCheckoutTotalsUI()
+    renderQuickCashAmounts()
+
+    const cashInput = document.getElementById('cash-received-input')
+    if (cashInput) {
+        cashInput.value = ''
+        if (isMobile) {
+            setTimeout(() => {
+                try { cashInput.focus({ preventScroll: true }) } catch (e) { cashInput.focus() }
+            }, 180)
+        }
+    }
 }
 
 function closeCheckoutModal(){
@@ -1136,17 +1222,24 @@ function closeCheckoutModal(){
 function calculateChange(){
     const inputCash = document.getElementById('cash-received-input')
     const changeToDisplay = document.getElementById('change-display')
+    const changeFoot = document.getElementById('change-display-foot')
     const changeLabel = document.getElementById('change-label')
     const debtHint = document.getElementById('debt-hint')
     if (!inputCash || !changeToDisplay) return
 
     const raw = (inputCash.value || '').trim()
     const cur = checkoutCurrency || getCartCurrency()
+    const setFoot = (text, color) => {
+        if (!changeFoot) return
+        changeFoot.textContent = text
+        changeFoot.style.color = color || ''
+    }
 
     if (raw === '') {
-        if (changeLabel) changeLabel.textContent = 'Qaytariladigan qoldiq'
+        if (changeLabel) changeLabel.textContent = 'Qaytim'
         changeToDisplay.textContent = formatMoney(0, cur)
-        changeToDisplay.style.color = '#4ade80'
+        changeToDisplay.style.color = '#059669'
+        setFoot('', '')
         if (debtHint) debtHint.classList.add('hidden')
         return
     }
@@ -1155,14 +1248,20 @@ function calculateChange(){
     const change = cashRecieved - currentGrandTotal
 
     if (change < 0) {
-        if (changeLabel) changeLabel.textContent = 'Qarz (qoldiq)'
-        changeToDisplay.textContent = formatMoney(Math.abs(change), cur)
-        changeToDisplay.style.color = '#fbbf24'
+        if (changeLabel) changeLabel.textContent = 'Qarz'
+        const debtText = formatMoney(Math.abs(change), cur)
+        changeToDisplay.textContent = debtText
+        changeToDisplay.style.color = '#d97706'
+        setFoot('Qarz: ' + debtText, '#d97706')
         if (debtHint) debtHint.classList.remove('hidden')
+        const custDetails = document.getElementById('cash-customer-details')
+        if (custDetails && window.matchMedia('(max-width: 767px)').matches) custDetails.open = true
     } else {
-        if (changeLabel) changeLabel.textContent = 'Qaytariladigan qoldiq'
-        changeToDisplay.textContent = formatMoney(change, cur)
-        changeToDisplay.style.color = '#4ade80'
+        if (changeLabel) changeLabel.textContent = 'Qaytim'
+        const changeText = formatMoney(change, cur)
+        changeToDisplay.textContent = changeText
+        changeToDisplay.style.color = '#059669'
+        setFoot(change > 0 ? ('Qaytim: ' + changeText) : 'Aniq', '#059669')
         if (debtHint) debtHint.classList.add('hidden')
     }
 }

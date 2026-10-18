@@ -1,5 +1,5 @@
 <div id="joriy-cart" class="w-full shrink-0 flex flex-col min-h-0 h-full bg-sky-50 border border-sky-200 rounded-lg shadow-sm overflow-hidden">
-    <div class="cart-head p-4 bg-sky-100/80 border-b border-sky-200 shrink-0">
+    <div class="cart-head p-3 sm:p-4 bg-sky-100/80 border-b border-sky-200 shrink-0">
         <div class="flex justify-between items-start gap-2">
             <div class="min-w-0">
                 <h2 class="text-base font-bold text-sky-950">Joriy buyurtma</h2>
@@ -8,7 +8,7 @@
             <div class="flex flex-wrap items-center gap-1.5 shrink-0">
                 <div class="relative" id="reserve-btn-wrap">
                     <button type="button" id="reserve-order-btn"
-                            class="px-3 py-1.5 rounded-md bg-amber-500 text-white text-xs font-semibold border border-amber-600 hover:bg-amber-600 transition shadow-sm touch-manipulation">
+                            class="px-3 py-2 sm:py-1.5 rounded-md bg-amber-500 text-white text-xs font-semibold border border-amber-600 hover:bg-amber-600 transition shadow-sm touch-manipulation">
                         Bronlash
                     </button>
                     <button type="button" id="reserve-count-badge"
@@ -24,7 +24,7 @@
                     </div>
                 </div>
                 <button type="button" id="hold-order-btn"
-                        class="px-3 py-1.5 rounded-md bg-white/90 text-sky-800 text-xs font-semibold border border-sky-300 hover:bg-white transition shadow-sm touch-manipulation">
+                        class="px-3 py-2 sm:py-1.5 rounded-md bg-white/90 text-sky-800 text-xs font-semibold border border-sky-300 hover:bg-white transition shadow-sm touch-manipulation">
                     Zahiralash
                 </button>
             </div>
@@ -41,10 +41,10 @@
         </div>
     </div>
 
-    <div id="cart-items" class="flex-1 min-h-0 overflow-y-auto overflow-x-auto overscroll-contain p-3 space-y-2 bg-sky-50/70">
+    <div id="cart-items" class="flex-1 min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain p-3 space-y-2 bg-sky-50/70">
     </div>
 
-    <div class="cart-foot p-4 bg-sky-100/90 border-t border-sky-200 shrink-0 space-y-3">
+    <div class="cart-foot p-3 sm:p-4 bg-sky-100/90 border-t border-sky-200 shrink-0 space-y-3">
         <div id="total-container" class="space-y-1"></div>
 
         <button id="checkout-btn"

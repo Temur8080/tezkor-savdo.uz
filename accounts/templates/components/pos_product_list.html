@@ -1,14 +1,25 @@
 {% load money_tags %}
 <div class="h-full min-h-0 flex flex-col bg-white border border-gray-200 rounded-lg shadow-sm overflow-hidden">
 
-    <form method="get" class="flex flex-wrap items-end justify-between gap-3 p-4 bg-gray-50 border-b border-gray-200 shrink-0">
-        <div class="min-w-0">
+    <form method="get" class="pos-search-bar flex flex-wrap items-end justify-between gap-2 sm:gap-3 p-3 sm:p-4 bg-gray-50 border-b border-gray-200 shrink-0">
+        <div class="min-w-0 hidden sm:block">
             <h1 class="text-xl font-bold text-gray-900">Kassa terminali</h1>
             <p class="text-sm text-gray-500 mt-0.5">Mahsulotni tanlang yoki skaner bilan qo‘shing.</p>
         </div>
-        <div class="flex flex-row items-end gap-2 flex-grow sm:flex-grow-0 sm:min-w-[280px] max-w-xl w-full sm:w-auto">
-            <div class="flex flex-col flex-grow min-w-0">
-                <label class="text-xs font-semibold text-gray-600 mb-1">Qidiruv</label>
+        <div class="flex flex-row flex-wrap items-end gap-2 flex-grow w-full sm:flex-grow-0 sm:min-w-[320px] max-w-3xl sm:w-auto">
+            <div class="flex flex-col min-w-[140px] sm:min-w-[160px]">
+                <label class="text-xs font-semibold text-gray-600 mb-1">Kategoriya</label>
+                <select name="category"
+                        class="w-full px-3 py-2.5 sm:py-2 border border-gray-300 rounded-lg sm:rounded-md text-sm focus:ring-blue-500 focus:border-blue-500 outline-none bg-white"
+                        onchange="this.form.submit()">
+                    <option value="">Barchasi</option>
+                    {% for value, label in pos_categories %}
+                    <option value="{{ value }}" {% if selected_category == value %}selected{% endif %}>{{ label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="flex flex-col flex-grow min-w-[140px]">
+                <label class="text-xs font-semibold text-gray-600 mb-1 sm:inline hidden">Qidiruv</label>
                 <div class="relative">
                     <span class="absolute inset-y-0 left-0 pl-3 flex items-center text-gray-400 pointer-events-none">
                         <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -18,16 +29,16 @@
                     <input name="q" type="search" enterkeyhint="search"
                            value="{{ request.GET.q|default:'' }}"
                            placeholder="Nomi, shtrix-kod yoki SKU..."
-                           class="w-full pl-9 pr-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-blue-500 focus:border-blue-500 outline-none bg-white">
+                           class="w-full pl-9 pr-3 py-2.5 sm:py-2 border border-gray-300 rounded-lg sm:rounded-md text-sm focus:ring-blue-500 focus:border-blue-500 outline-none bg-white">
                 </div>
             </div>
             <button type="submit"
-                    class="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 transition shrink-0">
+                    class="px-4 py-2.5 sm:py-2 bg-blue-600 text-white text-sm font-medium rounded-lg sm:rounded-md hover:bg-blue-700 transition shrink-0 touch-manipulation">
                 Qidirish
             </button>
-            {% if request.GET.q %}
+            {% if request.GET.q or selected_category %}
             <a href="{% url 'pos_terminal' %}"
-               class="px-4 py-2 bg-gray-200 text-gray-700 text-sm rounded-md hover:bg-gray-300 transition shrink-0">
+               class="px-3 py-2.5 sm:py-2 bg-gray-200 text-gray-700 text-sm rounded-lg sm:rounded-md hover:bg-gray-300 transition shrink-0 touch-manipulation">
                 Tozalash
             </a>
             {% endif %}
@@ -35,12 +46,11 @@
     </form>
 
     <div class="relative flex-1 min-h-0 overflow-hidden bg-gray-50">
-        <div id="inventory-grid" class="h-full overflow-y-auto overflow-x-auto overscroll-contain p-3
-                    grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-3 content-start">
+        <div id="inventory-grid" class="pos-product-grid h-full overflow-y-auto overflow-x-hidden overscroll-contain p-2 sm:p-3 content-start pos-grid-pad">
             {% for item in branch_products %}
             <button type="button"
-                    class="product-card group bg-white border border-gray-200 p-3 rounded-md
-                           hover:border-blue-500 hover:shadow-sm transition text-left flex flex-col
+                    class="product-card group bg-white border border-gray-200 p-2 sm:p-2.5 rounded-xl sm:rounded-md
+                           hover:border-blue-500 hover:shadow-sm active:scale-[0.98] transition text-left flex flex-col
                            disabled:opacity-45 disabled:cursor-not-allowed touch-manipulation"
                     data-barcode="{{ item.product.barcode }}"
                     data-id="{{ item.product.id }}"
@@ -52,21 +62,21 @@
                     data-image="{% if item.product.image %}{{ item.product.image.url }}{% endif %}"
                     data-stock="{{ item.quantity|qty }}"
                     {% if item.quantity <= 0 %}disabled{% endif %}>
-                <div class="h-24 sm:h-28 w-full bg-gray-50 border border-gray-100 rounded-md mb-2 sm:mb-3 flex items-center justify-center overflow-hidden">
+                <div class="product-card-media h-20 sm:h-24 xl:h-28 w-full bg-slate-50 border border-gray-100 rounded-lg sm:rounded-md mb-1.5 sm:mb-2 overflow-hidden">
                     {% if item.product.image %}
                         <img src="{{ item.product.image.url }}"
                              alt="{{ item.product.product_name }}"
-                             class="h-full w-full object-cover"
+                             class="h-full w-full object-cover object-center"
                              loading="lazy"
                              onerror="this.style.display='none'; this.parentElement.insertAdjacentHTML('beforeend','<span class=\'text-gray-300 text-xs font-semibold\'>Rasm yo‘q</span>');">
                     {% else %}
-                        <span class="text-gray-300 text-xs font-semibold">Rasm yo‘q</span>
+                        <span class="text-gray-300 text-xs font-semibold flex h-full items-center justify-center">Rasm yo‘q</span>
                     {% endif %}
                 </div>
-                <h3 class="text-sm font-semibold text-gray-900 leading-tight truncate">{{ item.product.product_name }}</h3>
-                <div class="mt-auto pt-2 flex items-center justify-between gap-2">
-                    <span class="text-sm font-bold text-blue-700">{{ item.product.base_price|money:item.product.currency }}</span>
-                    <span class="text-[10px] font-semibold uppercase {% if item.quantity > 0 %}text-emerald-600{% else %}text-red-600{% endif %}">
+                <h3 class="text-xs sm:text-sm font-semibold text-gray-900 leading-tight line-clamp-2">{{ item.product.product_name }}</h3>
+                <div class="mt-auto pt-1.5 flex items-center justify-between gap-1">
+                    <span class="text-xs sm:text-sm font-bold text-blue-700 truncate">{{ item.product.base_price|money:item.product.currency }}</span>
+                    <span class="text-[10px] font-semibold uppercase shrink-0 {% if item.quantity > 0 %}text-emerald-600{% else %}text-red-600{% endif %}">
                         {{ item.quantity|qty }} {{ item.product.unit|default:'ta' }}
                     </span>
                 </div>

@@ -64,8 +64,15 @@
         <li>
           <a href="{% url 'sales_display' %}"
              class="nav-link block py-2.5 px-3 rounded-lg md:px-0 md:py-1 md:rounded-none border-b-2 transition whitespace-nowrap
-             {% if url_name == 'sales_display' or url_name == 'sales_edit' or url_name == 'emp_receipt' %}is-active{% endif %}">
+             {% if url_name == 'sales_display' or url_name == 'sales_edit' or url_name == 'emp_receipt' or url_name == 'order_return' or url_name == 'return_receipt' or url_name == 'returns_list' %}is-active{% endif %}">
             Sotuvlar
+          </a>
+        </li>
+        <li>
+          <a href="{% url 'returns_list' %}"
+             class="nav-link block py-2.5 px-3 rounded-lg md:px-0 md:py-1 md:rounded-none border-b-2 transition whitespace-nowrap
+             {% if url_name == 'returns_list' or url_name == 'order_return' or url_name == 'return_receipt' %}is-active{% endif %}">
+            Qaytarishlar
           </a>
         </li>
         <li>
@@ -207,11 +214,18 @@
         <li>
           <a href="{% url 'sales_display' %}"
              class="nav-link block py-2.5 px-3 rounded-lg md:px-0 md:py-1 md:rounded-none border-b-2 transition whitespace-nowrap
-             {% if url_name == 'sales_display' or url_name == 'sales_edit' or url_name == 'emp_receipt' %}is-active{% endif %}">
+             {% if url_name == 'sales_display' or url_name == 'sales_edit' or url_name == 'emp_receipt' or url_name == 'order_return' or url_name == 'return_receipt' or url_name == 'returns_list' %}is-active{% endif %}">
             Sotuvlar
           </a>
         </li>
         {% if request.user.employee.role != 'Consultant' %}
+        <li>
+          <a href="{% url 'returns_list' %}"
+             class="nav-link block py-2.5 px-3 rounded-lg md:px-0 md:py-1 md:rounded-none border-b-2 transition whitespace-nowrap
+             {% if url_name == 'returns_list' or url_name == 'order_return' or url_name == 'return_receipt' %}is-active{% endif %}">
+            Qaytarishlar
+          </a>
+        </li>
         <li>
           <a href="{% url 'debtors_list' %}"
              class="nav-link block py-2.5 px-3 rounded-lg md:px-0 md:py-1 md:rounded-none border-b-2 transition whitespace-nowrap

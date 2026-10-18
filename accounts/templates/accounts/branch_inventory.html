@@ -4,20 +4,65 @@
 {% block content %}
 
 <div class="bg-white border border-gray-200 rounded-lg shadow-sm overflow-hidden">
-    {% if is_manager %}
-    <div class="flex items-center gap-2 px-4 pt-4">
+    <div class="flex flex-wrap items-center gap-2 px-4 pt-4">
         <a href="{% url 'branch_inventory' %}{% if per_page %}?per_page={{ per_page }}{% endif %}"
            class="px-3 py-1.5 text-sm font-semibold rounded-md transition
-           {% if not show_archived %}bg-blue-600 text-white{% else %}bg-gray-100 text-gray-700 hover:bg-gray-200{% endif %}">
+           {% if not show_archived and not show_counts %}bg-blue-600 text-white{% else %}bg-gray-100 text-gray-700 hover:bg-gray-200{% endif %}">
             Faol mahsulotlar
+            <span class="ml-1 inline-flex min-w-[1.25rem] justify-center px-1.5 py-0.5 rounded-full text-[11px] font-bold
+                {% if not show_archived and not show_counts %}bg-white/20 text-white{% else %}bg-white text-gray-700{% endif %}">
+                {{ active_count }}
+            </span>
         </a>
+        {% if is_manager %}
         <a href="{% url 'branch_inventory' %}?archived=1{% if per_page %}&per_page={{ per_page }}{% endif %}"
            class="px-3 py-1.5 text-sm font-semibold rounded-md transition
-           {% if show_archived %}bg-amber-600 text-white{% else %}bg-gray-100 text-gray-700 hover:bg-gray-200{% endif %}">
+           {% if show_archived and not show_counts %}bg-amber-600 text-white{% else %}bg-gray-100 text-gray-700 hover:bg-gray-200{% endif %}">
             Arxivlangan
+            <span class="ml-1 inline-flex min-w-[1.25rem] justify-center px-1.5 py-0.5 rounded-full text-[11px] font-bold
+                {% if show_archived and not show_counts %}bg-white/20 text-white{% else %}bg-white text-gray-700{% endif %}">
+                {{ archived_count }}
+            </span>
+        </a>
+        {% endif %}
+        <a href="{% url 'branch_inventory' %}?counts=1{% if per_page %}&per_page={{ per_page }}{% endif %}"
+           class="px-3 py-1.5 text-sm font-semibold rounded-md transition
+           {% if show_counts %}bg-emerald-600 text-white{% else %}bg-gray-100 text-gray-700 hover:bg-gray-200{% endif %}">
+            Mahsulotlar soni
+            <span class="ml-1 inline-flex min-w-[1.25rem] justify-center px-1.5 py-0.5 rounded-full text-[11px] font-bold
+                {% if show_counts %}bg-white/20 text-white{% else %}bg-white text-gray-700{% endif %}">
+                {{ total_count }}
+            </span>
         </a>
     </div>
-    {% endif %}
+
+    {% if show_counts %}
+    <div class="p-4 grid grid-cols-2 lg:grid-cols-4 gap-3 border-b border-gray-200 bg-gray-50">
+        <div class="rounded-lg border border-blue-200 bg-white p-4 text-center">
+            <p class="text-xs font-semibold uppercase tracking-wide text-gray-500">Faol</p>
+            <p class="mt-1 text-2xl font-black text-blue-700 tabular-nums">{{ active_count }}</p>
+        </div>
+        {% if is_manager %}
+        <div class="rounded-lg border border-amber-200 bg-white p-4 text-center">
+            <p class="text-xs font-semibold uppercase tracking-wide text-gray-500">Arxivlangan</p>
+            <p class="mt-1 text-2xl font-black text-amber-700 tabular-nums">{{ archived_count }}</p>
+        </div>
+        {% endif %}
+        <div class="rounded-lg border border-emerald-200 bg-white p-4 text-center">
+            <p class="text-xs font-semibold uppercase tracking-wide text-gray-500">Mavjud (omborda)</p>
+            <p class="mt-1 text-2xl font-black text-emerald-700 tabular-nums">{{ in_stock_count }}</p>
+        </div>
+        <div class="rounded-lg border border-red-200 bg-white p-4 text-center">
+            <p class="text-xs font-semibold uppercase tracking-wide text-gray-500">Tugagan</p>
+            <p class="mt-1 text-2xl font-black text-red-700 tabular-nums">{{ out_of_stock_count }}</p>
+        </div>
+        <div class="rounded-lg border border-slate-200 bg-white p-4 text-center col-span-2 lg:col-span-4">
+            <p class="text-xs font-semibold uppercase tracking-wide text-gray-500">Jami mahsulotlar</p>
+            <p class="mt-1 text-3xl font-black text-slate-900 tabular-nums">{{ total_count }}</p>
+            <p class="mt-1 text-xs text-gray-500">{{ assigned_branch }}</p>
+        </div>
+    </div>
+    {% else %}
 
     <form method="get" class="flex flex-row flex-wrap items-end gap-4 p-4 bg-gray-50 border-b">
         {% if show_archived %}
@@ -38,6 +83,11 @@
         <div class="flex flex-col">
             <label class="text-xs font-semibold text-gray-600 mb-1">Mahsulotlar</label>
             {{ myFilter.form.product }}
+        </div>
+
+        <div class="flex flex-col">
+            <label class="text-xs font-semibold text-gray-600 mb-1">Kategoriya</label>
+            {{ myFilter.form.product__category }}
         </div>
 
         <div class="flex flex-col">
@@ -179,31 +229,32 @@
         </tbody>
     </table>
     </div>
-</div>
 
-<div class="flex flex-wrap items-center justify-between gap-2 p-4 bg-white border-t border-gray-200">
-    <span class="text-sm text-gray-700">
-        Sahifa <span class="font-semibold text-gray-900">{{ items.number }}</span> /
-        <span class="font-semibold text-gray-900">{{ items.paginator.num_pages }}</span>
-        <span class="text-gray-400">·</span>
-        sahifada {{ per_page|default:items.paginator.per_page }} ta
-    </span>
+    <div class="flex flex-wrap items-center justify-between gap-2 p-4 bg-white border-t border-gray-200">
+        <span class="text-sm text-gray-700">
+            Sahifa <span class="font-semibold text-gray-900">{{ items.number }}</span> /
+            <span class="font-semibold text-gray-900">{{ items.paginator.num_pages }}</span>
+            <span class="text-gray-400">·</span>
+            sahifada {{ per_page|default:items.paginator.per_page }} ta
+        </span>
 
-    <div class="inline-flex">
-        {% if items.has_previous %}
-            <a href="?{% for key, value in request.GET.items %}{% if key != 'page' %}{{ key }}={{ value|urlencode }}&{% endif %}{% endfor %}page={{ items.previous_page_number }}"
-               class="flex items-center justify-center px-3 h-8 text-sm font-medium text-white bg-gray-800 rounded-s hover:bg-gray-900">
-                Oldingi
-            </a>
-        {% endif %}
+        <div class="inline-flex">
+            {% if items.has_previous %}
+                <a href="?{% for key, value in request.GET.items %}{% if key != 'page' %}{{ key }}={{ value|urlencode }}&{% endif %}{% endfor %}page={{ items.previous_page_number }}"
+                   class="flex items-center justify-center px-3 h-8 text-sm font-medium text-white bg-gray-800 rounded-s hover:bg-gray-900">
+                    Oldingi
+                </a>
+            {% endif %}
 
-        {% if items.has_next %}
-            <a href="?{% for key, value in request.GET.items %}{% if key != 'page' %}{{ key }}={{ value|urlencode }}&{% endif %}{% endfor %}page={{ items.next_page_number }}"
-               class="flex items-center justify-center px-3 h-8 text-sm font-medium text-white bg-gray-800 border-0 border-s border-gray-700 rounded-e hover:bg-gray-900">
-                Keyingi
-            </a>
-        {% endif %}
+            {% if items.has_next %}
+                <a href="?{% for key, value in request.GET.items %}{% if key != 'page' %}{{ key }}={{ value|urlencode }}&{% endif %}{% endfor %}page={{ items.next_page_number }}"
+                   class="flex items-center justify-center px-3 h-8 text-sm font-medium text-white bg-gray-800 border-0 border-s border-gray-700 rounded-e hover:bg-gray-900">
+                    Keyingi
+                </a>
+            {% endif %}
+        </div>
     </div>
+    {% endif %}
 </div>
 
 <script src="{% static 'js/listPageFit.js' %}?v=1"></script>

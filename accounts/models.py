@@ -605,6 +605,7 @@ class Order(models.Model):
         ('AwaitingApproval', 'Tasdiqlash kutilmoqda'),
         ('Pending', 'Kutilmoqda'),
         ('Completed', 'Yakunlangan'),
+        ('Returned', 'Qaytarilgan'),
         ('Cancelled', 'Bekor qilingan'),
     )
 
@@ -681,6 +682,8 @@ class Order(models.Model):
             return 'To‘lov yo‘q (kutilmoqda)'
         if self.order_status == 'Cancelled':
             return 'Bekor qilingan'
+        if self.order_status == 'Returned':
+            return 'To‘liq qaytarilgan'
         debt = self.get_primary_debt()
         if debt and debt.remaining_balance > 0:
             return 'Naqd + Qarz'
@@ -689,6 +692,19 @@ class Order(models.Model):
         if not self.payment_set.exists():
             return 'To‘lov yo‘q'
         return self.get_payment_method_display()
+
+    def can_be_returned(self):
+        if not self.is_active or self.deleted_at:
+            return False
+        if self.order_status in ('AwaitingApproval', 'Cancelled', 'Returned'):
+            return False
+        return any(item.returnable_quantity() > 0 for item in self.orderitem_set.all())
+
+    def total_returned_amount(self):
+        total = Decimal('0.00')
+        for ret in self.returns.filter(status='Completed', is_active=True):
+            total += ret.total_amount or Decimal('0.00')
+        return total
 
 class OrderItem(models.Model):
     order = models.ForeignKey(Order, on_delete=models.CASCADE, limit_choices_to={'is_active': True}, verbose_name='Buyurtma')
@@ -737,6 +753,19 @@ class OrderItem(models.Model):
         if self.service_warranty_days:
             return self.service_warranty_days
         return getattr(self.product, 'service_warranty_days', 90) or 90
+
+    def returned_quantity(self):
+        total = (
+            self.return_items
+            .filter(sale_return__status='Completed', sale_return__is_active=True)
+            .aggregate(s=models.Sum('quantity'))
+            .get('s')
+        )
+        return total or Decimal('0')
+
+    def returnable_quantity(self):
+        left = (self.quantity or Decimal('0')) - self.returned_quantity()
+        return left if left > 0 else Decimal('0')
 
 class Payment(models.Model):
     order = models.ForeignKey(Order, on_delete=models.PROTECT, limit_choices_to={'is_active': True}, verbose_name='Buyurtma')
@@ -978,6 +1007,69 @@ class Expense(models.Model):
     def soft_delete(self):
         self.is_active = False
         self.save(update_fields=['is_active'])
+
+
+class SaleReturn(models.Model):
+    """Mijozdan mahsulot qaytarish (vazvrat) — pul + ombor."""
+
+    STATUS_CHOICES = (
+        ('Completed', 'Yakunlangan'),
+        ('Cancelled', 'Bekor qilingan'),
+    )
+
+    order = models.ForeignKey(
+        Order, on_delete=models.PROTECT, related_name='returns', verbose_name='Buyurtma',
+    )
+    branch = models.ForeignKey(Branch, on_delete=models.CASCADE, verbose_name='Filial')
+    employee = models.ForeignKey(
+        Employee, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='processed_returns', verbose_name='Qaytargan xodim',
+    )
+    customer = models.ForeignKey(
+        Customer, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='returns', verbose_name='Mijoz',
+    )
+    return_date = models.DateTimeField('Qaytarish sanasi', auto_now_add=True)
+    total_amount = models.DecimalField('Jami summa', max_digits=14, decimal_places=2, default=Decimal('0.00'))
+    cash_refunded = models.DecimalField(
+        'Naqd qaytarilgan', max_digits=14, decimal_places=2, default=Decimal('0.00'),
+    )
+    debt_reduced = models.DecimalField(
+        'Qarz kamaytirilgan', max_digits=14, decimal_places=2, default=Decimal('0.00'),
+    )
+    currency = models.CharField('Valyuta', max_length=3, choices=CURRENCY_CHOICES, default=CURRENCY_UZS)
+    reason = models.CharField('Sabab', max_length=255, blank=True)
+    status = models.CharField('Holat', max_length=20, choices=STATUS_CHOICES, default='Completed')
+    receipt_number = models.CharField('Chek raqami', max_length=40, unique=True)
+    is_active = models.BooleanField('Faol', default=True)
+
+    class Meta:
+        verbose_name = 'Qaytarish'
+        verbose_name_plural = 'Qaytarishlar'
+        ordering = ['-return_date']
+
+    def __str__(self):
+        return f"Qaytarish {self.receipt_number} — #{self.order_id}"
+
+
+class SaleReturnItem(models.Model):
+    sale_return = models.ForeignKey(
+        SaleReturn, on_delete=models.CASCADE, related_name='items', verbose_name='Qaytarish',
+    )
+    order_item = models.ForeignKey(
+        OrderItem, on_delete=models.PROTECT, related_name='return_items', verbose_name='Buyurtma bandi',
+    )
+    product = models.ForeignKey(Product, on_delete=models.PROTECT, verbose_name='Mahsulot')
+    quantity = models.DecimalField('Miqdor', max_digits=12, decimal_places=3)
+    unit_price = models.DecimalField('Birlik narxi', max_digits=14, decimal_places=2)
+    line_total = models.DecimalField('Qator jami', max_digits=14, decimal_places=2)
+
+    class Meta:
+        verbose_name = 'Qaytarish bandi'
+        verbose_name_plural = 'Qaytarish bandlari'
+
+    def __str__(self):
+        return f"{self.product} × {self.quantity}"
 
 
 class ProductReservation(models.Model):

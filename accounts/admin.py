@@ -570,6 +570,25 @@ class BranchInventoryAdmin(BranchScopedAdminMixin, admin.ModelAdmin):
     def has_delete_permission(self, request, obj=None):
         return False
 
+@admin.register(SaleReturn)
+class SaleReturnAdmin(BranchScopedAdminMixin, admin.ModelAdmin):
+    list_display = (
+        'receipt_number', 'order', 'branch', 'employee', 'total_amount',
+        'cash_refunded', 'debt_reduced', 'return_date', 'status',
+    )
+    list_filter = ('status', 'branch', 'return_date')
+    search_fields = ('receipt_number', 'order__id', 'customer__name')
+    branch_lookup = 'branch'
+    readonly_fields = ('return_date', 'receipt_number')
+
+
+@admin.register(SaleReturnItem)
+class SaleReturnItemAdmin(BranchScopedAdminMixin, admin.ModelAdmin):
+    list_display = ('sale_return', 'product', 'quantity', 'unit_price', 'line_total')
+    search_fields = ('product__product_name', 'sale_return__receipt_number')
+    branch_lookup = 'sale_return__branch'
+
+
 @admin.register(Order)
 class OrderAdmin(BranchScopedAdminMixin, admin.ModelAdmin):
     list_display = ('id', 'customer', 'employee', 'branch', 'order_date', 'total_amount', 'order_status', 'payment_method', 'is_active')

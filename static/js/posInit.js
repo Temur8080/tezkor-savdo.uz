@@ -1,7 +1,79 @@
+function initMobileCartControls() {
+    document.body.classList.add('pos-page')
+
+    const openBtn = document.getElementById('pos-mobile-open')
+    const payBtn = document.getElementById('pos-mobile-pay')
+    const closeBtn = document.getElementById('pos-cart-close')
+    const backdrop = document.getElementById('pos-cart-backdrop')
+    const checkoutBtn = document.getElementById('checkout-btn')
+
+    if (openBtn && !openBtn.dataset.posBound) {
+        openBtn.dataset.posBound = '1'
+        openBtn.addEventListener('click', () => {
+            if (typeof setMobileCartOpen === 'function') setMobileCartOpen(true)
+        })
+    }
+
+    if (closeBtn && !closeBtn.dataset.posBound) {
+        closeBtn.dataset.posBound = '1'
+        closeBtn.addEventListener('click', () => {
+            if (typeof setMobileCartOpen === 'function') setMobileCartOpen(false)
+        })
+    }
+
+    if (backdrop && !backdrop.dataset.posBound) {
+        backdrop.dataset.posBound = '1'
+        backdrop.addEventListener('click', () => {
+            if (typeof setMobileCartOpen === 'function') setMobileCartOpen(false)
+        })
+    }
+
+    if (payBtn && !payBtn.dataset.posBound) {
+        payBtn.dataset.posBound = '1'
+        payBtn.addEventListener('click', () => {
+            if (!cart.length) return
+            if (typeof setMobileCartOpen === 'function') setMobileCartOpen(false)
+            if (checkoutBtn) checkoutBtn.click()
+            else if (typeof openCheckoutModal === 'function') openCheckoutModal('CASH')
+        })
+    }
+
+    if (!window.__posMobileResizeBound) {
+        window.__posMobileResizeBound = true
+        let resizeT = null
+        window.addEventListener('resize', () => {
+            clearTimeout(resizeT)
+            resizeT = setTimeout(() => {
+                if (typeof isPosMobileLayout === 'function' && !isPosMobileLayout()) {
+                    if (typeof setMobileCartOpen === 'function') setMobileCartOpen(false)
+                } else if (typeof syncMobileCartBar === 'function') {
+                    syncMobileCartBar()
+                }
+            }, 120)
+        })
+        document.addEventListener('keydown', (e) => {
+            if (e.key !== 'Escape') return
+            if (!document.body.classList.contains('pos-cart-open')) return
+            if (document.body.classList.contains('checkout-modal-open')) return
+            if (typeof setMobileCartOpen === 'function') setMobileCartOpen(false)
+        })
+    }
+
+    if (typeof isPosMobileLayout === 'function' && !isPosMobileLayout()) {
+        if (typeof setMobileCartOpen === 'function') setMobileCartOpen(false)
+    } else if (typeof syncMobileCartBar === 'function') {
+        syncMobileCartBar()
+    }
+}
+
 function initPosTerminal() {
+    initMobileCartControls()
+
     if (typeof IS_CONSULTANT !== 'undefined' && IS_CONSULTANT) {
         const lbl = document.getElementById('checkout-btn-label')
         if (lbl) lbl.textContent = 'Hisob / Buyurtma'
+        const mobilePay = document.getElementById('pos-mobile-pay')
+        if (mobilePay) mobilePay.textContent = 'Hisob'
         const title = document.getElementById('cash-modal-title')
         if (title) title.textContent = 'Buyurtma (tasdiqlashga)'
         const sub = document.getElementById('cash-modal-subtitle')
@@ -92,6 +164,26 @@ function initPosTerminal() {
         cashInput.addEventListener('input', () => {
             if (typeof onCashReceivedInput === 'function') onCashReceivedInput()
             else calculateChange()
+        })
+    }
+
+    const exactBtn = document.getElementById('cash-exact-btn')
+    if (exactBtn && !exactBtn.dataset.posBound) {
+        exactBtn.dataset.posBound = '1'
+        exactBtn.addEventListener('click', () => {
+            if (typeof setExactCashAmount === 'function') setExactCashAmount()
+        })
+    }
+
+    const quickWrap = document.getElementById('cash-quick-amounts')
+    if (quickWrap && !quickWrap.dataset.posBound) {
+        quickWrap.dataset.posBound = '1'
+        quickWrap.addEventListener('click', (e) => {
+            const btn = e.target.closest('[data-cash-amount]')
+            if (!btn || !quickWrap.contains(btn)) return
+            if (typeof setCashReceivedAmount === 'function') {
+                setCashReceivedAmount(btn.getAttribute('data-cash-amount'))
+            }
         })
     }
 

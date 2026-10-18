@@ -1,5 +1,5 @@
 {% extends 'accounts/main.html' %}
-{% load humanize %}
+{% load humanize money_tags %}
 
 {% block content %}
 {% if messages %}
@@ -72,6 +72,7 @@
                 <tr>
                     <th class="px-4 py-3 text-left">Mijoz</th>
                     {% if is_manager %}<th class="px-4 py-3">Filial</th>{% endif %}
+                    <th class="px-4 py-3 text-left">Olingan mahsulotlar</th>
                     <th class="px-4 py-3">Buyurtma</th>
                     <th class="px-4 py-3">Dastlabki</th>
                     <th class="px-4 py-3">To‘langan</th>
@@ -92,8 +93,31 @@
                     {% if is_manager %}
                     <td class="px-4 py-3">{{ debt.branch.name }}</td>
                     {% endif %}
+                    <td class="px-4 py-3 text-left align-top">
+                        {% if debt.order_id %}
+                        <ul class="space-y-1 text-sm text-gray-800">
+                            {% for item in debt.order.orderitem_set.all %}
+                            <li>
+                                <span class="font-medium">{{ item.product.product_name }}</span>
+                                <span class="text-gray-500">×{{ item.quantity|qty }} {{ item.product.unit|default:"ta" }}</span>
+                                <span class="block text-xs text-gray-500 tabular-nums">
+                                    {{ item.unit_price|money:debt.order.currency }}
+                                    · jami {{ item.line_total|money:debt.order.currency }}
+                                </span>
+                            </li>
+                            {% empty %}
+                            <li class="text-xs text-gray-400">Mahsulot yo‘q</li>
+                            {% endfor %}
+                        </ul>
+                        {% else %}
+                        <span class="text-xs text-gray-400">Buyurtma bog‘lanmagan</span>
+                        {% endif %}
+                    </td>
                     <td class="px-4 py-3 font-mono text-xs text-gray-600">
-                        {% if debt.order_id %}#{{ debt.order_id }}{% else %}—{% endif %}
+                        {% if debt.order_id %}
+                        <a href="{% url 'sales_edit' debt.order_id %}"
+                           class="text-blue-600 hover:underline font-semibold">#{{ debt.order_id }}</a>
+                        {% else %}—{% endif %}
                     </td>
                     <td class="px-4 py-3 text-gray-700">{{ debt.original_amount|money:debt.currency }}</td>
                     <td class="px-4 py-3 text-emerald-700 font-semibold">{{ debt.paid_amount|money:debt.currency }}</td>
@@ -143,7 +167,7 @@
                 </tr>
                 {% empty %}
                 <tr>
-                    <td colspan="10" class="px-4 py-10 text-center text-gray-500">Qarzdorlar topilmadi</td>
+                    <td colspan="{% if is_manager %}11{% else %}10{% endif %}" class="px-4 py-10 text-center text-gray-500">Qarzdorlar topilmadi</td>
                 </tr>
                 {% endfor %}
             </tbody>

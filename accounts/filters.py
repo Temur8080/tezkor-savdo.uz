@@ -3,6 +3,37 @@ import django_filters
 from .models import *
 from django.db.models import F
 
+
+def product_category_choices():
+    """Faol mahsulot kategoriyalari (model + ProductCategory + mavjud qiymatlar)."""
+    choices = []
+    seen = set()
+    for key, label in Product.CATEGORIES:
+        choices.append((key, label))
+        seen.add(key)
+        seen.add(label)
+    for name in ProductCategory.objects.filter(is_active=True).order_by('name').values_list('name', flat=True):
+        if name and name not in seen:
+            choices.append((name, name))
+            seen.add(name)
+    for name in (
+        Product.objects.exclude(category='')
+        .order_by('category')
+        .values_list('category', flat=True)
+        .distinct()
+    ):
+        if name and name not in seen:
+            display = dict(Product.CATEGORIES).get(name, name)
+            choices.append((name, display))
+            seen.add(name)
+    return choices
+
+
+_FILTER_SELECT_ATTRS = {
+    'class': 'px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none bg-white',
+}
+
+
 class installmentFilter(django_filters.FilterSet):
     employee_name = django_filters.CharFilter(field_name='order__employee__name', lookup_expr='icontains', label='Xodim', widget=forms.TextInput(attrs={
         'class': 'px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none',
@@ -67,7 +98,15 @@ class InventoryFilter(django_filters.FilterSet):
     ('in stock', 'Mavjud'),
     )
 
-    stock_status = django_filters.ChoiceFilter(choices=STOCK_CHOICES, method='filter_stock_status', label='Ombor holati', widget=forms.Select(attrs={'class': 'px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none bg-white',}))
+    stock_status = django_filters.ChoiceFilter(choices=STOCK_CHOICES, method='filter_stock_status', label='Ombor holati', widget=forms.Select(attrs=_FILTER_SELECT_ATTRS))
+
+    product__category = django_filters.ChoiceFilter(
+        field_name='product__category',
+        choices=[],
+        label='Kategoriya',
+        empty_label='Barcha kategoriyalar',
+        widget=forms.Select(attrs=_FILTER_SELECT_ATTRS),
+    )
 
     def filter_stock_status(self, queryset, name, value):
         if value == 'low':
@@ -77,6 +116,10 @@ class InventoryFilter(django_filters.FilterSet):
         elif value == 'in stock':
             return queryset.filter(quantity__gt=F('product__min_stock_level'))
         return queryset
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.filters['product__category'].extra['choices'] = product_category_choices()
 
 
     product__product_name = django_filters.CharFilter(field_name='product__product_name', lookup_expr='icontains', label='Mahsulot nomi', widget=forms.TextInput(attrs={
@@ -93,19 +136,15 @@ class InventoryFilter(django_filters.FilterSet):
     branch = django_filters.ModelChoiceFilter(
         queryset=Branch.objects.all(),
         label='Filial',
-        widget=forms.Select(attrs={
-            'class': 'px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none bg-white',
-        })
+        widget=forms.Select(attrs=_FILTER_SELECT_ATTRS)
     )
 
     product = django_filters.ModelChoiceFilter(
         queryset=Product.objects.filter(is_active=True),
         label='Mahsulot',
-        widget=forms.Select(attrs={
-            'class': 'px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none bg-white'
-        })
+        widget=forms.Select(attrs=_FILTER_SELECT_ATTRS)
     )
 
     class Meta:
         model = BranchInventory
-        fields = ['branch','product']
+        fields = ['branch', 'product', 'product__category']
