@@ -2351,7 +2351,8 @@ def checkout_cash(request):
                     order_currency = 'UZS'
 
                 payment_method = 'CASH'
-                order_status = Order.ORDER_STATUS[1][0]
+                # Naqd sotuv yakunlangan — Pending emas (Pending = hali ochiq / eski quirk)
+                order_status = 'Completed'
                 change_given = max(Decimal('0.00'), cash_received - total_amount)
 
                 order = Order.objects.create(
