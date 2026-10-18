@@ -107,7 +107,32 @@
                     <label class="block text-xs font-semibold text-gray-600 mb-1">{{ form.base_price.label }} *</label>
                     {{ form.base_price }}
                     {% if form.base_price.errors %}<p class="text-xs text-red-600 mt-1">{{ form.base_price.errors.0 }}</p>{% endif %}
-                    <p class="text-xs text-gray-500 mt-1">Kassada ko‘rinadigan sotish narxi</p>
+                    <p class="text-xs text-gray-500 mt-1">Asosiy sotish narxi (skidkasiz)</p>
+                </div>
+
+                <div class="md:col-span-2 rounded-lg border border-rose-200 bg-rose-50/60 p-3 sm:p-4">
+                    <p class="text-sm font-bold text-rose-900 mb-3">Mahsulot skidkasi</p>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
+                        <div class="flex items-center gap-2 sm:col-span-2 md:col-span-1">
+                            {{ form.sale_active }}
+                            <label class="text-sm font-semibold text-gray-800">{{ form.sale_active.label }}</label>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold text-gray-600 mb-1">{{ form.sale_discount_percent.label }}</label>
+                            {{ form.sale_discount_percent }}
+                            {% if form.sale_discount_percent.errors %}<p class="text-xs text-red-600 mt-1">{{ form.sale_discount_percent.errors.0 }}</p>{% endif %}
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold text-gray-600 mb-1">{{ form.sale_starts_at.label }}</label>
+                            {{ form.sale_starts_at }}
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold text-gray-600 mb-1">{{ form.sale_ends_at.label }}</label>
+                            {{ form.sale_ends_at }}
+                            {% if form.sale_ends_at.errors %}<p class="text-xs text-red-600 mt-1">{{ form.sale_ends_at.errors.0 }}</p>{% endif %}
+                        </div>
+                    </div>
+                    <p class="text-xs text-rose-800/80 mt-2">Sanalar bo‘sh bo‘lsa — skidka yoqilganicha doimiy. Kassada chegirmali narx ko‘rinadi.</p>
                 </div>
 
                 <div>

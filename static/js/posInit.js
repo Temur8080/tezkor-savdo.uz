@@ -264,6 +264,8 @@ function consumePendingTerminalScan() {
                 id: data.product.id,
                 name: data.product.name,
                 price: parseFloat(data.product.price),
+                listPrice: data.product.list_price != null ? parseFloat(data.product.list_price) : undefined,
+                saleDiscountPercent: parseFloat(data.product.sale_discount_percent || 0) || 0,
                 currency: data.product.currency || 'UZS',
                 unit: data.product.unit || 'ta',
                 qty: 1,

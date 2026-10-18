@@ -497,11 +497,11 @@ class AppSettingsAdmin(admin.ModelAdmin):
 class ProductAdmin(BranchScopedAdminMixin, admin.ModelAdmin):
     list_display = (
         'supplier', 'product_name', 'category', 'unit', 'cost_currency', 'cost_price',
-        'currency', 'base_price',
+        'currency', 'base_price', 'sale_active', 'sale_discount_percent',
         'warranty_days', 'replacement_days', 'service_warranty_days', 'barcode', 'is_active',
     )
     search_fields = ('product_name', 'barcode')
-    list_filter = ('is_active', 'supplier', 'category', 'unit', 'currency', 'cost_currency',)
+    list_filter = ('is_active', 'sale_active', 'supplier', 'category', 'unit', 'currency', 'cost_currency',)
     list_select_related = ('supplier',)
     ordering = ('category', 'product_name')
     branch_lookup = 'branchinventory__branch'
@@ -513,6 +513,9 @@ class ProductAdmin(BranchScopedAdminMixin, admin.ModelAdmin):
                 'currency', 'base_price',
                 'min_stock_level', 'image', 'is_active',
             ),
+        }),
+        ('Mahsulot skidkasi', {
+            'fields': ('sale_active', 'sale_discount_percent', 'sale_starts_at', 'sale_ends_at'),
         }),
         ('Kafolat muddatlari', {
             'fields': ('warranty_days', 'replacement_days', 'service_warranty_days'),

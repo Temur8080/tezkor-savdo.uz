@@ -323,6 +323,19 @@ def _parse_cart_qty(raw, product=None):
     return qty.quantize(Decimal('0.001'))
 
 
+def _product_price_payload(product):
+    """POS / scan API uchun narx + skidka maydonlari."""
+    base = product.base_price or Decimal('0.00')
+    effective = product.get_effective_price()
+    sale_on = product.is_sale_active()
+    return {
+        'price': str(effective),
+        'list_price': str(base),
+        'sale_active': sale_on,
+        'sale_discount_percent': str(product.get_sale_discount_percent() if sale_on else Decimal('0.00')),
+    }
+
+
 def _price_lines_from_cart(cart, adjust):
     priced_lines = []
     list_total = Decimal('0.00')
@@ -333,11 +346,19 @@ def _price_lines_from_cart(cart, adjust):
         product = Product.objects.get(id=item['id'])
         qty = _parse_cart_qty(item.get('qty'), product)
         price_adjusted = bool(item.get('priceAdjusted') or item.get('price_adjusted'))
-        catalog_price = money_dec(
-            item.get('originalPrice', item.get('original_price', item.get('price', product.base_price)))
-        )
-        sale_base = money_dec(item.get('price', product.base_price))
-        # list_price for totals = price before secret discount/markup
+        catalog_price = money_dec(product.base_price)
+        if price_adjusted:
+            # Qo‘lda tahrir — mijoz yuborgan narx (original = katalog)
+            sale_base = money_dec(item.get('price', product.get_effective_price()))
+            client_list = money_dec(
+                item.get('originalPrice', item.get('original_price', catalog_price))
+            )
+            stored_list = client_list
+        else:
+            # Server truth: mahsulot skidkasi
+            sale_base = money_dec(product.get_effective_price())
+            stored_list = catalog_price
+        # list_price for order totals = before cart-wide loyalty/secret
         list_price = sale_base
         if mode == 'markup':
             unit_price = apply_markup(list_price, percent)
@@ -345,8 +366,6 @@ def _price_lines_from_cart(cart, adjust):
             unit_price = apply_discount(list_price, percent)
         else:
             unit_price = list_price
-        # Persist catalog as list when manually edited (audit); else sale base
-        stored_list = catalog_price if price_adjusted else list_price
         priced_lines.append((product, qty, stored_list, unit_price, price_adjusted))
         list_total += list_price * qty
         net_total += unit_price * qty
@@ -1678,17 +1697,18 @@ def scanProduct(request):
     product = inventory_item.product
     image_url = product.image.url if product.image else ''
 
-    return JsonResponse({
+    payload = {
         'id': product.id,
         'name': product.product_name,
-        'price': str(product.base_price),
         'currency': product.currency,
         'unit': getattr(product, 'unit', None) or Product.UNIT_TA,
         'fractional': product.allows_fractional_qty(),
         'stock': format_qty(inventory_item.quantity),
         'category': product.get_category_display(),
         'image': image_url,
-    })
+    }
+    payload.update(_product_price_payload(product))
+    return JsonResponse(payload)
 
 @login_required(login_url='login')
 def product_scan_info(request):
@@ -1716,12 +1736,11 @@ def product_scan_info(request):
         in_branch = inv is not None
 
     image_url = product.image.url if product.image else ''
-    return JsonResponse({
+    payload = {
         'found': True,
         'barcode': product.barcode or barcode,
         'id': product.id,
         'name': product.product_name,
-        'price': str(product.base_price),
         'currency': product.currency,
         'unit': getattr(product, 'unit', None) or Product.UNIT_TA,
         'fractional': product.allows_fractional_qty(),
@@ -1730,7 +1749,9 @@ def product_scan_info(request):
         'image': image_url,
         'branch_name': branch_name,
         'in_branch': in_branch,
-    })
+    }
+    payload.update(_product_price_payload(product))
+    return JsonResponse(payload)
 
 def _is_inventory_manager(user):
     return user.is_superuser or (
@@ -1985,6 +2006,24 @@ def inventory_product_save(request):
     replacement_days = _pos_int('replacement_days', 7)
     service_warranty_days = _pos_int('service_warranty_days', 90)
 
+    sale_active = data.get('sale_active') in ('1', 'true', 'True', 'on', 'yes')
+    try:
+        sale_discount_percent = parse_decimal(data.get('sale_discount_percent') or 0)
+    except Exception:
+        sale_discount_percent = Decimal('0.00')
+    if sale_discount_percent < 0:
+        sale_discount_percent = Decimal('0.00')
+    if sale_discount_percent > 100:
+        sale_discount_percent = Decimal('100.00')
+    raw_sale_start = (data.get('sale_starts_at') or '').strip()
+    raw_sale_end = (data.get('sale_ends_at') or '').strip()
+    sale_starts_at = parse_date(raw_sale_start) if raw_sale_start else None
+    sale_ends_at = parse_date(raw_sale_end) if raw_sale_end else None
+    if sale_starts_at and sale_ends_at and sale_ends_at < sale_starts_at:
+        return JsonResponse({'error': 'Skidka tugash sanasi noto‘g‘ri'}, status=400)
+    if sale_active and sale_discount_percent <= 0:
+        return JsonResponse({'error': 'Skidka foizini kiriting'}, status=400)
+
     if not barcode:
         return JsonResponse({'error': 'Shtrix-kod kiritilmagan'}, status=400)
     if not product_name:
@@ -2054,6 +2093,11 @@ def inventory_product_save(request):
         product.warranty_days = warranty_days
         product.replacement_days = replacement_days
         product.service_warranty_days = service_warranty_days
+        if 'sale_active' in data or 'sale_discount_percent' in data:
+            product.sale_active = sale_active
+            product.sale_discount_percent = sale_discount_percent
+            product.sale_starts_at = sale_starts_at
+            product.sale_ends_at = sale_ends_at
         if request.FILES.get('image'):
             product.image = request.FILES['image']
         product.save()
@@ -2073,6 +2117,10 @@ def inventory_product_save(request):
             warranty_days=warranty_days,
             replacement_days=replacement_days,
             service_warranty_days=service_warranty_days,
+            sale_active=sale_active,
+            sale_discount_percent=sale_discount_percent,
+            sale_starts_at=sale_starts_at,
+            sale_ends_at=sale_ends_at,
             is_active=True,
         )
         if request.FILES.get('image'):
@@ -2100,7 +2148,7 @@ def inventory_product_save(request):
         rate,
     )
 
-    return JsonResponse({
+    resp = {
         'success': True,
         'message': (
             f"{'Yangi mahsulot yaratildi va' if created_product else 'Mahsulot yangilandi va'}"
@@ -2114,7 +2162,6 @@ def inventory_product_save(request):
         'min_stock_level': format_qty(product.min_stock_level or 0),
         'is_low_stock': inventory_item.quantity <= (product.min_stock_level or 0),
         'supplier': product.supplier.name if product.supplier else '',
-        'price': str(product.base_price),
         'cost_price': str(product.cost_price),
         'cost_currency': product.cost_currency,
         'currency': product.currency,
@@ -2136,7 +2183,9 @@ def inventory_product_save(request):
         ),
         'time': timezone.localtime().strftime('%H:%M:%S'),
         'undo': False,
-    })
+    }
+    resp.update(_product_price_payload(product))
+    return JsonResponse(resp)
 
 @login_required(login_url='login')
 def inventory_add_category(request):

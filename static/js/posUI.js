@@ -107,10 +107,14 @@ function selectProductFromCard(card) {
         return
     }
 
+    const listPriceRaw = card.getAttribute('data-list-price')
+    const salePct = parseFloat(card.getAttribute('data-sale-percent') || '0') || 0
     addItemToCart({
         id: parseInt(card.getAttribute('data-id'), 10),
         name: card.getAttribute('data-name') || '',
         price: parseFloat(card.getAttribute('data-price')),
+        listPrice: listPriceRaw != null && listPriceRaw !== '' ? parseFloat(listPriceRaw) : undefined,
+        saleDiscountPercent: salePct,
         currency: normalizeCurrency(card.getAttribute('data-currency')),
         unit: unit,
         qty: isFractionalUnit(unit) ? 1 : 1,
@@ -236,6 +240,15 @@ function renderCart(){
         const adjustedBadge = item.priceAdjusted
             ? '<span class="ml-1 inline-flex px-1.5 py-0.5 rounded text-[9px] font-bold bg-violet-100 text-violet-800">o‘zgartirilgan</span>'
             : ''
+        const salePct = parseFloat(item.saleDiscountPercent || 0) || 0
+        const listP = parseFloat(item.originalPrice)
+        const unitP = parseFloat(item.price) || 0
+        const saleBadge = (!item.priceAdjusted && salePct > 0)
+            ? `<span class="ml-1 inline-flex px-1.5 py-0.5 rounded text-[9px] font-bold bg-rose-100 text-rose-800">−${Math.round(salePct)}%</span>`
+            : ''
+        const priceLine = (!item.priceAdjusted && listP > unitP)
+            ? `<span class="line-through text-sky-400 mr-1">${formatMoney(listP, item.currency)}</span>${formatMoney(unitP, item.currency)}`
+            : formatMoney(unitP, item.currency)
         const imgHtml = item.img
             ? `<img src="${item.img}" class="h-12 w-12 object-cover rounded-md border border-sky-200 bg-white">`
             : `<div class="h-12 w-12 rounded-md border border-sky-200 bg-white flex items-center justify-center text-xs text-sky-400 font-semibold">N/A</div>`
@@ -246,8 +259,8 @@ function renderCart(){
                     <div class="flex items-center gap-3 bg-white/90 p-2.5 rounded-xl border border-sky-200 shadow-sm">
                         ${imgHtml}
                         <div class="flex-grow min-w-0">
-                            <h4 class="font-semibold text-sm text-sky-950 truncate">${item.name}${adjustedBadge}</h4>
-                            <p class="text-xs text-sky-700/70">${formatMoney(item.price, item.currency)} / ${item.unit}${stock !== null ? ` · max ${formatQty(stock, item.unit)} ${item.unit}` : ''}</p>
+                            <h4 class="font-semibold text-sm text-sky-950 truncate">${item.name}${adjustedBadge}${saleBadge}</h4>
+                            <p class="text-xs text-sky-700/70">${priceLine} / ${item.unit}${stock !== null ? ` · max ${formatQty(stock, item.unit)} ${item.unit}` : ''}</p>
                             <div class="flex items-center gap-1.5 mt-1.5">
                                 <button type="button" onclick="changeCartQty(${item.id}, -1)"
                                         class="w-9 h-10 rounded-lg border border-sky-200 bg-sky-50 text-sky-800 text-lg font-bold hover:bg-sky-100 touch-manipulation shrink-0">-</button>
@@ -414,6 +427,10 @@ function addItemToCart(scannedItem) {
         }
     } else {
         const unitPrice = parseFloat(scannedItem.price)
+        const listPrice = parseFloat(
+            scannedItem.listPrice != null ? scannedItem.listPrice
+                : (scannedItem.list_price != null ? scannedItem.list_price : unitPrice)
+        )
         const pushQty = (stock !== null && qtyToAdd > stock) ? stock : qtyToAdd
         if (stock !== null && qtyToAdd > stock) {
             alert(stockLimitMessage(stock, itemUnit))
@@ -423,8 +440,9 @@ function addItemToCart(scannedItem) {
             unit: itemUnit,
             qty: pushQty,
             price: unitPrice,
-            originalPrice: unitPrice,
+            originalPrice: !isNaN(listPrice) ? listPrice : unitPrice,
             priceAdjusted: false,
+            saleDiscountPercent: parseFloat(scannedItem.saleDiscountPercent || scannedItem.sale_discount_percent || 0) || 0,
             currency: itemCurrency,
             stock: stock,
         })

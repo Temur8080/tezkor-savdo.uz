@@ -149,6 +149,8 @@
                 id: product.id,
                 name: product.name,
                 price: parseFloat(product.price),
+                listPrice: product.list_price != null ? parseFloat(product.list_price) : undefined,
+                saleDiscountPercent: parseFloat(product.sale_discount_percent || 0) || 0,
                 currency: product.currency || 'UZS',
                 unit: product.unit || 'ta',
                 qty: 1,

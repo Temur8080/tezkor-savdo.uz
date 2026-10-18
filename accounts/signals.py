@@ -8,7 +8,10 @@ from .middleware import get_current_user
 from .views import employeeProfile
 
 MODELS_TO_AUDIT = {
-    Product: ['product_name', 'cost_price', 'base_price', 'min_stock_level', 'barcode', 'is_active'],
+    Product: [
+        'product_name', 'cost_price', 'base_price', 'min_stock_level', 'barcode', 'is_active',
+        'sale_active', 'sale_discount_percent', 'sale_starts_at', 'sale_ends_at',
+    ],
     BranchInventory: ['quantity'],
     Order: ['order_status', 'total_amount', 'is_active'],
     OrderItem: ['product', 'quantity', 'unit_price', 'cost_price'],

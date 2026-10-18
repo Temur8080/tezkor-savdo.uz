@@ -159,7 +159,15 @@
                 <td class="px-6 py-4">{{ i.product.category }}</td>
                 <td class="px-6 py-4 font-medium text-gray-900">{{ i.quantity|qty }}</td>
                 <td class="px-6 py-4 text-gray-700">{{ i.product.unit|default:'ta' }}</td>
-                <td class="px-6 py-4">{{ i.product.base_price|money:i.product.currency }}</td>
+                <td class="px-6 py-4">
+                    {% if i.product.is_sale_active %}
+                    <span class="block text-xs text-gray-400 line-through">{{ i.product.base_price|money:i.product.currency }}</span>
+                    <span class="font-semibold text-rose-700">{{ i.product.get_effective_price|money:i.product.currency }}</span>
+                    <span class="block text-[10px] font-bold text-rose-600">−{{ i.product.get_sale_discount_percent|floatformat:0 }}%</span>
+                    {% else %}
+                    {{ i.product.base_price|money:i.product.currency }}
+                    {% endif %}
+                </td>
                 <td class="px-6 py-4 font-medium text-gray-900">{{ i.product.barcode }}</td>
                 <td class="px-6 py-4">
                     {% if show_archived %}

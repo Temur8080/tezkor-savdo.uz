@@ -55,14 +55,21 @@
                     data-barcode="{{ item.product.barcode }}"
                     data-id="{{ item.product.id }}"
                     data-name="{{ item.product.product_name }}"
-                    data-price="{{ item.product.base_price }}"
+                    data-price="{{ item.product.get_effective_price }}"
+                    data-list-price="{{ item.product.base_price }}"
+                    data-sale-percent="{% if item.product.is_sale_active %}{{ item.product.get_sale_discount_percent }}{% else %}0{% endif %}"
                     data-currency="{{ item.product.currency }}"
                     data-unit="{{ item.product.unit|default:'ta' }}"
                     data-category="{{ item.product.get_category_display }}"
                     data-image="{% if item.product.image %}{{ item.product.image.url }}{% endif %}"
                     data-stock="{{ item.quantity|qty }}"
                     {% if item.quantity <= 0 %}disabled{% endif %}>
-                <div class="product-card-media h-20 sm:h-24 xl:h-28 w-full bg-slate-50 border border-gray-100 rounded-lg sm:rounded-md mb-1.5 sm:mb-2 overflow-hidden">
+                <div class="product-card-media h-20 sm:h-24 xl:h-28 w-full bg-slate-50 border border-gray-100 rounded-lg sm:rounded-md mb-1.5 sm:mb-2 overflow-hidden relative">
+                    {% if item.product.is_sale_active %}
+                    <span class="absolute top-1 left-1 z-10 px-1.5 py-0.5 rounded text-[10px] font-bold bg-rose-600 text-white shadow-sm">
+                        −{{ item.product.get_sale_discount_percent|floatformat:0 }}%
+                    </span>
+                    {% endif %}
                     {% if item.product.image %}
                         <img src="{{ item.product.image.url }}"
                              alt="{{ item.product.product_name }}"
@@ -75,7 +82,14 @@
                 </div>
                 <h3 class="text-xs sm:text-sm font-semibold text-gray-900 leading-tight line-clamp-2">{{ item.product.product_name }}</h3>
                 <div class="mt-auto pt-1.5 flex items-center justify-between gap-1">
-                    <span class="text-xs sm:text-sm font-bold text-blue-700 truncate">{{ item.product.base_price|money:item.product.currency }}</span>
+                    <span class="min-w-0">
+                        {% if item.product.is_sale_active %}
+                        <span class="block text-[10px] text-gray-400 line-through truncate">{{ item.product.base_price|money:item.product.currency }}</span>
+                        <span class="text-xs sm:text-sm font-bold text-rose-700 truncate">{{ item.product.get_effective_price|money:item.product.currency }}</span>
+                        {% else %}
+                        <span class="text-xs sm:text-sm font-bold text-blue-700 truncate">{{ item.product.base_price|money:item.product.currency }}</span>
+                        {% endif %}
+                    </span>
                     <span class="text-[10px] font-semibold uppercase shrink-0 {% if item.quantity > 0 %}text-emerald-600{% else %}text-red-600{% endif %}">
                         {{ item.quantity|qty }} {{ item.product.unit|default:'ta' }}
                     </span>

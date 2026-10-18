@@ -17,6 +17,8 @@ async function processScan(code) {
             id: data.id,
             name: data.name,
             price: parseFloat(data.price),
+            listPrice: data.list_price != null ? parseFloat(data.list_price) : undefined,
+            saleDiscountPercent: parseFloat(data.sale_discount_percent || 0) || 0,
             currency: data.currency || 'UZS',
             unit: data.unit || 'ta',
             qty: 1,

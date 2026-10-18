@@ -532,6 +532,20 @@ class Product(models.Model):
         help_text='Sotish narxi shu valyutada saqlanadi',
     )
     base_price = models.DecimalField('Sotish narxi', max_digits=14, decimal_places=2)
+    sale_discount_percent = models.DecimalField(
+        'Skidka %',
+        max_digits=5,
+        decimal_places=2,
+        default=Decimal('0.00'),
+        help_text='Mahsulotga beriladigan chegirma foizi (0–100)',
+    )
+    sale_active = models.BooleanField(
+        'Skidka faol',
+        default=False,
+        help_text='Yoqilganda kassada chegirmali narx ko‘rinadi',
+    )
+    sale_starts_at = models.DateField('Skidka boshlanishi', null=True, blank=True)
+    sale_ends_at = models.DateField('Skidka tugashi', null=True, blank=True)
     barcode = models.CharField('Shtrixkod', max_length=100, unique=True)
     cost_currency = models.CharField(
         'Tannarx valyutasi',
@@ -585,6 +599,36 @@ class Product(models.Model):
         self.is_active = False
         self.deleted_at = timezone.now()
         self.save()
+
+    def is_sale_active(self):
+        pct = self.sale_discount_percent or Decimal('0')
+        if not self.sale_active or pct <= 0:
+            return False
+        today = timezone.localdate()
+        if self.sale_starts_at and today < self.sale_starts_at:
+            return False
+        if self.sale_ends_at and today > self.sale_ends_at:
+            return False
+        return True
+
+    def get_sale_discount_percent(self):
+        if not self.is_sale_active():
+            return Decimal('0.00')
+        pct = self.sale_discount_percent or Decimal('0.00')
+        if pct < 0:
+            return Decimal('0.00')
+        if pct > Decimal('100'):
+            return Decimal('100.00')
+        return pct
+
+    def get_effective_price(self):
+        """Kassada sotiladigan narx (skidka bo‘lsa — chegirmadan keyin)."""
+        from .loyalty import apply_discount
+        base = self.base_price or Decimal('0.00')
+        pct = self.get_sale_discount_percent()
+        if pct > 0:
+            return apply_discount(base, pct)
+        return base
 
 class BranchInventory(models.Model):
     branch = models.ForeignKey(Branch, on_delete=models.CASCADE, limit_choices_to={'is_active': True}, verbose_name='Filial')

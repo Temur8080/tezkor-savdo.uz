@@ -81,6 +81,34 @@ class InventoryEditForm(forms.Form):
         min_value=0,
         widget=forms.NumberInput(attrs={'class': _INPUT, 'step': '0.01', 'min': '0'}),
     )
+    sale_active = forms.BooleanField(
+        label='Skidka faol',
+        required=False,
+        widget=forms.CheckboxInput(attrs={
+            'class': 'h-4 w-4 rounded border-gray-300 text-rose-600 focus:ring-rose-500',
+        }),
+    )
+    sale_discount_percent = forms.DecimalField(
+        label='Skidka %',
+        max_digits=5,
+        decimal_places=2,
+        min_value=0,
+        max_value=100,
+        required=False,
+        initial=Decimal('0.00'),
+        widget=forms.NumberInput(attrs={'class': _INPUT, 'step': '0.01', 'min': '0', 'max': '100'}),
+        help_text='Masalan 10 = 10% arzon',
+    )
+    sale_starts_at = forms.DateField(
+        label='Skidka boshlanishi',
+        required=False,
+        widget=forms.DateInput(attrs={'class': _INPUT, 'type': 'date'}),
+    )
+    sale_ends_at = forms.DateField(
+        label='Skidka tugashi',
+        required=False,
+        widget=forms.DateInput(attrs={'class': _INPUT, 'type': 'date'}),
+    )
     min_stock_level = forms.DecimalField(
         label='Minimal zaxira',
         max_digits=12,
@@ -153,6 +181,10 @@ class InventoryEditForm(forms.Form):
             self.fields['unit'].initial = getattr(p, 'unit', None) or Product.UNIT_TA
             self.fields['currency'].initial = p.currency
             self.fields['base_price'].initial = p.base_price
+            self.fields['sale_active'].initial = p.sale_active
+            self.fields['sale_discount_percent'].initial = p.sale_discount_percent or Decimal('0.00')
+            self.fields['sale_starts_at'].initial = p.sale_starts_at
+            self.fields['sale_ends_at'].initial = p.sale_ends_at
             self.fields['min_stock_level'].initial = _qty_initial(p.min_stock_level)
             self.fields['warranty_days'].initial = p.warranty_days
             self.fields['replacement_days'].initial = p.replacement_days
@@ -179,6 +211,15 @@ class InventoryEditForm(forms.Form):
             cleaned['category'] = new_cat
         if not cleaned.get('category'):
             self.add_error('category', 'Kategoriya tanlang yoki yarating')
+        start = cleaned.get('sale_starts_at')
+        end = cleaned.get('sale_ends_at')
+        if start and end and end < start:
+            self.add_error('sale_ends_at', 'Tugash sanasi boshlanishdan oldin bo‘lmasin')
+        pct = cleaned.get('sale_discount_percent')
+        if cleaned.get('sale_active') and (pct is None or pct <= 0):
+            self.add_error('sale_discount_percent', 'Skidka foizini kiriting (0 dan katta)')
+        if pct is None:
+            cleaned['sale_discount_percent'] = Decimal('0.00')
         return cleaned
 
     def save(self):
@@ -199,6 +240,10 @@ class InventoryEditForm(forms.Form):
         product.unit = data['unit']
         product.currency = data['currency']
         product.base_price = data['base_price']
+        product.sale_active = bool(data.get('sale_active'))
+        product.sale_discount_percent = data.get('sale_discount_percent') or Decimal('0.00')
+        product.sale_starts_at = data.get('sale_starts_at')
+        product.sale_ends_at = data.get('sale_ends_at')
         product.min_stock_level = data['min_stock_level']
         product.warranty_days = data['warranty_days']
         product.replacement_days = data['replacement_days']
