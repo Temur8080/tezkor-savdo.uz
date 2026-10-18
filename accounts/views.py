@@ -17,7 +17,11 @@ from .decorators import (
     ROLE_CONSULTANT,
     ROLE_SALES,
 )
-from .admin_branch import get_admin_branch_ids, scope_queryset_by_branch
+from .admin_branch import (
+    get_admin_branch_ids,
+    scope_queryset_by_branch,
+    user_can_access_branch,
+)
 from .models import Product, Employee, Branch, BranchInventory, Customer, Order, OrderItem, Payment, CashPayment, \
     Invoice, WarrantyClaims, DefectiveInventory, ReplacementRecord, AuditTrail, \
     Organization, Supplier, ProductCategory, AppSettings, CustomerDebt, DebtPayment, Expense, PriceTier, \
@@ -1643,8 +1647,11 @@ def employeeProfile(request):
     return render(request, 'accounts/employee_profile.html', context)
 
 @login_required(login_url='login')
+@user_passes_test(is_app_manager, login_url='home')
 def employee_list_export_csv(request):
-    employees = Employee.objects.filter(is_active=True).order_by('-hire_date')
+    employees = scope_queryset_by_branch(
+        Employee.objects.filter(is_active=True), request
+    ).order_by('-hire_date')
 
     response = HttpResponse(content_type='text/csv')
     response['Content-Disposition'] = 'attachment; filename="employee_list.csv"'
@@ -1672,14 +1679,17 @@ def employee_list_export_csv(request):
 
     return response
 
-class EmployeeList(ListView):
+class EmployeeList(ManagerRequiredMixin, ListView):
     model = Employee
     template_name = 'accounts/employee_list.html'
     context_object_name = 'employees'
     paginate_by = 10
 
     def get_queryset(self):
-        return Employee.objects.filter(is_active=True).select_related('user', 'branch').order_by('-hire_date')
+        return scope_queryset_by_branch(
+            Employee.objects.filter(is_active=True),
+            self.request,
+        ).select_related('user', 'branch').order_by('-hire_date')
 
 @login_required(login_url='login')
 @user_passes_test(is_app_manager, login_url='home')
@@ -1688,6 +1698,8 @@ def employee_toggle_block(request, pk):
         return redirect('employee_list')
 
     employee = get_object_or_404(Employee, pk=pk, is_active=True)
+    if not user_can_access_branch(request, employee.branch_id):
+        raise PermissionDenied
     if employee.user_id == request.user.id:
         messages.error(request, "O‘zingizni bloklay olmaysiz.")
         return redirect('employee_list')
@@ -1712,6 +1724,8 @@ def employee_delete(request, pk):
         return redirect('employee_list')
 
     employee = get_object_or_404(Employee, pk=pk, is_active=True)
+    if not user_can_access_branch(request, employee.branch_id):
+        raise PermissionDenied
     if employee.user_id == request.user.id:
         messages.error(request, "O‘zingizni o‘chira olmaysiz.")
         return redirect('employee_list')
@@ -1729,12 +1743,17 @@ def _sync_sales_agent_for_role(employee):
         SalesAgent.objects.filter(employee=employee).delete()
 
 
-class EmployeeCreate(SuccessMessageMixin, CreateView):
+class EmployeeCreate(ManagerRequiredMixin, SuccessMessageMixin, CreateView):
     model = Employee
     form_class = EmployeeAdminForm
     success_url = reverse_lazy('employee_list')
     template_name = 'accounts/employee_form.html'
     success_message = "%(name)s xodimi muvaffaqiyatli yaratildi!"
+
+    def get_form_kwargs(self):
+        kw = super().get_form_kwargs()
+        kw['request'] = self.request
+        return kw
 
     def form_valid(self, form):
         custom_username = form.cleaned_data.get('username')
@@ -1763,11 +1782,17 @@ class EmployeeCreate(SuccessMessageMixin, CreateView):
 
         return redirect(self.success_url)
 
+@login_required(login_url='login')
+@user_passes_test(is_app_manager, login_url='home')
 def manageEmployee(request, pk):
 
     employee = get_object_or_404(Employee, pk=pk)
+    if not user_can_access_branch(request, employee.branch_id):
+        raise PermissionDenied
     if request.method == 'POST':
-        form = EmployeeAdminForm(request.POST, request.FILES, instance=employee)
+        form = EmployeeAdminForm(
+            request.POST, request.FILES, instance=employee, request=request
+        )
 
         if form.is_valid():
             employee = form.save(commit=False)
@@ -1797,7 +1822,7 @@ def manageEmployee(request, pk):
             return redirect('employee_list')
 
     else:
-        form = EmployeeAdminForm(instance=employee)
+        form = EmployeeAdminForm(instance=employee, request=request)
 
     context = {'employee':employee, 'form':form}
     return render(request, 'accounts/employee_form.html', context)
@@ -2964,7 +2989,7 @@ def reservations_active_api(request):
     emp = get_active_employee(request.user)
     qs = ProductReservation.objects.filter(status='Active').prefetch_related('items__product')
     if is_app_manager(request.user):
-        pass
+        qs = scope_queryset_by_branch(qs, request)
     elif emp:
         qs = qs.filter(branch=emp.branch)
     else:
@@ -3530,11 +3555,16 @@ def dashboard(request):
     start_of_year = now.replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
 
     def get_total(start_date):
-        return OrderItem.objects.filter(
-            order__order_date__gte=start_date,
-            order__is_active=True,
-            product__is_active=True
-        ).aggregate(
+        qs = scope_queryset_by_branch(
+            OrderItem.objects.filter(
+                order__order_date__gte=start_date,
+                order__is_active=True,
+                product__is_active=True,
+            ),
+            request,
+            field='order__branch_id',
+        )
+        return qs.aggregate(
             total=Coalesce(
                 Sum(F('unit_price') * F('quantity')),
                 Decimal('0.00'),
@@ -3546,31 +3576,20 @@ def dashboard(request):
     monthly_total = get_total(start_of_month)
     yearly_total = get_total(start_of_year)
 
-    pending_claims = WarrantyClaims.objects.filter(
-        status='Pending',
-    ).count()
-
-    in_progress_claims = WarrantyClaims.objects.filter(
-        status='In-Progress',
-    ).count()
-
-    completed_claims = WarrantyClaims.objects.filter(
-        status='Completed',
-    ).count()
-
-    released_claims = WarrantyClaims.objects.filter(
-        status='Released',
-    ).count()
-
-    repair = WarrantyClaims.objects.filter(
-        claim_type='Repair',
-    ).count()
-
-    replacement = WarrantyClaims.objects.filter(
-        claim_type='Replacement',
-    ).count()
-
-    claims = WarrantyClaims.objects.select_related('order_item__product','order_item__order__customer').all()
+    claims_base = scope_queryset_by_branch(
+        WarrantyClaims.objects.all(),
+        request,
+        field='order_item__order__branch_id',
+    )
+    pending_claims = claims_base.filter(status='Pending').count()
+    in_progress_claims = claims_base.filter(status='In-Progress').count()
+    completed_claims = claims_base.filter(status='Completed').count()
+    released_claims = claims_base.filter(status='Released').count()
+    repair = claims_base.filter(claim_type='Repair').count()
+    replacement = claims_base.filter(claim_type='Replacement').count()
+    claims = claims_base.select_related(
+        'order_item__product', 'order_item__order__customer'
+    )
 
     total_cost_impact = claims.aggregate(
         total=Coalesce(Sum('cost_impact'), Decimal('0.00'))
@@ -3628,7 +3647,9 @@ def dashboard(request):
     else:
         growth_percent = 0.0
 
-    active_staff = Employee.objects.filter(is_logged_in=True)
+    active_staff = scope_queryset_by_branch(
+        Employee.objects.filter(is_logged_in=True), request
+    )
 
     context = {
         'active_staff': active_staff,

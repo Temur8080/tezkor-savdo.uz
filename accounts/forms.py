@@ -316,6 +316,7 @@ class EmployeeAdminForm(forms.ModelForm):
         }
 
     def __init__(self, *args, **kwargs):
+        self.request = kwargs.pop('request', None)
         super().__init__(*args, **kwargs)
         instance = getattr(self, 'instance', None)
         if instance and instance.pk and getattr(instance, 'user_id', None):
@@ -326,9 +327,29 @@ class EmployeeAdminForm(forms.ModelForm):
             self.fields['password'].required = True
             self.fields['password'].widget.attrs['placeholder'] = 'Vaqtinchalik parol belgilang'
 
+        # Menejer faqat o‘ziga ruxsat etilgan filiallarga xodim biriktiradi
+        if self.request is not None and 'branch' in self.fields:
+            from accounts.admin_branch import get_admin_branch_ids
+            from accounts.models import Branch
+            ids = get_admin_branch_ids(self.request)
+            qs = Branch.objects.filter(is_active=True).order_by('name')
+            if ids is False:
+                qs = qs.none()
+            elif ids is not None:
+                qs = qs.filter(pk__in=ids)
+            self.fields['branch'].queryset = qs
+
     def clean_password(self):
         password = self.cleaned_data.get('password') or ''
         instance = getattr(self, 'instance', None)
         if not (instance and instance.pk) and not password:
             raise forms.ValidationError('Parol majburiy.')
         return password
+
+    def clean_branch(self):
+        branch = self.cleaned_data.get('branch')
+        if branch and self.request is not None:
+            from accounts.admin_branch import user_can_access_branch
+            if not user_can_access_branch(self.request, branch.pk):
+                raise forms.ValidationError('Bu filialga ruxsatingiz yo‘q.')
+        return branch

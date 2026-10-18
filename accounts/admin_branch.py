@@ -1,6 +1,39 @@
 def get_admin_organizations(request):
     """None = superuser (cheklovsiz). False = ruxsat yo‘q. QuerySet = ruxsat etilgan tashkilotlar."""
-    from .models import Organization
+    from .models import Organization, Branch
+
+    user = getattr(request, 'user', None)
+    if not user or not user.is_authenticated:
+        return False
+    if user.is_superuser:
+        return None
+
+    branch_ids = get_admin_branch_ids(request)
+    if branch_ids is False:
+        return False
+    if branch_ids is None:
+        return None
+    org_ids = set(
+        Branch.objects.filter(pk__in=branch_ids, organization__isnull=False)
+        .values_list('organization_id', flat=True)
+    )
+    if not org_ids:
+        return False
+    return Organization.objects.filter(pk__in=org_ids, is_active=True)
+
+
+def get_admin_branch_ids(request):
+    """
+    None = cheklovsiz (superuser).
+    False = hech narsa.
+    list[int] = ruxsat etilgan filiallar.
+
+    Menejer hech qachon butun bazani ko‘rmaydi:
+      1) StaffAccess.filiallar (agar bor)
+      2) StaffAccess tashkilot/tuman/viloyat → shu orglardagi filiallar
+      3) Aks holda faqat xodimning o‘z filiali
+    """
+    from .models import Organization, Branch
 
     user = getattr(request, 'user', None)
     if not user or not user.is_authenticated:
@@ -9,19 +42,17 @@ def get_admin_organizations(request):
         return None
 
     access = getattr(user, 'staff_access', None)
-    if access is not None:
-        # Aniq filiallar berilgan bo‘lsa — faqat shu filiallarnning tashkiloti
-        # (viloyat/tuman/tashkilot M2M kengaytirmaydi).
-        if access.branches.exists():
-            org_ids = set(
-                access.branches.filter(is_active=True, organization__isnull=False)
-                .values_list('organization_id', flat=True)
-            )
-            if org_ids:
-                return Organization.objects.filter(pk__in=org_ids, is_active=True)
-            return False
 
-        org_ids = set()
+    # 1) Aniq filiallar
+    if access is not None and access.branches.exists():
+        ids = list(
+            access.branches.filter(is_active=True).values_list('id', flat=True)
+        )
+        return ids if ids else False
+
+    # 2) Tashkilot / tuman / viloyat
+    org_ids = set()
+    if access is not None:
         if access.organizations.exists():
             org_ids.update(
                 access.organizations.filter(is_active=True).values_list('id', flat=True)
@@ -38,43 +69,19 @@ def get_admin_organizations(request):
                     is_active=True, district__viloyat__in=access.viloyats.all()
                 ).values_list('id', flat=True)
             )
-        if org_ids:
-            return Organization.objects.filter(pk__in=org_ids, is_active=True)
-
-    employee = getattr(user, 'employee', None)
-    if employee and employee.branch_id and employee.branch.organization_id:
-        return Organization.objects.filter(pk=employee.branch.organization_id)
-
-    return False
-
-
-def get_admin_branch_ids(request):
-    """None = cheklovsiz. False = hech narsa. list[int] = ruxsat etilgan filiallar."""
-    from .models import Branch
-
-    user = getattr(request, 'user', None)
-    if not user or not user.is_authenticated:
-        return False
-    if user.is_superuser:
-        return None
-
-    orgs = get_admin_organizations(request)
-    if orgs is False:
-        return False
-    if orgs is None:
-        return None
-
-    access = getattr(user, 'staff_access', None)
-    if access is not None and access.branches.exists():
+    if org_ids:
         ids = list(
-            access.branches.filter(is_active=True, organization__in=orgs)
+            Branch.objects.filter(organization_id__in=org_ids, is_active=True)
             .values_list('id', flat=True)
         )
         return ids if ids else False
 
-    return list(
-        Branch.objects.filter(organization__in=orgs, is_active=True).values_list('id', flat=True)
-    )
+    # 3) Default — faqat o‘z filiali (butun tashkilot emas)
+    employee = getattr(user, 'employee', None)
+    if employee and employee.branch_id:
+        if getattr(employee.branch, 'is_active', True):
+            return [employee.branch_id]
+    return False
 
 
 def scope_queryset_by_branch(qs, request, field='branch_id'):
@@ -89,6 +96,18 @@ def scope_queryset_by_branch(qs, request, field='branch_id'):
     return qs.filter(**{f'{field}_id__in': branch_ids})
 
 
+def user_can_access_branch(request, branch_id):
+    """Filialga ruxsat bormi."""
+    if not branch_id:
+        return False
+    allowed = get_admin_branch_ids(request)
+    if allowed is None:
+        return True
+    if allowed is False:
+        return False
+    return int(branch_id) in {int(x) for x in allowed}
+
+
 def get_admin_branch(request):
     user = getattr(request, 'user', None)
     if not user or not user.is_authenticated:
@@ -96,7 +115,7 @@ def get_admin_branch(request):
     if user.is_superuser:
         return None
     employee = getattr(user, 'employee', None)
-    if employee and employee.branch_id:
+    if employee and employee.branch_id and user_can_access_branch(request, employee.branch_id):
         return employee.branch
     branch_ids = get_admin_branch_ids(request)
     if branch_ids is None:
