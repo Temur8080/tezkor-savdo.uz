@@ -1328,7 +1328,20 @@ def loginPage(request):
                 return render(request, 'accounts/login.html')
             return redirect(dest)
 
-        messages.error(request, 'Login yoki parol noto‘g‘ri.')
+        # authenticate() faol emas user uchun ham None qaytaradi — alohida xabar
+        candidate = User.objects.filter(username=username).first()
+        if (
+            candidate is not None
+            and candidate.check_password(password)
+            and not candidate.is_active
+        ):
+            messages.error(
+                request,
+                'Hisob o‘chirilgan (Active yoqilmagan). Kirish uchun admin '
+                'foydalanuvchi sahifasida «Active» ni belgilang.',
+            )
+        else:
+            messages.error(request, 'Login yoki parol noto‘g‘ri.')
 
     return render(request, 'accounts/login.html')
 
