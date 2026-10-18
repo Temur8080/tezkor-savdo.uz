@@ -73,6 +73,23 @@ class UserCreateWithOrgForm(UserCreationForm):
             )
         return user
 
+class EmployeeRoleInline(admin.StackedInline):
+    """Portal lavozimi — Manager bo‘lsa dashboard/ombor/hisobot ochiladi."""
+    model = Employee
+    fk_name = 'user'
+    can_delete = False
+    max_num = 1
+    min_num = 0
+    extra = 0
+    fields = ('name', 'role', 'branch', 'is_active')
+    autocomplete_fields = ('branch',)
+    verbose_name = 'Portal xodim profili'
+    verbose_name_plural = (
+        'Portal xodim profili — lavozim portal menyusini ochadi '
+        '(Menejer = ombor/hisobot/qarz; Sotuvchi = kassa)'
+    )
+
+
 class StaffAccessInline(admin.StackedInline):
     model = StaffAccess
     can_delete = False
@@ -81,7 +98,10 @@ class StaffAccessInline(admin.StackedInline):
     extra = 0
     filter_horizontal = ('viloyats', 'districts', 'organizations', 'branches')
     verbose_name = 'Hudud ruxsatlari'
-    verbose_name_plural = 'Hudud ruxsatlari (chapdan o‘ngga o‘tkazing)'
+    verbose_name_plural = (
+        'Hudud ruxsatlari — qaysi filial ma’lumotini ko‘radi '
+        '(chap = berilmagan, o‘ng = berilgan). Menyu ochmaydi.'
+    )
     fields = ('viloyats', 'districts', 'organizations', 'branches')
 
     def get_formset(self, request, obj=None, **kwargs):
@@ -93,9 +113,9 @@ class StaffAccessInline(admin.StackedInline):
             def __init__(self, *args, **kw):
                 super().__init__(*args, **kw)
                 help_txt = (
-                    'Chap — mavjudlar. O‘ng — biriktirilganlar. '
-                    'Agar filial tanlansa — faqat shu filial (viloyat/tuman kengaytirmaydi). '
-                    'Filial bo‘lmasa: tashkilot → tuman → viloyat bo‘yicha.'
+                    'Chap — berilmagan. O‘ng — berilgan. '
+                    'Filial tanlansa faqat shu filial ishlaydi '
+                    '(viloyat/tuman/tashkilot e’tiborga olinmaydi).'
                 )
                 for form in self.forms:
                     v = form.fields.get('viloyats')
@@ -138,12 +158,15 @@ class StaffAccessInline(admin.StackedInline):
 
 class TezkorUserAdmin(DjangoUserAdmin):
     add_form = UserCreateWithOrgForm
-    inlines = [StaffAccessInline]
+    inlines = [EmployeeRoleInline, StaffAccessInline]
     list_display = (
-        'username', 'get_employee_name', 'get_organizations', 'get_branch',
+        'username', 'get_employee_name', 'get_role', 'get_organizations', 'get_branch',
         'is_staff', 'is_active', 'is_superuser',
     )
-    list_filter = ('is_staff', 'is_active', 'is_superuser', 'staff_access__organizations', 'employee__branch')
+    list_filter = (
+        'is_staff', 'is_active', 'is_superuser',
+        'employee__role', 'staff_access__organizations', 'employee__branch',
+    )
     search_fields = ('username', 'email', 'employee__name', 'employee__branch__name')
     ordering = ('username',)
 
@@ -152,16 +175,45 @@ class TezkorUserAdmin(DjangoUserAdmin):
             'classes': ('wide',),
             'fields': ('username', 'password1', 'password2', 'full_name', 'branch', 'role'),
             'description': (
-                'Bu foydalanuvchi https://tezkor-savdo.uz portaliga kiradi (dashboard, xodimlar, ombor…). '
-                'Superuser yoqilmasa /admin/ ochilmaydi — bu to‘g‘ri.'
+                'Bu foydalanuvchi https://tezkor-savdo.uz portaliga kiradi. '
+                'Portal menyusi lavozim (Menejer/Sotuvchi) bilan ochiladi. '
+                'Django «User permissions» faqat /admin/ uchun (Staff status kerak).'
             ),
         }),
     )
+
+    def get_fieldsets(self, request, obj=None):
+        fieldsets = super().get_fieldsets(request, obj)
+        if obj is None:
+            return fieldsets
+        out = []
+        for name, opts in fieldsets:
+            opts = dict(opts)
+            fields = opts.get('fields') or ()
+            flat = []
+            for f in fields:
+                if isinstance(f, (list, tuple)):
+                    flat.extend(f)
+                else:
+                    flat.append(f)
+            if 'user_permissions' in flat or 'is_staff' in flat:
+                opts['description'] = (
+                    'Diqqat: «User permissions» va Groups portalni boshqarmaydi. '
+                    'Portal uchun pastdagi «Portal xodim profili» → Lavozim. '
+                    'Qaysi filial ma’lumoti — «Hudud ruxsatlari» → Filiallar (o‘ng ustun).'
+                )
+            out.append((name, opts))
+        return out
 
     @admin.display(description='Ism', ordering='employee__name')
     def get_employee_name(self, obj):
         emp = getattr(obj, 'employee', None)
         return emp.name if emp else '—'
+
+    @admin.display(description='Lavozim', ordering='employee__role')
+    def get_role(self, obj):
+        emp = getattr(obj, 'employee', None)
+        return emp.get_role_display() if emp else '—'
 
     @admin.display(description='Hudud / tashkilot')
     def get_organizations(self, obj):
@@ -245,7 +297,12 @@ class TezkorUserAdmin(DjangoUserAdmin):
     def save_related(self, request, form, formsets, change):
         super().save_related(request, form, formsets, change)
         user = form.instance
-        StaffAccess.objects.get_or_create(user=user)
+        access, _ = StaffAccess.objects.get_or_create(user=user)
+        # Filial aniq berilgan bo‘lsa — kengroq hududlarni tozalash (chalkashlikni oldini olish)
+        if access.branches.exists():
+            access.viloyats.clear()
+            access.districts.clear()
+            access.organizations.clear()
 
         if not Employee.objects.filter(user=user).exists():
             branch = Branch.objects.filter(is_active=True).order_by('id').first()
