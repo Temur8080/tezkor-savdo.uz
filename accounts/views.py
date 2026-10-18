@@ -530,12 +530,6 @@ def _reports_resolve_period(request):
 def _reports_build_context(request):
 
     period = _reports_resolve_period(request)
-    now = timezone.localtime(timezone.now())
-    start_of_week = (now - timedelta(days=now.weekday())).replace(
-        hour=0, minute=0, second=0, microsecond=0
-    )
-    start_of_month = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-    start_of_year = now.replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
 
     zero = Decimal('0.00')
     usd_rate = AppSettings.get_solo().usd_to_uzs
@@ -693,21 +687,11 @@ def _reports_build_context(request):
         'total_count': stats_uzs['orders'],
     }
 
-    all_sales_gross = sum_order_items_uzs(OrderItem.objects.filter(order__is_active=True))
-    all_returns = returns_in_range(None, None)
-    all_sales = apply_returns_net(all_sales_gross, all_returns)
-
-    def period_sales(start_date):
-        sales = sum_order_items_uzs(OrderItem.objects.filter(
-            order__order_date__gte=start_date,
-            order__is_active=True,
-        ).exclude(order__order_status__in=['AwaitingApproval', 'Cancelled']))
-        rets = returns_in_range(start_date, None)
-        return apply_returns_net(sales, rets)
-
-    week = period_sales(start_of_week)
-    month = period_sales(start_of_month)
-    year = period_sales(start_of_year)
+    # Tanlangan davr = asosiy hisobot; "barcha vaqt / hafta / oy" alohida emas
+    all_sales = stats_uzs
+    week = stats_uzs
+    month = stats_uzs
+    year = stats_uzs
 
     # Operatsiya hisoblari (davr)
     ops_awaiting = Order.objects.filter(
@@ -737,14 +721,19 @@ def _reports_build_context(request):
         .order_by('-return_date')[:8]
     )
 
-    open_debts = CustomerDebt.objects.exclude(status='Paid')
+    # Qarzlar — faqat tanlangan davr (yaratilgan / to‘langan)
+    debts_period = CustomerDebt.objects.filter(created_at__lte=end_dt)
+    if start_dt:
+        debts_period = debts_period.filter(created_at__gte=start_dt)
+    open_debts = debts_period.exclude(status='Paid')
+    paid_debts_period = debts_period.filter(status='Paid')
     debt_stats = {
         'open_remaining': sum_money_rows_uzs(open_debts, 'remaining_balance'),
         'open_original': sum_money_rows_uzs(open_debts, 'original_amount'),
-        'total_paid_on_debts': sum_money_rows_uzs(CustomerDebt.objects.all(), 'paid_amount'),
+        'total_paid_on_debts': sum_money_rows_uzs(debts_period, 'paid_amount'),
         'open_count': open_debts.count(),
-        'paid_count': CustomerDebt.objects.filter(status='Paid').count(),
-        'all_count': CustomerDebt.objects.count(),
+        'paid_count': paid_debts_period.count(),
+        'all_count': debts_period.count(),
     }
     debt_pay_qs = DebtPayment.objects.filter(paid_at__lte=end_dt).select_related('debt')
     if start_dt:
@@ -757,22 +746,17 @@ def _reports_build_context(request):
             total += to_uzs(pay.amount or zero, cur)
         return total
 
-    debt_collected = sum_debt_payments_uzs(DebtPayment.objects.select_related('debt'))
     debt_collected_period = sum_debt_payments_uzs(debt_pay_qs)
-    debt_collected_month = sum_debt_payments_uzs(
-        DebtPayment.objects.filter(paid_at__gte=start_of_month).select_related('debt')
-    )
+    debt_collected = debt_collected_period
+    debt_collected_month = debt_collected_period
 
-    exp_all = Expense.objects.filter(is_active=True)
-    expense_total = sum_money_rows_uzs(exp_all, 'amount')
-    expense_month = sum_money_rows_uzs(
-        exp_all.filter(expense_date__gte=start_of_month.date()), 'amount'
-    )
-    exp_period = exp_all.filter(expense_date__lte=end_d)
+    exp_period = Expense.objects.filter(is_active=True, expense_date__lte=end_d)
     if start_d:
         exp_period = exp_period.filter(expense_date__gte=start_d)
     expense_period = sum_money_rows_uzs(exp_period, 'amount')
     expense_count = exp_period.count()
+    expense_total = expense_period
+    expense_month = expense_period
     top_expenses = exp_period.select_related('branch').order_by('-expense_date', '-id')[:8]
 
     cash_received = zero
@@ -858,15 +842,19 @@ def _reports_build_context(request):
     aov = (gross_revenue / total_count) if total_count > 0 else zero
 
     top_debts = (
-        CustomerDebt.objects.exclude(status='Paid')
+        open_debts
         .select_related('customer', 'branch')
         .order_by('-remaining_balance')[:8]
     )
 
-    active_reservations = ProductReservation.objects.filter(status='Active')
     reservation_period = ProductReservation.objects.filter(created_at__lte=end_dt)
     if start_dt:
         reservation_period = reservation_period.filter(created_at__gte=start_dt)
+    active_reservations = reservation_period.filter(status='Active')
+    reservation_period_units = reservation_period.aggregate(
+        u=Coalesce(Sum('unit_count'), 0)
+    )['u'] or 0
+    reservation_period_total = sum_money_rows_uzs(reservation_period, 'total_amount')
     reservation_stats = {
         'active_count': active_reservations.count(),
         'active_units': active_reservations.aggregate(
@@ -877,13 +865,11 @@ def _reports_build_context(request):
         )['i'] or 0,
         'active_total': sum_money_rows_uzs(active_reservations, 'total_amount'),
         'period_count': reservation_period.count(),
-        'period_units': reservation_period.aggregate(
-            u=Coalesce(Sum('unit_count'), 0)
-        )['u'] or 0,
-        'period_total': sum_money_rows_uzs(reservation_period, 'total_amount'),
+        'period_units': reservation_period_units,
+        'period_total': reservation_period_total,
     }
     top_reservations = (
-        active_reservations.select_related('customer', 'branch', 'employee')
+        reservation_period.select_related('customer', 'branch', 'employee')
         .order_by('-created_at')[:8]
     )
 
@@ -981,10 +967,16 @@ def _reports_build_context(request):
                 row['total'], row['orders'], row['customer__bonus_discount_percent']
             ),
         })
-    loyal_count = Customer.objects.filter(is_active=True, customer_type=Customer.TYPE_LOYAL).count()
-    partner_count = Customer.objects.filter(is_active=True, customer_type=Customer.TYPE_PARTNER).count()
+    # Mijoz sonlari — faqat davrdagi savdosi bo‘lganlar
+    period_customer_ids = period_orders.exclude(customer_id=None).values_list('customer_id', flat=True).distinct()
+    loyal_count = Customer.objects.filter(
+        id__in=period_customer_ids, customer_type=Customer.TYPE_LOYAL
+    ).count()
+    partner_count = Customer.objects.filter(
+        id__in=period_customer_ids, customer_type=Customer.TYPE_PARTNER
+    ).count()
     loyalty_customers_count = Customer.objects.filter(
-        is_active=True, customer_type__in=discount_kinds
+        id__in=period_customer_ids, customer_type__in=discount_kinds
     ).count()
 
     return {
@@ -1122,11 +1114,11 @@ def admin_reports_export_csv(request):
     writer.writerow(['Ombor tannarx', ctx['stock_cost_uzs']])
     writer.writerow(['Ombor sotish narxi', ctx['stock_retail_uzs']])
     writer.writerow(['Davrda undirilgan qarz', ctx['debt_collected_period']])
-    writer.writerow(['Faol bronlar (soni)', ctx['reservation_active_count']])
-    writer.writerow(['Faol bronlar (dona)', ctx['reservation_active_units']])
-    writer.writerow(['Faol bronlar (summa)', ctx['reservation_active_total']])
+    writer.writerow(['Davr ochiq qarz', ctx['outstanding_balance']])
+    writer.writerow(['Davr qarzlari (soni)', ctx['debt_all_count']])
     writer.writerow(['Davr bronlari (soni)', ctx['reservation_period_count']])
     writer.writerow(['Davr bronlari (summa)', ctx['reservation_period_total']])
+    writer.writerow(['Davrdan hali faol bron', ctx['reservation_active_count']])
     writer.writerow([])
     writer.writerow([
         'Buyurtma ID', 'Sana', 'Mijoz', 'Xodim', 'Filial',

@@ -113,13 +113,13 @@
         <div class="p-4 bg-gray-50 border-b border-gray-200 flex flex-wrap items-center justify-between gap-2">
             <div>
                 <h2 class="text-base font-bold text-gray-900">Mijozlar boshqaruvi</h2>
-                <p class="text-xs text-gray-500 mt-0.5">{{ period_label }} — sodiq mijozlar reytingi, aksiya va hamkor savdo</p>
+                <p class="text-xs text-gray-500 mt-0.5">{{ period_label }} — faqat shu davrdagi savdosi bo‘lgan mijozlar</p>
             </div>
             <a href="{% url 'customers_loyalty' %}" class="text-sm font-semibold text-blue-600 hover:underline">Mijozlar bazasi →</a>
         </div>
         <div class="grid grid-cols-2 lg:grid-cols-4 divide-y lg:divide-y-0 divide-x divide-gray-200 border-b border-gray-200">
             <div class="p-4 text-center">
-                <p class="text-xs uppercase text-gray-500 font-semibold">Baza (sodiq+)</p>
+                <p class="text-xs uppercase text-gray-500 font-semibold">Davrda sodiq+</p>
                 <p class="text-xl font-bold text-gray-900 mt-1">{{ loyalty_customers_count }}</p>
             </div>
             <div class="p-4 text-center">
@@ -300,8 +300,8 @@
                 <p class="text-base font-bold text-emerald-700 mt-1">{{ cash_net|money }}</p>
             </div>
             <div class="p-4 text-center">
-                <p class="text-xs uppercase text-gray-500 font-semibold">Jami sof sotuv</p>
-                <p class="text-base font-bold text-gray-900 mt-1">{{ all_revenue|money }}</p>
+                <p class="text-xs uppercase text-gray-500 font-semibold">Davr foydasi</p>
+                <p class="text-base font-bold text-emerald-700 mt-1">{{ all_profit|money }}</p>
                 <p class="text-[11px] text-gray-400">{{ all_units|qty }} dona · {{ all_orders }} buyurtma</p>
             </div>
         </div>
@@ -408,24 +408,20 @@
                 Xarajatlar bo‘limi
             </a>
         </div>
-        <div class="grid grid-cols-2 lg:grid-cols-4 divide-y lg:divide-y-0 divide-x divide-gray-200 border-b border-gray-200">
+        <div class="grid grid-cols-2 lg:grid-cols-3 divide-y lg:divide-y-0 divide-x divide-gray-200 border-b border-gray-200">
             <div class="p-4 text-center">
-                <p class="text-xs uppercase text-gray-500 font-semibold">{{ period_label }}</p>
+                <p class="text-xs uppercase text-gray-500 font-semibold">Davr xarajati</p>
                 <p class="text-lg font-bold text-rose-700 mt-1">{{ expense_period|money }}</p>
+                <p class="text-[11px] text-gray-400">{{ period_label }}</p>
             </div>
             <div class="p-4 text-center">
-                <p class="text-xs uppercase text-gray-500 font-semibold">Shu oy</p>
-                <p class="text-lg font-bold text-rose-700 mt-1">{{ expense_month|money }}</p>
-            </div>
-            <div class="p-4 text-center">
-                <p class="text-xs uppercase text-gray-500 font-semibold">Jami xarajat</p>
-                <p class="text-lg font-bold text-gray-900 mt-1">{{ expense_total|money }}</p>
-                <p class="text-[11px] text-gray-400">{{ expense_count }} ta</p>
+                <p class="text-xs uppercase text-gray-500 font-semibold">Xarajatlar soni</p>
+                <p class="text-lg font-bold text-gray-900 mt-1">{{ expense_count }}</p>
             </div>
             <div class="p-4 text-center">
                 <p class="text-xs uppercase text-gray-500 font-semibold">Foyda − xarajat</p>
                 <p class="text-lg font-bold text-emerald-700 mt-1">{{ net_after_expenses|money }}</p>
-                <p class="text-[11px] text-gray-400">Sof foydadan keyin</p>
+                <p class="text-[11px] text-gray-400">Tanlangan davr</p>
             </div>
         </div>
         {% if top_expenses %}
@@ -461,7 +457,7 @@
         <div class="flex flex-wrap items-start justify-between gap-3 p-4 bg-gray-50 border-b border-gray-200">
             <div>
                 <h2 class="text-base font-bold text-gray-900">Bronlangan mahsulotlar</h2>
-                <p class="text-xs text-gray-500 mt-0.5">Faol bronlar va tanlangan davrdagi bronlashlar</p>
+                <p class="text-xs text-gray-500 mt-0.5">{{ period_label }} — shu davrda yaratilgan bronlar</p>
             </div>
             <a href="{% url 'reservations_list' %}"
                class="px-3 py-1.5 bg-amber-600 text-white text-xs font-semibold rounded-md hover:bg-amber-700 transition">
@@ -469,18 +465,6 @@
             </a>
         </div>
         <div class="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 divide-y xl:divide-y-0 divide-x divide-gray-200 border-b border-gray-200">
-            <div class="p-4 text-center">
-                <p class="text-xs uppercase text-gray-500 font-semibold">Faol bronlar</p>
-                <p class="text-lg font-bold text-amber-700 mt-1">{{ reservation_active_count }}</p>
-            </div>
-            <div class="p-4 text-center">
-                <p class="text-xs uppercase text-gray-500 font-semibold">Faol dona</p>
-                <p class="text-lg font-bold text-gray-900 mt-1">{{ reservation_active_units }}</p>
-            </div>
-            <div class="p-4 text-center">
-                <p class="text-xs uppercase text-gray-500 font-semibold">Faol summa</p>
-                <p class="text-lg font-bold text-amber-700 mt-1">{{ reservation_active_total|money }}</p>
-            </div>
             <div class="p-4 text-center">
                 <p class="text-xs uppercase text-gray-500 font-semibold">Davr bronlari</p>
                 <p class="text-lg font-bold text-gray-900 mt-1">{{ reservation_period_count }}</p>
@@ -492,6 +476,18 @@
             <div class="p-4 text-center">
                 <p class="text-xs uppercase text-gray-500 font-semibold">Davr summa</p>
                 <p class="text-lg font-bold text-amber-700 mt-1">{{ reservation_period_total|money }}</p>
+            </div>
+            <div class="p-4 text-center">
+                <p class="text-xs uppercase text-gray-500 font-semibold">Hali faol (davrdan)</p>
+                <p class="text-lg font-bold text-amber-700 mt-1">{{ reservation_active_count }}</p>
+            </div>
+            <div class="p-4 text-center">
+                <p class="text-xs uppercase text-gray-500 font-semibold">Faol dona</p>
+                <p class="text-lg font-bold text-gray-900 mt-1">{{ reservation_active_units }}</p>
+            </div>
+            <div class="p-4 text-center">
+                <p class="text-xs uppercase text-gray-500 font-semibold">Faol summa</p>
+                <p class="text-lg font-bold text-amber-700 mt-1">{{ reservation_active_total|money }}</p>
             </div>
         </div>
         {% if top_reservations %}
@@ -529,7 +525,7 @@
         <div class="flex flex-wrap items-start justify-between gap-3 p-4 bg-gray-50 border-b border-gray-200">
             <div>
                 <h2 class="text-base font-bold text-gray-900">Qarzlar</h2>
-                <p class="text-xs text-gray-500 mt-0.5">Ochiq qarzdorlik, undirilgan summalar</p>
+                <p class="text-xs text-gray-500 mt-0.5">{{ period_label }} — shu davrda yozilgan / undirilgan qarzlar</p>
             </div>
             <a href="{% url 'debtors_list' %}"
                class="px-3 py-1.5 bg-amber-600 text-white text-xs font-semibold rounded-md hover:bg-amber-700 transition">
@@ -538,7 +534,7 @@
         </div>
         <div class="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 divide-y xl:divide-y-0 divide-x divide-gray-200 border-b border-gray-200">
             <div class="p-4 text-center">
-                <p class="text-xs uppercase text-gray-500 font-semibold">Ochiq qarz</p>
+                <p class="text-xs uppercase text-gray-500 font-semibold">Ochiq qarz (davr)</p>
                 <p class="text-lg font-bold text-amber-700 mt-1">{{ outstanding_balance|money }}</p>
             </div>
             <div class="p-4 text-center">
@@ -546,19 +542,19 @@
                 <p class="text-lg font-bold text-gray-900 mt-1">{{ debt_open_original|money }}</p>
             </div>
             <div class="p-4 text-center">
-                <p class="text-xs uppercase text-gray-500 font-semibold">Undirilgan (jami)</p>
-                <p class="text-lg font-bold text-emerald-700 mt-1">{{ debt_collected|money }}</p>
+                <p class="text-xs uppercase text-gray-500 font-semibold">Undirilgan (davr)</p>
+                <p class="text-lg font-bold text-emerald-700 mt-1">{{ debt_collected_period|money }}</p>
             </div>
             <div class="p-4 text-center">
-                <p class="text-xs uppercase text-gray-500 font-semibold">Shu oy undirilgan</p>
-                <p class="text-lg font-bold text-emerald-700 mt-1">{{ debt_collected_month|money }}</p>
+                <p class="text-xs uppercase text-gray-500 font-semibold">Davr qarzlari</p>
+                <p class="text-lg font-bold text-gray-900 mt-1">{{ debt_all_count }}</p>
             </div>
             <div class="p-4 text-center">
                 <p class="text-xs uppercase text-gray-500 font-semibold">Ochiq qarzdorlar</p>
                 <p class="text-lg font-bold text-gray-900 mt-1">{{ debt_open_count }}</p>
             </div>
             <div class="p-4 text-center">
-                <p class="text-xs uppercase text-gray-500 font-semibold">Yopilgan qarzlar</p>
+                <p class="text-xs uppercase text-gray-500 font-semibold">Yopilgan (davr)</p>
                 <p class="text-lg font-bold text-gray-900 mt-1">{{ debt_paid_count }}</p>
             </div>
         </div>
@@ -595,33 +591,8 @@
             </table>
         </div>
         {% else %}
-        <p class="p-6 text-center text-sm text-gray-500">Ochiq qarz yo‘q</p>
+        <p class="p-6 text-center text-sm text-gray-500">Tanlangan davrda ochiq qarz yo‘q</p>
         {% endif %}
-    </div>
-
-    {# ── Davrlar ── #}
-    <div class="bg-white border border-gray-200 rounded-lg shadow-sm overflow-hidden">
-        <div class="p-4 bg-gray-50 border-b border-gray-200">
-            <h2 class="text-base font-bold text-gray-900">Davrlar bo‘yicha</h2>
-            <p class="text-xs text-gray-500 mt-0.5">Haftalik, oylik, yillik sotuv va tannarx</p>
-        </div>
-        <div class="grid grid-cols-1 sm:grid-cols-3 divide-y sm:divide-y-0 sm:divide-x divide-gray-200">
-            <div class="p-4 text-center">
-                <p class="text-xs uppercase text-gray-500 font-semibold">Haftalik</p>
-                <p class="text-base font-bold text-gray-900 mt-1">{{ weekly_total|money }}</p>
-                <p class="text-[11px] text-gray-400 mt-1">{{ weekly_units|qty }} dona · tannarx {{ weekly_cost|money }}</p>
-            </div>
-            <div class="p-4 text-center">
-                <p class="text-xs uppercase text-gray-500 font-semibold">Oylik</p>
-                <p class="text-base font-bold text-gray-900 mt-1">{{ monthly_total|money }}</p>
-                <p class="text-[11px] text-gray-400 mt-1">{{ monthly_units|qty }} dona · tannarx {{ monthly_cost|money }}</p>
-            </div>
-            <div class="p-4 text-center">
-                <p class="text-xs uppercase text-gray-500 font-semibold">Yillik</p>
-                <p class="text-base font-bold text-gray-900 mt-1">{{ yearly_total|money }}</p>
-                <p class="text-[11px] text-gray-400 mt-1">{{ yearly_units|qty }} dona · tannarx {{ yearly_cost|money }}</p>
-            </div>
-        </div>
     </div>
 
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
