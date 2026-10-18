@@ -64,15 +64,8 @@
         <li>
           <a href="{% url 'sales_display' %}"
              class="nav-link block py-2.5 px-3 rounded-lg md:px-0 md:py-1 md:rounded-none border-b-2 transition whitespace-nowrap
-             {% if url_name == 'sales_display' or url_name == 'sales_edit' or url_name == 'emp_receipt' or url_name == 'order_return' or url_name == 'return_receipt' or url_name == 'returns_list' %}is-active{% endif %}">
+             {% if url_name == 'sales_display' or url_name == 'sales_edit' or url_name == 'emp_receipt' or url_name == 'order_return' or url_name == 'return_receipt' %}is-active{% endif %}">
             Sotuvlar
-          </a>
-        </li>
-        <li>
-          <a href="{% url 'returns_list' %}"
-             class="nav-link block py-2.5 px-3 rounded-lg md:px-0 md:py-1 md:rounded-none border-b-2 transition whitespace-nowrap
-             {% if url_name == 'returns_list' or url_name == 'order_return' or url_name == 'return_receipt' %}is-active{% endif %}">
-            Qaytarishlar
           </a>
         </li>
         <li>
@@ -120,6 +113,13 @@
           </a>
         </li>
         <li class="md:hidden">
+          <a href="{% url 'returns_list' %}"
+             class="nav-link block py-2.5 px-3 rounded-lg border-b-2 transition
+             {% if url_name == 'returns_list' %}is-active{% endif %}">
+            Qaytarishlar
+          </a>
+        </li>
+        <li class="md:hidden">
           <a href="{% url 'debtors_list' %}"
              class="nav-link block py-2.5 px-3 rounded-lg border-b-2 transition
              {% if url_name == 'debtors_list' or url_name == 'debt_pay' or url_name == 'debt_edit' %}is-active{% endif %}">
@@ -159,7 +159,7 @@
         <li class="hidden md:block relative" id="nav-more-wrap">
           <button type="button" id="nav-more-btn"
                   class="nav-link nav-more-trigger inline-flex items-center gap-1 py-1 px-0 border-b-2 transition whitespace-nowrap
-                  {% if url_name == 'inventory_intake' or url_name == 'employee_list' or url_name == 'employee_form' or url_name == 'manage_employee' or url_name == 'warranty_list' or url_name == 'warranty' or url_name == 'debtors_list' or url_name == 'debt_pay' or url_name == 'debt_edit' or url_name == 'reservations_list' or url_name == 'reservation_cancel' or url_name == 'expenses_list' or url_name == 'expense_delete' or url_name == 'audit_logs' or url_name == 'app_settings' %}is-active{% endif %}"
+                  {% if url_name == 'inventory_intake' or url_name == 'employee_list' or url_name == 'employee_form' or url_name == 'manage_employee' or url_name == 'warranty_list' or url_name == 'warranty' or url_name == 'returns_list' or url_name == 'debtors_list' or url_name == 'debt_pay' or url_name == 'debt_edit' or url_name == 'reservations_list' or url_name == 'reservation_cancel' or url_name == 'expenses_list' or url_name == 'expense_delete' or url_name == 'audit_logs' or url_name == 'app_settings' %}is-active{% endif %}"
                   aria-expanded="false" aria-haspopup="true" aria-controls="nav-more-menu">
             Yana
             <svg class="w-3.5 h-3.5 opacity-70" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5" aria-hidden="true">
@@ -173,6 +173,8 @@
                class="nav-more-link {% if url_name == 'employee_list' or url_name == 'employee_form' or url_name == 'manage_employee' %}is-active{% endif %}">Xodimlar</a>
             <a href="{% url 'warranty_list' %}" role="menuitem"
                class="nav-more-link {% if url_name == 'warranty_list' or url_name == 'warranty' %}is-active{% endif %}">Kafolat</a>
+            <a href="{% url 'returns_list' %}" role="menuitem"
+               class="nav-more-link {% if url_name == 'returns_list' %}is-active{% endif %}">Qaytarishlar</a>
             <a href="{% url 'debtors_list' %}" role="menuitem"
                class="nav-more-link {% if url_name == 'debtors_list' or url_name == 'debt_pay' or url_name == 'debt_edit' %}is-active{% endif %}">Qarzdorlar</a>
             <a href="{% url 'reservations_list' %}" role="menuitem"
