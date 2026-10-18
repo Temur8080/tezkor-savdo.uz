@@ -351,7 +351,15 @@ class BranchAdmin(BranchScopedAdminMixin, admin.ModelAdmin):
     search_fields = ('name', 'organization__name')
     list_filter = ('organization', 'organization__district__viloyat', 'is_active')
     list_select_related = ('organization__district__viloyat',)
+    ordering = ('-is_active', 'name')
     branch_lookup = 'id'
+
+    def get_queryset(self, request):
+        qs = super().get_queryset(request)
+        # Default: faqat faol filiallar. Arxiv uchun filtr: Holat → Faol emas
+        if 'is_active__exact' not in request.GET and 'is_active' not in request.GET:
+            qs = qs.filter(is_active=True)
+        return qs
 
     def get_list_filter(self, request):
         filters = list(super().get_list_filter(request))
@@ -364,6 +372,26 @@ class BranchAdmin(BranchScopedAdminMixin, admin.ModelAdmin):
         if orgs is False:
             return False
         return super().has_add_permission(request)
+
+    def get_deleted_objects(self, objs, request):
+        objs = list(objs)
+        deleted = [f'«{o}» arxivlanadi (bazadan o‘chirilmaydi, Faol emas)' for o in objs]
+        model_count = {Branch._meta.verbose_name: len(objs)}
+        return deleted, model_count, set(), []
+
+    def delete_model(self, request, obj):
+        name = str(obj)
+        obj.delete()
+        self.message_user(
+            request,
+            f'«{name}» arxivlandi (o‘chirilmadi). Ro‘yxatda «Faol emas» filtri orqali ko‘rinadi.',
+        )
+
+    def delete_queryset(self, request, queryset):
+        count = queryset.count()
+        for obj in queryset:
+            obj.delete()
+        self.message_user(request, f'{count} ta filial arxivlandi.')
 
     def get_actions(self, request):
         actions = super().get_actions(request)
@@ -383,7 +411,10 @@ class BranchAdmin(BranchScopedAdminMixin, admin.ModelAdmin):
 
     @admin.action(description='Tanlangan filiallarni arxivlash')
     def archive_branch(self, request, queryset):
-        count = queryset.update(is_active=False)
+        count = 0
+        for branch in queryset:
+            branch.delete()
+            count += 1
         self.message_user(request, f"{count} ta filial arxivlandi.")
 
 @admin.register(Employee)

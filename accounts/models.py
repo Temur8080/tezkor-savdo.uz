@@ -100,8 +100,9 @@ class Branch(models.Model):
         verbose_name_plural = 'Filiallar'
 
     def delete(self, *args, **kwargs):
+        """Hard delete emas — filial arxivlanadi (is_active=False)."""
         self.is_active = False
-        self.save()
+        self.save(update_fields=['is_active'])
 
     @property
     def organization_name(self):
