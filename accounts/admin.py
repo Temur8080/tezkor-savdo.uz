@@ -356,8 +356,10 @@ class BranchAdmin(BranchScopedAdminMixin, admin.ModelAdmin):
 
     def get_queryset(self, request):
         qs = super().get_queryset(request)
-        # Default: faqat faol filiallar. Arxiv uchun filtr: Holat → Faol emas
-        if 'is_active__exact' not in request.GET and 'is_active' not in request.GET:
+        # Faqat ro‘yxatda default faol. Change/delete URL arxivlangan filialni ham ochadi.
+        match = getattr(request, 'resolver_match', None)
+        on_changelist = bool(match and str(getattr(match, 'url_name', '')).endswith('_changelist'))
+        if on_changelist and 'is_active__exact' not in request.GET and 'is_active' not in request.GET:
             qs = qs.filter(is_active=True)
         return qs
 
