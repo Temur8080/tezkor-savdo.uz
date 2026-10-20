@@ -24,16 +24,11 @@ class UserCreateWithOrgForm(UserCreationForm):
         max_length=100,
         help_text='Portalda ko‘rinadigan ism',
     )
-    branch = forms.ModelChoiceField(
-        label='Filial',
-        queryset=Branch.objects.none(),
-        help_text='Xodim shu filialga biriktiriladi',
-    )
     role = forms.ChoiceField(
         label='Lavozim',
         choices=Employee.ROLE_CHOICES,
         initial='Manager',
-        help_text='Menejer = /dashboard/ va barcha funksiyalar. /admin/ ochilmaydi.',
+        help_text='Boshlang‘ich User permissions to‘plami. Filial — «Hudud ruxsatlari».',
     )
 
     class Meta:
@@ -41,18 +36,8 @@ class UserCreateWithOrgForm(UserCreationForm):
         fields = ('username',)
 
     def __init__(self, *args, **kwargs):
-        request = kwargs.pop('request', None)
+        kwargs.pop('request', None)
         super().__init__(*args, **kwargs)
-        qs = Branch.objects.filter(is_active=True).select_related('organization').order_by('name')
-        if request is not None:
-            orgs = get_admin_organizations(request)
-            if orgs is not None and orgs is not False:
-                qs = qs.filter(organization__in=orgs)
-            elif orgs is False:
-                qs = qs.none()
-        self.fields['branch'].queryset = qs
-        if qs.count() == 1:
-            self.fields['branch'].initial = qs.first()
 
     def save(self, commit=True):
         user = super().save(commit=False)
@@ -63,12 +48,16 @@ class UserCreateWithOrgForm(UserCreationForm):
             user.save()
             StaffAccess.objects.get_or_create(user=user)
             role = self.cleaned_data.get('role') or 'Manager'
+            # Vaqtinchalik uy filial — keyin Hudud ruxsatlaridan sync qilinadi
+            home = Branch.objects.filter(is_active=True).order_by('id').first()
+            if home is None:
+                raise forms.ValidationError('Faol filial yo‘q — avval filial yarating.')
             Employee.objects.update_or_create(
                 user=user,
                 defaults={
                     'name': self.cleaned_data.get('full_name') or user.username,
                     'role': role,
-                    'branch': self.cleaned_data['branch'],
+                    'branch': home,
                     'is_active': True,
                     'email': user.email or '',
                 },
@@ -101,12 +90,11 @@ class EmployeeRoleInline(admin.StackedInline):
     max_num = 1
     min_num = 0
     extra = 0
-    fields = ('name', 'role', 'branch', 'is_active')
-    autocomplete_fields = ('branch',)
+    fields = ('name', 'role', 'is_active')
     verbose_name = 'Portal xodim profili'
     verbose_name_plural = (
-        'Portal xodim profili — lavozim (yangi userga boshlang‘ich huquq). '
-        'Haqiqiy ochilish: yuqoridagi «User permissions» (o‘ng = berilgan).'
+        'Portal xodim profili — ism va lavozim. '
+        'Filiallar «Hudud ruxsatlari» orqali beriladi.'
     )
 
 
@@ -119,8 +107,8 @@ class StaffAccessInline(admin.StackedInline):
     filter_horizontal = ('viloyats', 'districts', 'organizations', 'branches')
     verbose_name = 'Hudud ruxsatlari'
     verbose_name_plural = (
-        'Hudud ruxsatlari — qaysi filial ma’lumotini ko‘radi '
-        '(chap = berilmagan, o‘ng = berilgan).'
+        'Hudud ruxsatlari — qaysi ma’lumotni ko‘radi '
+        '(chap = berilmagan, o‘ng = berilgan). Viloyat/tuman/tashkilot/filial birga ishlaydi.'
     )
     fields = ('viloyats', 'districts', 'organizations', 'branches')
 
@@ -134,8 +122,7 @@ class StaffAccessInline(admin.StackedInline):
                 super().__init__(*args, **kw)
                 help_txt = (
                     'Chap — berilmagan. O‘ng — berilgan. '
-                    '«Filiallar» to‘ldirilsa tizim faqat shu filialarni ishlatadi; '
-                    'viloyat/tuman/tashkilot saqlanadi, lekin e’tiborga olinmaydi.'
+                    'Viloyat, tuman, tashkilot va filiallar birgalikda hisoblanadi.'
                 )
                 for form in self.forms:
                     v = form.fields.get('viloyats')
@@ -194,10 +181,10 @@ class TezkorUserAdmin(DjangoUserAdmin):
     add_fieldsets = (
         (None, {
             'classes': ('wide',),
-            'fields': ('username', 'password1', 'password2', 'full_name', 'branch', 'role'),
+            'fields': ('username', 'password1', 'password2', 'full_name', 'role'),
             'description': (
-                'Portal foydalanuvchisi. Lavozim boshlang‘ich «User permissions» beradi; '
-                'keyin admin’da o‘ng/chap bilan qo‘shish/olib tashlash (smartbozor usuli).'
+                'Portal foydalanuvchisi. Lavozim boshlang‘ich huquq beradi. '
+                'Filial/hududni keyin «Hudud ruxsatlari»da belgilang.'
             ),
         }),
     )
@@ -264,6 +251,12 @@ class TezkorUserAdmin(DjangoUserAdmin):
 
     @admin.display(description='Filial', ordering='employee__branch__name')
     def get_branch(self, obj):
+        access = getattr(obj, 'staff_access', None)
+        if access:
+            names = list(access.branches.filter(is_active=True).values_list('name', flat=True)[:3])
+            if names:
+                extra = access.branches.filter(is_active=True).count() - len(names)
+                return ', '.join(names) + ('…' if extra > 0 else '')
         emp = getattr(obj, 'employee', None)
         return emp.branch.name if emp and emp.branch_id else '—'
 
@@ -317,7 +310,7 @@ class TezkorUserAdmin(DjangoUserAdmin):
     def save_related(self, request, form, formsets, change):
         super().save_related(request, form, formsets, change)
         user = form.instance
-        StaffAccess.objects.get_or_create(user=user)
+        access, _ = StaffAccess.objects.get_or_create(user=user)
 
         if not Employee.objects.filter(user=user).exists():
             branch = Branch.objects.filter(is_active=True).order_by('id').first()
@@ -330,6 +323,46 @@ class TezkorUserAdmin(DjangoUserAdmin):
                     is_active=True,
                     email=user.email or '',
                 )
+
+        # Kassa/portal uchun employee.branch — Hududdan birinchi ruxsat etilgan filial
+        self._sync_employee_home_branch(user, access)
+
+    @staticmethod
+    def _sync_employee_home_branch(user, access):
+        emp = Employee.objects.filter(user=user).select_related('branch').first()
+        if emp is None:
+            return
+        home = access.branches.filter(is_active=True).order_by('id').first()
+        if home is None and access.organizations.exists():
+            home = (
+                Branch.objects.filter(
+                    organization__in=access.organizations.all(),
+                    is_active=True,
+                )
+                .order_by('id')
+                .first()
+            )
+        if home is None and access.districts.exists():
+            home = (
+                Branch.objects.filter(
+                    organization__district__in=access.districts.all(),
+                    is_active=True,
+                )
+                .order_by('id')
+                .first()
+            )
+        if home is None and access.viloyats.exists():
+            home = (
+                Branch.objects.filter(
+                    organization__district__viloyat__in=access.viloyats.all(),
+                    is_active=True,
+                )
+                .order_by('id')
+                .first()
+            )
+        if home is not None and emp.branch_id != home.id:
+            emp.branch = home
+            emp.save(update_fields=['branch'])
 
     def has_view_permission(self, request, obj=None):
         if not super().has_view_permission(request, obj):

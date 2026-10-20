@@ -28,10 +28,8 @@ def get_admin_branch_ids(request):
     False = hech narsa.
     list[int] = ruxsat etilgan filiallar.
 
-    Menejer hech qachon butun bazani ko‘rmaydi:
-      1) StaffAccess.filiallar (agar bor)
-      2) StaffAccess tashkilot/tuman/viloyat → shu orglardagi filiallar
-      3) Aks holda faqat xodimning o‘z filiali
+    StaffAccess: viloyat ∪ tuman ∪ tashkilot ∪ filiallar (hammasi hisobga olinadi).
+    Bo‘sh bo‘lsa — xodimning employee.branch (kassa «uy» filiali).
     """
     from .models import Organization, Branch
 
@@ -42,17 +40,15 @@ def get_admin_branch_ids(request):
         return None
 
     access = getattr(user, 'staff_access', None)
+    branch_ids = set()
 
-    # 1) Aniq filiallar
-    if access is not None and access.branches.exists():
-        ids = list(
-            access.branches.filter(is_active=True).values_list('id', flat=True)
-        )
-        return ids if ids else False
-
-    # 2) Tashkilot / tuman / viloyat
-    org_ids = set()
     if access is not None:
+        if access.branches.exists():
+            branch_ids.update(
+                access.branches.filter(is_active=True).values_list('id', flat=True)
+            )
+
+        org_ids = set()
         if access.organizations.exists():
             org_ids.update(
                 access.organizations.filter(is_active=True).values_list('id', flat=True)
@@ -69,14 +65,15 @@ def get_admin_branch_ids(request):
                     is_active=True, district__viloyat__in=access.viloyats.all()
                 ).values_list('id', flat=True)
             )
-    if org_ids:
-        ids = list(
-            Branch.objects.filter(organization_id__in=org_ids, is_active=True)
-            .values_list('id', flat=True)
-        )
-        return ids if ids else False
+        if org_ids:
+            branch_ids.update(
+                Branch.objects.filter(organization_id__in=org_ids, is_active=True)
+                .values_list('id', flat=True)
+            )
 
-    # 3) Default — faqat o‘z filiali (butun tashkilot emas)
+    if branch_ids:
+        return list(branch_ids)
+
     employee = getattr(user, 'employee', None)
     if employee and employee.branch_id:
         if getattr(employee.branch, 'is_active', True):
