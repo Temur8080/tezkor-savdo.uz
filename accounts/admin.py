@@ -82,22 +82,6 @@ class TezkorUserChangeForm(UserChangeForm):
             )
 
 
-class EmployeeRoleInline(admin.StackedInline):
-    """Portal lavozimi — yangi userda default huquqlar uchun moslama."""
-    model = Employee
-    fk_name = 'user'
-    can_delete = False
-    max_num = 1
-    min_num = 0
-    extra = 0
-    fields = ('name', 'role', 'is_active')
-    verbose_name = 'Portal xodim profili'
-    verbose_name_plural = (
-        'Portal xodim profili — ism va lavozim. '
-        'Filiallar «Hudud ruxsatlari» orqali beriladi.'
-    )
-
-
 class StaffAccessInline(admin.StackedInline):
     model = StaffAccess
     can_delete = False
@@ -166,7 +150,7 @@ class StaffAccessInline(admin.StackedInline):
 class TezkorUserAdmin(DjangoUserAdmin):
     form = TezkorUserChangeForm
     add_form = UserCreateWithOrgForm
-    inlines = [EmployeeRoleInline, StaffAccessInline]
+    inlines = [StaffAccessInline]
     list_display = (
         'username', 'get_employee_name', 'get_role', 'get_organizations', 'get_branch',
         'is_staff', 'is_active', 'is_superuser',
