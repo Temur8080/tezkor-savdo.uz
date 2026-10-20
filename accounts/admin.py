@@ -75,10 +75,10 @@ class TezkorUserChangeForm(UserChangeForm):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         if 'user_permissions' in self.fields:
-            self.fields['user_permissions'].queryset = get_portal_permission_qs().order_by('codename')
+            self.fields['user_permissions'].queryset = get_portal_permission_qs().order_by('name')
             self.fields['user_permissions'].help_text = (
-                'Chap — berilmagan (ko‘rinmaydi). O‘ng — berilgan (ko‘rinadi / ishlaydi). '
-                'Lavozim faqat yangi user uchun boshlang‘ich to‘plam beradi.'
+                'Chap — berilmagan (ko‘rinmaydi). O‘ng — berilgan (ko‘rinadi). '
+                'Menyu / Amal / Tugma — alohida boshqariladi.'
             )
 
 

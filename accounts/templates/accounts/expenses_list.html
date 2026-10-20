@@ -47,6 +47,7 @@
     </div>
 
     {# Yangi xarajat #}
+    {% if 'btn_expense_add' in portal_caps %}
     <div class="bg-white border border-gray-200 rounded-lg shadow-sm overflow-hidden">
         <div class="p-4 bg-gray-50 border-b border-gray-200">
             <h2 class="text-base font-bold text-gray-900">Yangi xarajat qo‘shish</h2>
@@ -109,6 +110,7 @@
             </div>
         </form>
     </div>
+    {% endif %}
 
     {# Filtr #}
     <div class="bg-white border border-gray-200 rounded-lg shadow-sm overflow-hidden">
@@ -166,6 +168,7 @@
                         <td class="px-4 py-3 whitespace-nowrap">{{ e.expense_date|date:"d.m.Y" }}</td>
                         <td class="px-4 py-3">{{ e.created_by.name|default:"—" }}</td>
                         <td class="px-4 py-3">
+                            {% if 'btn_expense_delete' in portal_caps %}
                             <form method="post" action="{% url 'expense_delete' e.id %}"
                                   onsubmit="return confirm('O‘chirilsinmi?');">
                                 {% csrf_token %}
@@ -173,6 +176,7 @@
                                     O‘chirish
                                 </button>
                             </form>
+                            {% else %}—{% endif %}
                         </td>
                     </tr>
                     {% empty %}

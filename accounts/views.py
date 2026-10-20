@@ -429,6 +429,7 @@ def _price_lines_from_cart(cart, adjust):
 
 
 @login_required(login_url='login')
+@portal_cap_required('btn_product_edit')
 def inventory_update(request, pk):
     if is_consultant(request.user):
         return redirect('pos_terminal')
@@ -478,6 +479,7 @@ class salesUpdateView(UpdateView):
         return context
 
 @login_required(login_url='login')
+@portal_cap_required('btn_sale_delete')
 def delete_order(request, pk):
     order = get_object_or_404(Order, pk=pk)
 
@@ -1129,7 +1131,7 @@ def admin_reports(request):
     return render(request, 'accounts/admin_reports.html', context)
 
 @login_required(login_url='login')
-@portal_cap_required('reports')
+@portal_cap_required('btn_export')
 def admin_reports_export_csv(request):
 
     ctx = _reports_build_context(request)
@@ -1445,6 +1447,7 @@ def salesDisplay(request):
     })
 
 @login_required(login_url='login')
+@portal_cap_required('btn_export')
 def export_sales_csv(request):
     is_manager = request.user.is_superuser or hasattr(request.user, 'employee') and request.user.employee.role == 'Manager'
 
@@ -1502,10 +1505,8 @@ def export_sales_csv(request):
     return response
 
 @login_required(login_url='login')
+@portal_cap_required('btn_product_delete')
 def delete_product(request, pk):
-    if not _is_inventory_manager(request.user):
-        raise PermissionDenied('Mahsulotni o‘chirish uchun Manager huquqi kerak')
-
     product = get_object_or_404(Product, pk=pk, is_active=True)
     product.soft_delete()
     messages.success(request, f"«{product.product_name}» o‘chirildi (arxivlandi).")
@@ -1513,10 +1514,8 @@ def delete_product(request, pk):
 
 
 @login_required(login_url='login')
+@portal_cap_required('btn_product_edit')
 def restore_product(request, pk):
-    if not _is_inventory_manager(request.user):
-        raise PermissionDenied('Mahsulotni tiklash uchun Manager huquqi kerak')
-
     product = get_object_or_404(Product, pk=pk, is_active=False)
     product.is_active = True
     product.deleted_at = None
@@ -1583,6 +1582,7 @@ def branchInventory(request):
     })
 
 @login_required(login_url='login')
+@portal_cap_required('btn_export')
 def export_branch_inventory_csv(request):
     if is_consultant(request.user):
         return redirect('pos_terminal')
@@ -1654,7 +1654,7 @@ def employeeProfile(request):
     return render(request, 'accounts/employee_profile.html', context)
 
 @login_required(login_url='login')
-@portal_cap_required('employees')
+@portal_cap_required('btn_export')
 def employee_list_export_csv(request):
     employees = scope_queryset_by_branch(
         Employee.objects.filter(is_active=True), request
@@ -1700,7 +1700,7 @@ class EmployeeList(PortalCapRequiredMixin, ListView):
         ).select_related('user', 'branch').order_by('-hire_date')
 
 @login_required(login_url='login')
-@portal_cap_required('employees')
+@portal_cap_required('btn_employee_block')
 def employee_toggle_block(request, pk):
     if request.method != 'POST':
         return redirect('employee_list')
@@ -1726,7 +1726,7 @@ def employee_toggle_block(request, pk):
     return redirect('employee_list')
 
 @login_required(login_url='login')
-@portal_cap_required('employees')
+@portal_cap_required('btn_employee_delete')
 def employee_delete(request, pk):
     if request.method != 'POST':
         return redirect('employee_list')
@@ -1752,7 +1752,7 @@ def _sync_sales_agent_for_role(employee):
 
 
 class EmployeeCreate(PortalCapRequiredMixin, SuccessMessageMixin, CreateView):
-    portal_cap = 'employees'
+    portal_cap = 'btn_employee_add'
     model = Employee
     form_class = EmployeeAdminForm
     success_url = reverse_lazy('employee_list')
@@ -1793,7 +1793,7 @@ class EmployeeCreate(PortalCapRequiredMixin, SuccessMessageMixin, CreateView):
         return redirect(self.success_url)
 
 @login_required(login_url='login')
-@portal_cap_required('employees')
+@portal_cap_required('btn_employee_edit')
 def manageEmployee(request, pk):
 
     employee = get_object_or_404(Employee, pk=pk)
@@ -3145,6 +3145,7 @@ def reservations_list(request):
 
 
 @login_required(login_url='login')
+@portal_cap_required('btn_reservation_cancel')
 @transaction.atomic
 def reservation_cancel(request, pk):
     wants_json = (
@@ -3182,7 +3183,7 @@ def reservation_cancel(request, pk):
     return redirect('reservations_list')
 
 
-@manager_required
+@portal_cap_required('btn_order_approve')
 @transaction.atomic
 def order_approve(request, pk):
     if request.method != 'POST':
@@ -3221,7 +3222,7 @@ def order_approve(request, pk):
     messages.success(request, f'Buyurtma #{order.id} tasdiqlandi.')
     return redirect('emp_receipt', pk=order.id)
 
-@manager_required
+@portal_cap_required('btn_order_approve')
 @transaction.atomic
 def order_reject(request, pk):
     if request.method != 'POST':
@@ -3737,7 +3738,7 @@ def warranty_list(request):
     return render(request, 'accounts/warranty_list.html', context)
 
 @login_required(login_url='login')
-@portal_cap_required('warranty')
+@portal_cap_required('btn_export')
 def warranty_list_export_csv(request):
     status_filter = request.GET.get('status')
     search_query = request.GET.get('q')
@@ -3854,7 +3855,7 @@ def audit_logs(request):
     return render(request, 'accounts/audit_logs.html', context)
 
 @login_required(login_url='login')
-@portal_cap_required('audit')
+@portal_cap_required('btn_export')
 def audit_logs_export_csv(request):
     start_date_str = request.GET.get('start_date')
     end_date_str = request.GET.get('end_date')
@@ -3965,7 +3966,7 @@ def debtors_list(request):
     })
 
 @login_required(login_url='login')
-@portal_cap_required('debtors')
+@portal_cap_required('btn_debt_pay')
 @transaction.atomic
 def debt_pay(request, pk):
     if is_consultant(request.user):
@@ -4012,7 +4013,7 @@ def debt_pay(request, pk):
 
 
 @login_required(login_url='login')
-@portal_cap_required('debtors')
+@portal_cap_required('btn_debt_edit')
 def debt_edit(request, pk):
     if is_consultant(request.user):
         return redirect('pos_terminal')
@@ -4067,7 +4068,7 @@ def debt_edit(request, pk):
 
 
 @login_required(login_url='login')
-@portal_cap_required('debtors')
+@portal_cap_required('btn_debt_delete')
 @transaction.atomic
 def debt_delete(request, pk):
     if is_consultant(request.user):
@@ -4090,7 +4091,7 @@ def debt_delete(request, pk):
 
 
 @login_required(login_url='login')
-@portal_cap_required('customers')
+@portal_cap_required('btn_customer_delete')
 def customer_delete(request, pk):
     if request.method != 'POST':
         return redirect('customers_loyalty')
@@ -4102,6 +4103,7 @@ def customer_delete(request, pk):
 
 
 @login_required(login_url='login')
+@portal_cap_required('btn_export')
 def debtors_export_csv(request):
     if is_consultant(request.user):
         return redirect('pos_terminal')
@@ -4252,7 +4254,7 @@ def expenses_list(request):
     })
 
 @login_required(login_url='login')
-@portal_cap_required('expenses')
+@portal_cap_required('btn_expense_delete')
 def expense_delete(request, pk):
     if request.method != 'POST':
         return redirect('expenses_list')
@@ -4588,7 +4590,7 @@ def customers_loyalty(request):
 
 
 @login_required(login_url='login')
-@portal_cap_required('customers')
+@portal_cap_required('btn_customer_edit')
 def customer_detail(request, pk):
     customer = get_object_or_404(
         Customer.objects.select_related('price_tier'),

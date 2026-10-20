@@ -149,10 +149,13 @@
                         </td>
                         <td class="px-4 py-3 text-right">
                             <div class="inline-flex flex-wrap items-center justify-end gap-1.5">
+                                {% if 'btn_customer_edit' in portal_caps %}
                                 <a href="{% url 'customer_detail' c.pk %}"
                                    class="px-2.5 py-1.5 text-xs font-semibold rounded-md border border-blue-600 text-blue-600 hover:bg-blue-600 hover:text-white transition">
                                     Tahrirlash
                                 </a>
+                                {% endif %}
+                                {% if 'btn_customer_delete' in portal_caps %}
                                 <form method="post" action="{% url 'customer_delete' c.pk %}" class="inline">
                                     {% csrf_token %}
                                     <button type="submit"
@@ -161,6 +164,7 @@
                                         O‘chirish
                                     </button>
                                 </form>
+                                {% endif %}
                             </div>
                         </td>
                     </tr>

@@ -116,9 +116,11 @@
             <a href="{% url 'inventory_intake' %}" class="px-4 py-2 bg-blue-700 text-white text-sm font-medium rounded-md hover:bg-blue-800 shadow-sm transition">
                 Skaner bilan kirim
             </a>
+            {% if 'btn_export' in portal_caps %}
             <a href="{% url 'export_branch_inventory_csv' %}?{{ request.GET.urlencode }}" class="px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-md hover:bg-green-700 shadow-sm transition">
                 Inventar hisobotini yuklab olish
             </a>
+            {% endif %}
         </div>
         {% endif %}
     </form>
@@ -191,7 +193,7 @@
                 <td class="px-4 py-3">
                     <div class="inline-flex items-center justify-center gap-1">
                         {% if show_archived %}
-                            {% if is_manager %}
+                            {% if 'btn_product_edit' in portal_caps %}
                             <a href="{% url 'restore_product' i.product.pk %}"
                                title="Tiklash"
                                onclick="return confirm('«{{ i.product.product_name|escapejs }}» qayta faollashtirilsinmi?');"
@@ -204,6 +206,7 @@
                             </a>
                             {% endif %}
                         {% else %}
+                            {% if 'btn_product_edit' in portal_caps %}
                             <a href="{% url 'inventory_update' i.id %}"
                                title="Qoldiqni tahrirlash"
                                class="inline-flex items-center justify-center w-9 h-9 rounded-md border border-blue-200 text-blue-600 bg-blue-50 hover:bg-blue-600 hover:text-white transition"
@@ -212,7 +215,8 @@
                                     <path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125" />
                                 </svg>
                             </a>
-                            {% if is_manager %}
+                            {% endif %}
+                            {% if 'btn_product_delete' in portal_caps %}
                             <a href="{% url 'delete_product' i.product.pk %}"
                                title="O‘chirish"
                                onclick="return confirm('«{{ i.product.product_name|escapejs }}» BARCHA filiallarda o‘chirilsinmi (arxivlansinmi)?');"

@@ -22,14 +22,18 @@
             <p class="text-sm text-gray-500 mt-0.5">Jamoa, lavozimlar, filial va smena holati.</p>
         </div>
         <div class="flex flex-wrap gap-2">
+            {% if 'btn_employee_add' in portal_caps %}
             <a href="{% url 'employee_form' %}"
                class="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 shadow-sm transition">
                 + Xodim qo‘shish
             </a>
+            {% endif %}
+            {% if 'btn_export' in portal_caps %}
             <a href="{% url 'employee_list_export_csv' %}?{{ request.GET.urlencode }}"
                class="px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-md hover:bg-green-700 shadow-sm transition">
                 CSV yuklab olish
             </a>
+            {% endif %}
         </div>
     </div>
 
@@ -111,11 +115,14 @@
                     </td>
                     <td class="px-4 py-3">
                         <div class="inline-flex flex-wrap items-center justify-center gap-1.5">
+                            {% if 'btn_employee_edit' in portal_caps %}
                             <a href="{% url 'manage_employee' employee.id %}"
                                class="px-2.5 py-1.5 text-xs font-semibold rounded-md border border-blue-600 text-blue-600 hover:bg-blue-600 hover:text-white transition">
                                 Tahrirlash
                             </a>
+                            {% endif %}
                             {% if employee.user_id != request.user.id %}
+                            {% if 'btn_employee_block' in portal_caps %}
                             <form method="post" action="{% url 'employee_toggle_block' employee.id %}" class="inline">
                                 {% csrf_token %}
                                 {% if employee.user.is_active %}
@@ -131,6 +138,8 @@
                                 </button>
                                 {% endif %}
                             </form>
+                            {% endif %}
+                            {% if 'btn_employee_delete' in portal_caps %}
                             <form method="post" action="{% url 'employee_delete' employee.id %}" class="inline">
                                 {% csrf_token %}
                                 <button type="submit"
@@ -139,6 +148,7 @@
                                     O‘chirish
                                 </button>
                             </form>
+                            {% endif %}
                             {% else %}
                             <span class="text-[11px] text-gray-400">Siz</span>
                             {% endif %}
