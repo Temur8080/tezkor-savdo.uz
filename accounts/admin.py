@@ -1,7 +1,7 @@
 from django import forms
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as DjangoUserAdmin
-from django.contrib.auth.forms import UserCreationForm
+from django.contrib.auth.forms import UserChangeForm, UserCreationForm
 from django.contrib.auth.models import User
 from django.db.models import Q
 
@@ -11,6 +11,7 @@ from .admin_branch import (
     get_admin_organizations,
     get_admin_branch_ids,
 )
+from .portal_perms import assign_role_permissions, get_portal_permission_qs
 
 admin.site.site_header = "Tezkor boshqaruvi"
 admin.site.site_title = "Tezkor POS"
@@ -61,20 +62,39 @@ class UserCreateWithOrgForm(UserCreationForm):
         if commit:
             user.save()
             StaffAccess.objects.get_or_create(user=user)
+            role = self.cleaned_data.get('role') or 'Manager'
             Employee.objects.update_or_create(
                 user=user,
                 defaults={
                     'name': self.cleaned_data.get('full_name') or user.username,
-                    'role': self.cleaned_data.get('role') or 'Manager',
+                    'role': role,
                     'branch': self.cleaned_data['branch'],
                     'is_active': True,
                     'email': user.email or '',
                 },
             )
+            assign_role_permissions(user, role, replace=True)
         return user
 
+
+class TezkorUserChangeForm(UserChangeForm):
+    """User permissions ro‘yxatida faqat portal huquqlari (smartbozor usuli)."""
+
+    class Meta(UserChangeForm.Meta):
+        model = User
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if 'user_permissions' in self.fields:
+            self.fields['user_permissions'].queryset = get_portal_permission_qs().order_by('codename')
+            self.fields['user_permissions'].help_text = (
+                'Chap — berilmagan (ko‘rinmaydi). O‘ng — berilgan (ko‘rinadi / ishlaydi). '
+                'Lavozim faqat yangi user uchun boshlang‘ich to‘plam beradi.'
+            )
+
+
 class EmployeeRoleInline(admin.StackedInline):
-    """Portal lavozimi — Manager bo‘lsa dashboard/ombor/hisobot ochiladi."""
+    """Portal lavozimi — yangi userda default huquqlar uchun moslama."""
     model = Employee
     fk_name = 'user'
     can_delete = False
@@ -85,8 +105,8 @@ class EmployeeRoleInline(admin.StackedInline):
     autocomplete_fields = ('branch',)
     verbose_name = 'Portal xodim profili'
     verbose_name_plural = (
-        'Portal xodim profili — lavozim portal menyusini ochadi '
-        '(Menejer = ombor/hisobot/qarz; Sotuvchi = kassa)'
+        'Portal xodim profili — lavozim (yangi userga boshlang‘ich huquq). '
+        'Haqiqiy ochilish: yuqoridagi «User permissions» (o‘ng = berilgan).'
     )
 
 
@@ -96,19 +116,13 @@ class StaffAccessInline(admin.StackedInline):
     max_num = 1
     min_num = 1
     extra = 0
-    filter_horizontal = (
-        'extra_capabilities', 'denied_capabilities',
-        'viloyats', 'districts', 'organizations', 'branches',
-    )
-    verbose_name = 'Hudud va portal huquqlari'
+    filter_horizontal = ('viloyats', 'districts', 'organizations', 'branches')
+    verbose_name = 'Hudud ruxsatlari'
     verbose_name_plural = (
-        'Portal huquqlari (rol + qo‘shimcha − olib tashlash) va hudud '
-        '(qaysi filial ma’lumoti).'
+        'Hudud ruxsatlari — qaysi filial ma’lumotini ko‘radi '
+        '(chap = berilmagan, o‘ng = berilgan).'
     )
-    fields = (
-        'extra_capabilities', 'denied_capabilities',
-        'viloyats', 'districts', 'organizations', 'branches',
-    )
+    fields = ('viloyats', 'districts', 'organizations', 'branches')
 
     def get_formset(self, request, obj=None, **kwargs):
         formset = super().get_formset(request, obj, **kwargs)
@@ -163,6 +177,7 @@ class StaffAccessInline(admin.StackedInline):
         return ScopedFormset
 
 class TezkorUserAdmin(DjangoUserAdmin):
+    form = TezkorUserChangeForm
     add_form = UserCreateWithOrgForm
     inlines = [EmployeeRoleInline, StaffAccessInline]
     list_display = (
@@ -181,9 +196,8 @@ class TezkorUserAdmin(DjangoUserAdmin):
             'classes': ('wide',),
             'fields': ('username', 'password1', 'password2', 'full_name', 'branch', 'role'),
             'description': (
-                'Bu foydalanuvchi https://tezkor-savdo.uz portaliga kiradi. '
-                'Portal menyusi lavozim (Menejer/Sotuvchi) bilan ochiladi. '
-                'Django «User permissions» faqat /admin/ uchun (Staff status kerak).'
+                'Portal foydalanuvchisi. Lavozim boshlang‘ich «User permissions» beradi; '
+                'keyin admin’da o‘ng/chap bilan qo‘shish/olib tashlash (smartbozor usuli).'
             ),
         }),
     )
@@ -204,10 +218,9 @@ class TezkorUserAdmin(DjangoUserAdmin):
                     flat.append(f)
             if 'user_permissions' in flat or 'is_staff' in flat:
                 opts['description'] = (
-                    'Django «User permissions» portalni boshqarmaydi. '
-                    'Portal: «Portal xodim profili» → Lavozim (asosiy huquqlar) + '
-                    'pastda «Rolga qo‘shimcha» / «Roldan olib tashlangan». '
-                    'Hudud: Filiallar / tashkilotlar.'
+                    'Portal huquqlari (smartbozor2 kabi): o‘ng ustun = berilgan '
+                    '(menyuda ko‘rinadi), chap = olib tashlangan (ko‘rinmaydi). '
+                    'Hudud — pastdagi «Hudud ruxsatlari».'
                 )
             out.append((name, opts))
         return out

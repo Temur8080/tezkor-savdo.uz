@@ -19,7 +19,7 @@ from .decorators import (
     ROLE_CONSULTANT,
     ROLE_SALES,
 )
-from .portal_perms import has_portal_cap
+from .portal_perms import assign_role_permissions, has_portal_cap
 from .admin_branch import (
     get_admin_branch_ids,
     scope_queryset_by_branch,
@@ -1788,6 +1788,7 @@ class EmployeeCreate(PortalCapRequiredMixin, SuccessMessageMixin, CreateView):
         employee.email = email or None
         employee.save()
         _sync_sales_agent_for_role(employee)
+        assign_role_permissions(user, employee.role, replace=True)
 
         return redirect(self.success_url)
 
@@ -1804,6 +1805,7 @@ def manageEmployee(request, pk):
         )
 
         if form.is_valid():
+            old_role = employee.role
             employee = form.save(commit=False)
             user = employee.user
 
@@ -1827,6 +1829,8 @@ def manageEmployee(request, pk):
             user.save()
             employee.save()
             _sync_sales_agent_for_role(employee)
+            if employee.role != old_role:
+                assign_role_permissions(user, employee.role, replace=True)
 
             return redirect('employee_list')
 
