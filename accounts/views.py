@@ -14,9 +14,12 @@ from .decorators import (
     can_process_return,
     manager_required,
     ManagerRequiredMixin,
+    PortalCapRequiredMixin,
+    portal_cap_required,
     ROLE_CONSULTANT,
     ROLE_SALES,
 )
+from .portal_perms import has_portal_cap
 from .admin_branch import (
     get_admin_branch_ids,
     scope_queryset_by_branch,
@@ -1117,6 +1120,7 @@ def _reports_build_context(request):
     }
 
 @login_required(login_url='login')
+@portal_cap_required('reports')
 def admin_reports(request):
 
     context = _reports_build_context(request)
@@ -1125,6 +1129,7 @@ def admin_reports(request):
     return render(request, 'accounts/admin_reports.html', context)
 
 @login_required(login_url='login')
+@portal_cap_required('reports')
 def admin_reports_export_csv(request):
 
     ctx = _reports_build_context(request)
@@ -1363,6 +1368,7 @@ def logoutPage(request):
     return redirect('login')
 
 @login_required(login_url='login')
+@portal_cap_required('sales')
 def salesDisplay(request):
     is_manager = is_app_manager(request.user)
     emp = get_active_employee(request.user)
@@ -1520,6 +1526,7 @@ def restore_product(request, pk):
 
 
 @login_required(login_url='login')
+@portal_cap_required('inventory')
 def branchInventory(request):
     if is_consultant(request.user):
         return redirect('pos_terminal')
@@ -1647,7 +1654,7 @@ def employeeProfile(request):
     return render(request, 'accounts/employee_profile.html', context)
 
 @login_required(login_url='login')
-@user_passes_test(is_app_manager, login_url='home')
+@portal_cap_required('employees')
 def employee_list_export_csv(request):
     employees = scope_queryset_by_branch(
         Employee.objects.filter(is_active=True), request
@@ -1679,7 +1686,8 @@ def employee_list_export_csv(request):
 
     return response
 
-class EmployeeList(ManagerRequiredMixin, ListView):
+class EmployeeList(PortalCapRequiredMixin, ListView):
+    portal_cap = 'employees'
     model = Employee
     template_name = 'accounts/employee_list.html'
     context_object_name = 'employees'
@@ -1692,7 +1700,7 @@ class EmployeeList(ManagerRequiredMixin, ListView):
         ).select_related('user', 'branch').order_by('-hire_date')
 
 @login_required(login_url='login')
-@user_passes_test(is_app_manager, login_url='home')
+@portal_cap_required('employees')
 def employee_toggle_block(request, pk):
     if request.method != 'POST':
         return redirect('employee_list')
@@ -1718,7 +1726,7 @@ def employee_toggle_block(request, pk):
     return redirect('employee_list')
 
 @login_required(login_url='login')
-@user_passes_test(is_app_manager, login_url='home')
+@portal_cap_required('employees')
 def employee_delete(request, pk):
     if request.method != 'POST':
         return redirect('employee_list')
@@ -1743,7 +1751,8 @@ def _sync_sales_agent_for_role(employee):
         SalesAgent.objects.filter(employee=employee).delete()
 
 
-class EmployeeCreate(ManagerRequiredMixin, SuccessMessageMixin, CreateView):
+class EmployeeCreate(PortalCapRequiredMixin, SuccessMessageMixin, CreateView):
+    portal_cap = 'employees'
     model = Employee
     form_class = EmployeeAdminForm
     success_url = reverse_lazy('employee_list')
@@ -1783,7 +1792,7 @@ class EmployeeCreate(ManagerRequiredMixin, SuccessMessageMixin, CreateView):
         return redirect(self.success_url)
 
 @login_required(login_url='login')
-@user_passes_test(is_app_manager, login_url='home')
+@portal_cap_required('employees')
 def manageEmployee(request, pk):
 
     employee = get_object_or_404(Employee, pk=pk)
@@ -1828,6 +1837,7 @@ def manageEmployee(request, pk):
     return render(request, 'accounts/employee_form.html', context)
 
 @login_required(login_url='login')
+@portal_cap_required('pos')
 def posTerminal(request):
     employee = get_active_employee(request.user)
     if employee is None:
@@ -1884,7 +1894,7 @@ def posTerminal(request):
     return render(request, 'accounts/pos_terminal.html', context)
 
 @login_required(login_url='login')
-@user_passes_test(is_app_manager, login_url='home')
+@portal_cap_required('settings')
 def pos_vat_settings(request):
 
     if request.method != 'POST':
@@ -2070,6 +2080,7 @@ def _product_payload(product, branch):
     }
 
 @login_required(login_url='login')
+@portal_cap_required('inventory_intake')
 def inventory_intake(request):
     if is_consultant(request.user):
         return redirect('pos_terminal')
@@ -3075,6 +3086,7 @@ def reservation_to_cart(request, pk):
 
 
 @login_required(login_url='login')
+@portal_cap_required('reservations')
 def reservations_list(request):
     is_manager = is_app_manager(request.user)
     qs = ProductReservation.objects.select_related(
@@ -3352,6 +3364,7 @@ def return_receipt(request, pk):
 
 
 @login_required(login_url='login')
+@portal_cap_required('returns')
 def returns_list(request):
     if not can_process_return(request.user):
         raise PermissionDenied('Qaytarishlar ro‘yxati uchun ruxsat yo‘q.')
@@ -3546,6 +3559,7 @@ def warranty(request, pk):
     return render(request, 'accounts/warranty.html', context)
 
 @login_required(login_url='login')
+@portal_cap_required('dashboard')
 def dashboard(request):
 
     now = timezone.localtime(timezone.now())
@@ -3677,6 +3691,7 @@ def dashboard(request):
     return render(request, 'accounts/dashboard.html', context)
 
 @login_required(login_url='login')
+@portal_cap_required('warranty')
 def warranty_list(request):
 
     status_filter = request.GET.get('status')
@@ -3718,6 +3733,7 @@ def warranty_list(request):
     return render(request, 'accounts/warranty_list.html', context)
 
 @login_required(login_url='login')
+@portal_cap_required('warranty')
 def warranty_list_export_csv(request):
     status_filter = request.GET.get('status')
     search_query = request.GET.get('q')
@@ -3798,7 +3814,7 @@ def update_claim_status(request, pk):
     return redirect('warranty_list')
 
 @login_required(login_url='login')
-@user_passes_test(is_app_manager, login_url='home')
+@portal_cap_required('audit')
 def audit_logs(request):
 
     start_date_str = request.GET.get('start_date')
@@ -3834,6 +3850,7 @@ def audit_logs(request):
     return render(request, 'accounts/audit_logs.html', context)
 
 @login_required(login_url='login')
+@portal_cap_required('audit')
 def audit_logs_export_csv(request):
     start_date_str = request.GET.get('start_date')
     end_date_str = request.GET.get('end_date')
@@ -3882,6 +3899,7 @@ def audit_logs_export_csv(request):
     return response
 
 @login_required(login_url='login')
+@portal_cap_required('debtors')
 def debtors_list(request):
     if is_consultant(request.user):
         return redirect('pos_terminal')
@@ -3943,6 +3961,7 @@ def debtors_list(request):
     })
 
 @login_required(login_url='login')
+@portal_cap_required('debtors')
 @transaction.atomic
 def debt_pay(request, pk):
     if is_consultant(request.user):
@@ -3989,6 +4008,7 @@ def debt_pay(request, pk):
 
 
 @login_required(login_url='login')
+@portal_cap_required('debtors')
 def debt_edit(request, pk):
     if is_consultant(request.user):
         return redirect('pos_terminal')
@@ -4043,6 +4063,7 @@ def debt_edit(request, pk):
 
 
 @login_required(login_url='login')
+@portal_cap_required('debtors')
 @transaction.atomic
 def debt_delete(request, pk):
     if is_consultant(request.user):
@@ -4065,7 +4086,7 @@ def debt_delete(request, pk):
 
 
 @login_required(login_url='login')
-@user_passes_test(is_app_manager, login_url='home')
+@portal_cap_required('customers')
 def customer_delete(request, pk):
     if request.method != 'POST':
         return redirect('customers_loyalty')
@@ -4131,6 +4152,7 @@ def _expense_queryset_for(request):
     return qs, is_manager
 
 @login_required(login_url='login')
+@portal_cap_required('expenses')
 def expenses_list(request):
 
     qs, is_manager = _expense_queryset_for(request)
@@ -4226,6 +4248,7 @@ def expenses_list(request):
     })
 
 @login_required(login_url='login')
+@portal_cap_required('expenses')
 def expense_delete(request, pk):
     if request.method != 'POST':
         return redirect('expenses_list')
@@ -4265,7 +4288,7 @@ def _make_price_tier_kind(name):
 
 
 @login_required(login_url='login')
-@user_passes_test(is_app_manager, login_url='home')
+@portal_cap_required('settings')
 def app_settings(request):
     app = AppSettings.get_solo()
     tiers_list = list(
@@ -4441,7 +4464,7 @@ def _normalize_customer_phone(phone):
 
 
 @login_required(login_url='login')
-@user_passes_test(is_app_manager, login_url='home')
+@portal_cap_required('customers')
 def customers_loyalty(request):
     allowed_types = list(
         PriceTier.objects.exclude(kind=PriceTier.KIND_REGULAR)
@@ -4561,7 +4584,7 @@ def customers_loyalty(request):
 
 
 @login_required(login_url='login')
-@user_passes_test(is_app_manager, login_url='home')
+@portal_cap_required('customers')
 def customer_detail(request, pk):
     customer = get_object_or_404(
         Customer.objects.select_related('price_tier'),

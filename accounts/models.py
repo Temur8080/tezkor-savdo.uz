@@ -116,6 +116,22 @@ class Branch(models.Model):
             return f"{self.name} · {self.organization.brand_name or self.organization.name}{status}"
         return f"{self.name}{status}"
 
+class PortalCapability(models.Model):
+    """Portal bo‘limlari — rol default + StaffAccess orqali qo‘shish/olib tashlash."""
+
+    code = models.SlugField('Kod', max_length=64, unique=True)
+    name = models.CharField('Nomi', max_length=120)
+    sort_order = models.PositiveSmallIntegerField('Tartib', default=0)
+
+    class Meta:
+        verbose_name = 'Portal huquqi'
+        verbose_name_plural = 'Portal huquqlari'
+        ordering = ('sort_order', 'code')
+
+    def __str__(self):
+        return self.name
+
+
 class StaffAccess(models.Model):
 
     user = models.OneToOneField(
@@ -147,6 +163,20 @@ class StaffAccess(models.Model):
         blank=True,
         related_name='staff_users',
         verbose_name='Filiallar',
+    )
+    extra_capabilities = models.ManyToManyField(
+        PortalCapability,
+        blank=True,
+        related_name='granted_to_users',
+        verbose_name='Rolga qo‘shimcha huquqlar',
+        help_text='Lavozim berganidan tashqari ochiladigan bo‘limlar.',
+    )
+    denied_capabilities = models.ManyToManyField(
+        PortalCapability,
+        blank=True,
+        related_name='denied_to_users',
+        verbose_name='Roldan olib tashlangan huquqlar',
+        help_text='Lavozim bersa ham yopiladigan bo‘limlar.',
     )
 
     class Meta:

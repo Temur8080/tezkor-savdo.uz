@@ -1,6 +1,8 @@
 from django.conf import settings
 
 from .models import AppSettings, Organization
+from .portal_perms import get_portal_caps
+
 
 def branding(request):
 
@@ -50,6 +52,13 @@ def branding(request):
     except Exception:
         pass
 
+    portal_caps = frozenset()
+    try:
+        if getattr(request, 'user', None) and request.user.is_authenticated:
+            portal_caps = get_portal_caps(request.user)
+    except Exception:
+        portal_caps = frozenset()
+
     return {
         'brand': {
             'brand_name': brand_name,
@@ -59,4 +68,5 @@ def branding(request):
             'organization': org,
         },
         'theme_settings': theme,
+        'portal_caps': portal_caps,
     }

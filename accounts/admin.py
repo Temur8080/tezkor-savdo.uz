@@ -96,13 +96,19 @@ class StaffAccessInline(admin.StackedInline):
     max_num = 1
     min_num = 1
     extra = 0
-    filter_horizontal = ('viloyats', 'districts', 'organizations', 'branches')
-    verbose_name = 'Hudud ruxsatlari'
-    verbose_name_plural = (
-        'Hudud ruxsatlari — qaysi filial ma’lumotini ko‘radi '
-        '(chap = berilmagan, o‘ng = berilgan). Menyu ochmaydi.'
+    filter_horizontal = (
+        'extra_capabilities', 'denied_capabilities',
+        'viloyats', 'districts', 'organizations', 'branches',
     )
-    fields = ('viloyats', 'districts', 'organizations', 'branches')
+    verbose_name = 'Hudud va portal huquqlari'
+    verbose_name_plural = (
+        'Portal huquqlari (rol + qo‘shimcha − olib tashlash) va hudud '
+        '(qaysi filial ma’lumoti).'
+    )
+    fields = (
+        'extra_capabilities', 'denied_capabilities',
+        'viloyats', 'districts', 'organizations', 'branches',
+    )
 
     def get_formset(self, request, obj=None, **kwargs):
         formset = super().get_formset(request, obj, **kwargs)
@@ -198,9 +204,10 @@ class TezkorUserAdmin(DjangoUserAdmin):
                     flat.append(f)
             if 'user_permissions' in flat or 'is_staff' in flat:
                 opts['description'] = (
-                    'Diqqat: «User permissions» va Groups portalni boshqarmaydi. '
-                    'Portal uchun pastdagi «Portal xodim profili» → Lavozim. '
-                    'Qaysi filial ma’lumoti — «Hudud ruxsatlari» → Filiallar (o‘ng ustun).'
+                    'Django «User permissions» portalni boshqarmaydi. '
+                    'Portal: «Portal xodim profili» → Lavozim (asosiy huquqlar) + '
+                    'pastda «Rolga qo‘shimcha» / «Roldan olib tashlangan». '
+                    'Hudud: Filiallar / tashkilotlar.'
                 )
             out.append((name, opts))
         return out

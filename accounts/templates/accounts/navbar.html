@@ -45,8 +45,7 @@
                  bg-gray-50 dark:bg-slate-900 md:flex-row md:flex-nowrap md:justify-end md:gap-x-3 lg:gap-x-4
                  rtl:space-x-reverse md:border-0 md:bg-white md:dark:bg-slate-900 md:items-center md:text-sm">
 
-        {% if request.user.is_superuser or request.user.employee and request.user.employee.role == 'Manager' %}
-
+        {% if 'dashboard' in portal_caps %}
         <li>
           <a href="{% url 'dashboard' %}"
              class="nav-link block py-2.5 px-3 rounded-lg md:px-0 md:py-1 md:rounded-none border-b-2 transition whitespace-nowrap
@@ -54,6 +53,8 @@
             Boshqaruv
           </a>
         </li>
+        {% endif %}
+        {% if 'pos' in portal_caps %}
         <li>
           <a href="{% url 'pos_terminal' %}"
              class="nav-link block py-2.5 px-3 rounded-lg md:px-0 md:py-1 md:rounded-none border-b-2 transition whitespace-nowrap
@@ -61,6 +62,8 @@
             Kassa
           </a>
         </li>
+        {% endif %}
+        {% if 'sales' in portal_caps %}
         <li>
           <a href="{% url 'sales_display' %}"
              class="nav-link block py-2.5 px-3 rounded-lg md:px-0 md:py-1 md:rounded-none border-b-2 transition whitespace-nowrap
@@ -68,6 +71,8 @@
             Sotuvlar
           </a>
         </li>
+        {% endif %}
+        {% if 'inventory' in portal_caps %}
         <li>
           <a href="{% url 'branch_inventory' %}"
              class="nav-link block py-2.5 px-3 rounded-lg md:px-0 md:py-1 md:rounded-none border-b-2 transition whitespace-nowrap
@@ -75,6 +80,8 @@
             Ombor
           </a>
         </li>
+        {% endif %}
+        {% if 'reports' in portal_caps %}
         <li>
           <a href="{% url 'admin_reports' %}"
              class="nav-link block py-2.5 px-3 rounded-lg md:px-0 md:py-1 md:rounded-none border-b-2 transition whitespace-nowrap
@@ -82,6 +89,8 @@
             Hisobotlar
           </a>
         </li>
+        {% endif %}
+        {% if 'customers' in portal_caps %}
         <li>
           <a href="{% url 'customers_loyalty' %}"
              class="nav-link block py-2.5 px-3 rounded-lg md:px-0 md:py-1 md:rounded-none border-b-2 transition whitespace-nowrap
@@ -89,73 +98,73 @@
             Mijozlar
           </a>
         </li>
+        {% endif %}
 
-        {# Mobile: secondary links inline #}
+        {% if 'inventory_intake' in portal_caps %}
         <li class="md:hidden">
           <a href="{% url 'inventory_intake' %}"
              class="nav-link block py-2.5 px-3 rounded-lg border-b-2 transition
-             {% if url_name == 'inventory_intake' %}is-active{% endif %}">
-            Ombor kirimi
-          </a>
+             {% if url_name == 'inventory_intake' %}is-active{% endif %}">Ombor kirimi</a>
         </li>
+        {% endif %}
+        {% if 'employees' in portal_caps %}
         <li class="md:hidden">
           <a href="{% url 'employee_list' %}"
              class="nav-link block py-2.5 px-3 rounded-lg border-b-2 transition
-             {% if url_name == 'employee_list' or url_name == 'employee_form' or url_name == 'manage_employee' %}is-active{% endif %}">
-            Xodimlar
-          </a>
+             {% if url_name == 'employee_list' or url_name == 'employee_form' or url_name == 'manage_employee' %}is-active{% endif %}">Xodimlar</a>
         </li>
+        {% endif %}
+        {% if 'warranty' in portal_caps %}
         <li class="md:hidden">
           <a href="{% url 'warranty_list' %}"
              class="nav-link block py-2.5 px-3 rounded-lg border-b-2 transition
-             {% if url_name == 'warranty_list' or url_name == 'warranty' %}is-active{% endif %}">
-            Kafolat
-          </a>
+             {% if url_name == 'warranty_list' or url_name == 'warranty' %}is-active{% endif %}">Kafolat</a>
         </li>
+        {% endif %}
+        {% if 'returns' in portal_caps %}
         <li class="md:hidden">
           <a href="{% url 'returns_list' %}"
              class="nav-link block py-2.5 px-3 rounded-lg border-b-2 transition
-             {% if url_name == 'returns_list' %}is-active{% endif %}">
-            Qaytarishlar
-          </a>
+             {% if url_name == 'returns_list' %}is-active{% endif %}">Qaytarishlar</a>
         </li>
+        {% endif %}
+        {% if 'debtors' in portal_caps %}
         <li class="md:hidden">
           <a href="{% url 'debtors_list' %}"
              class="nav-link block py-2.5 px-3 rounded-lg border-b-2 transition
-             {% if url_name == 'debtors_list' or url_name == 'debt_pay' or url_name == 'debt_edit' %}is-active{% endif %}">
-            Qarzdorlar
-          </a>
+             {% if url_name == 'debtors_list' or url_name == 'debt_pay' or url_name == 'debt_edit' %}is-active{% endif %}">Qarzdorlar</a>
         </li>
+        {% endif %}
+        {% if 'reservations' in portal_caps %}
         <li class="md:hidden">
           <a href="{% url 'reservations_list' %}"
              class="nav-link block py-2.5 px-3 rounded-lg border-b-2 transition
-             {% if url_name == 'reservations_list' or url_name == 'reservation_cancel' %}is-active{% endif %}">
-            Bronlar
-          </a>
+             {% if url_name == 'reservations_list' or url_name == 'reservation_cancel' %}is-active{% endif %}">Bronlar</a>
         </li>
+        {% endif %}
+        {% if 'expenses' in portal_caps %}
         <li class="md:hidden">
           <a href="{% url 'expenses_list' %}"
              class="nav-link block py-2.5 px-3 rounded-lg border-b-2 transition
-             {% if url_name == 'expenses_list' or url_name == 'expense_delete' %}is-active{% endif %}">
-            Xarajatlar
-          </a>
+             {% if url_name == 'expenses_list' or url_name == 'expense_delete' %}is-active{% endif %}">Xarajatlar</a>
         </li>
+        {% endif %}
+        {% if 'audit' in portal_caps %}
         <li class="md:hidden">
           <a href="{% url 'audit_logs' %}"
              class="nav-link block py-2.5 px-3 rounded-lg border-b-2 transition
-             {% if url_name == 'audit_logs' %}is-active{% endif %}">
-            Audit
-          </a>
+             {% if url_name == 'audit_logs' %}is-active{% endif %}">Audit</a>
         </li>
+        {% endif %}
+        {% if 'settings' in portal_caps %}
         <li class="md:hidden">
           <a href="{% url 'app_settings' %}"
              class="nav-link flex items-center gap-2 py-2.5 px-3 rounded-lg border-b-2 transition
-             {% if url_name == 'app_settings' %}is-active{% endif %}">
-            Sozlamalar
-          </a>
+             {% if url_name == 'app_settings' %}is-active{% endif %}">Sozlamalar</a>
         </li>
+        {% endif %}
 
-        {# Desktop: secondary links in "Yana" dropdown #}
+        {% if 'inventory_intake' in portal_caps or 'employees' in portal_caps or 'warranty' in portal_caps or 'returns' in portal_caps or 'debtors' in portal_caps or 'reservations' in portal_caps or 'expenses' in portal_caps or 'audit' in portal_caps or 'settings' in portal_caps %}
         <li class="hidden md:block relative" id="nav-more-wrap">
           <button type="button" id="nav-more-btn"
                   class="nav-link nav-more-trigger inline-flex items-center gap-1 py-1 px-0 border-b-2 transition whitespace-nowrap
@@ -167,82 +176,47 @@
             </svg>
           </button>
           <div id="nav-more-menu" class="nav-more-menu hidden absolute right-0 top-full mt-2 min-w-[12.5rem] py-1.5 rounded-xl border border-gray-200 dark:border-slate-600 bg-white dark:bg-slate-900 shadow-lg z-50" role="menu">
+            {% if 'inventory_intake' in portal_caps %}
             <a href="{% url 'inventory_intake' %}" role="menuitem"
                class="nav-more-link {% if url_name == 'inventory_intake' %}is-active{% endif %}">Ombor kirimi</a>
+            {% endif %}
+            {% if 'employees' in portal_caps %}
             <a href="{% url 'employee_list' %}" role="menuitem"
                class="nav-more-link {% if url_name == 'employee_list' or url_name == 'employee_form' or url_name == 'manage_employee' %}is-active{% endif %}">Xodimlar</a>
+            {% endif %}
+            {% if 'warranty' in portal_caps %}
             <a href="{% url 'warranty_list' %}" role="menuitem"
                class="nav-more-link {% if url_name == 'warranty_list' or url_name == 'warranty' %}is-active{% endif %}">Kafolat</a>
+            {% endif %}
+            {% if 'returns' in portal_caps %}
             <a href="{% url 'returns_list' %}" role="menuitem"
                class="nav-more-link {% if url_name == 'returns_list' %}is-active{% endif %}">Qaytarishlar</a>
+            {% endif %}
+            {% if 'debtors' in portal_caps %}
             <a href="{% url 'debtors_list' %}" role="menuitem"
                class="nav-more-link {% if url_name == 'debtors_list' or url_name == 'debt_pay' or url_name == 'debt_edit' %}is-active{% endif %}">Qarzdorlar</a>
+            {% endif %}
+            {% if 'reservations' in portal_caps %}
             <a href="{% url 'reservations_list' %}" role="menuitem"
                class="nav-more-link {% if url_name == 'reservations_list' or url_name == 'reservation_cancel' %}is-active{% endif %}">Bronlar</a>
+            {% endif %}
+            {% if 'expenses' in portal_caps %}
             <a href="{% url 'expenses_list' %}" role="menuitem"
                class="nav-more-link {% if url_name == 'expenses_list' or url_name == 'expense_delete' %}is-active{% endif %}">Xarajatlar</a>
+            {% endif %}
+            {% if 'audit' in portal_caps %}
             <a href="{% url 'audit_logs' %}" role="menuitem"
                class="nav-more-link {% if url_name == 'audit_logs' %}is-active{% endif %}">Audit</a>
+            {% endif %}
+            {% if 'settings' in portal_caps %}
             <a href="{% url 'app_settings' %}" role="menuitem"
                class="nav-more-link {% if url_name == 'app_settings' %}is-active{% endif %}">Sozlamalar</a>
+            {% endif %}
           </div>
         </li>
-
-        {% else %}
-
-        <li>
-          <a href="{% url 'pos_terminal' %}"
-             class="nav-link block py-2.5 px-3 rounded-lg md:px-0 md:py-1 md:rounded-none border-b-2 transition whitespace-nowrap
-             {% if url_name == 'pos_terminal' %}is-active{% endif %}">
-            Kassa
-          </a>
-        </li>
-        {% if request.user.employee.role != 'Consultant' %}
-        <li>
-          <a href="{% url 'branch_inventory' %}"
-             class="nav-link block py-2.5 px-3 rounded-lg md:px-0 md:py-1 md:rounded-none border-b-2 transition whitespace-nowrap
-             {% if url_name == 'branch_inventory' or url_name == 'inventory_update' %}is-active{% endif %}">
-            Ombor
-          </a>
-        </li>
-        <li>
-          <a href="{% url 'inventory_intake' %}"
-             class="nav-link block py-2.5 px-3 rounded-lg md:px-0 md:py-1 md:rounded-none border-b-2 transition whitespace-nowrap
-             {% if url_name == 'inventory_intake' %}is-active{% endif %}">
-            Ombor kirimi
-          </a>
-        </li>
         {% endif %}
-        <li>
-          <a href="{% url 'sales_display' %}"
-             class="nav-link block py-2.5 px-3 rounded-lg md:px-0 md:py-1 md:rounded-none border-b-2 transition whitespace-nowrap
-             {% if url_name == 'sales_display' or url_name == 'sales_edit' or url_name == 'emp_receipt' or url_name == 'order_return' or url_name == 'return_receipt' or url_name == 'returns_list' %}is-active{% endif %}">
-            Sotuvlar
-          </a>
-        </li>
-        {% if request.user.employee.role != 'Consultant' %}
-        <li>
-          <a href="{% url 'returns_list' %}"
-             class="nav-link block py-2.5 px-3 rounded-lg md:px-0 md:py-1 md:rounded-none border-b-2 transition whitespace-nowrap
-             {% if url_name == 'returns_list' or url_name == 'order_return' or url_name == 'return_receipt' %}is-active{% endif %}">
-            Qaytarishlar
-          </a>
-        </li>
-        <li>
-          <a href="{% url 'debtors_list' %}"
-             class="nav-link block py-2.5 px-3 rounded-lg md:px-0 md:py-1 md:rounded-none border-b-2 transition whitespace-nowrap
-             {% if url_name == 'debtors_list' or url_name == 'debt_pay' or url_name == 'debt_edit' %}is-active{% endif %}">
-            Qarzdorlar
-          </a>
-        </li>
-        {% endif %}
-        <li>
-          <a href="{% url 'reservations_list' %}"
-             class="nav-link block py-2.5 px-3 rounded-lg md:px-0 md:py-1 md:rounded-none border-b-2 transition whitespace-nowrap
-             {% if url_name == 'reservations_list' or url_name == 'reservation_cancel' %}is-active{% endif %}">
-            Bronlar
-          </a>
-        </li>
+
+        {% if 'multi_branch' not in portal_caps %}
         <li>
           <a href="{% url 'employee_profile' %}"
              class="nav-link block py-2.5 px-3 rounded-lg md:px-0 md:py-1 md:rounded-none border-b-2 transition whitespace-nowrap
@@ -250,7 +224,6 @@
             Profil
           </a>
         </li>
-
         {% endif %}
 
         <li class="md:ml-1 shrink-0">
