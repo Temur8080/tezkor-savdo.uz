@@ -160,6 +160,9 @@ MEDIA_URL = '/media/'
 
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 
+# User admin: groups + user_permissions + StaffAccess filter_horizontal (ko‘p PK)
+DATA_UPLOAD_MAX_NUMBER_FIELDS = 5000
+
 Q_CLUSTER = {
     'name': 'Tezkor',
     'workers': 4,

@@ -114,8 +114,8 @@ class StaffAccessInline(admin.StackedInline):
                 super().__init__(*args, **kw)
                 help_txt = (
                     'Chap — berilmagan. O‘ng — berilgan. '
-                    'Filial tanlansa faqat shu filial ishlaydi '
-                    '(viloyat/tuman/tashkilot e’tiborga olinmaydi).'
+                    '«Filiallar» to‘ldirilsa tizim faqat shu filialarni ishlatadi; '
+                    'viloyat/tuman/tashkilot saqlanadi, lekin e’tiborga olinmaydi.'
                 )
                 for form in self.forms:
                     v = form.fields.get('viloyats')
@@ -297,12 +297,7 @@ class TezkorUserAdmin(DjangoUserAdmin):
     def save_related(self, request, form, formsets, change):
         super().save_related(request, form, formsets, change)
         user = form.instance
-        access, _ = StaffAccess.objects.get_or_create(user=user)
-        # Filial aniq berilgan bo‘lsa — kengroq hududlarni tozalash (chalkashlikni oldini olish)
-        if access.branches.exists():
-            access.viloyats.clear()
-            access.districts.clear()
-            access.organizations.clear()
+        StaffAccess.objects.get_or_create(user=user)
 
         if not Employee.objects.filter(user=user).exists():
             branch = Branch.objects.filter(is_active=True).order_by('id').first()
