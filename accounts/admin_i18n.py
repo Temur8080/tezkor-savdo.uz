@@ -61,6 +61,8 @@ def prune_unused_admin():
             getattr(m, 'ReplacementRecord', None),
             getattr(m, 'DefectiveInventory', None),
             getattr(m, 'AuditTrail', None),
+            getattr(m, 'PortalFeature', None),
+            getattr(m, 'StaffAccess', None),
         )
     except Exception:
         pass
