@@ -317,22 +317,49 @@ def _checkout_discount_percent(customer, secret_code):
     return money_dec(customer.get_discount_percent() if customer else Decimal('0.00'))
 
 
+def _norm_secret_code(value):
+    return (value or '').strip().casefold()
+
+
+def _secret_code_kind(raw, settings_obj=None):
+    """Return 'markup', 'discount', or '' if raw matches a POS secret code."""
+    code = _norm_secret_code(raw)
+    if not code:
+        return ''
+    settings_obj = settings_obj or AppSettings.get_solo()
+    if code == _norm_secret_code(settings_obj.pos_secret_markup_code):
+        return 'markup'
+    if code == _norm_secret_code(settings_obj.pos_secret_code):
+        return 'discount'
+    return ''
+
+
+def _is_money_text(value):
+    text = str(value or '').strip().replace(' ', '').replace('\u00a0', '').replace(',', '.')
+    if not text:
+        return False
+    try:
+        Decimal(text)
+    except Exception:
+        return False
+    return True
+
+
 def _checkout_price_adjust(customer, secret_code):
     """
     Returns {'mode': 'discount'|'markup'|'none', 'percent': Decimal}.
     Markup secret code wins over discount code when both match (should be different codes).
     """
     loyalty_pct = money_dec(customer.get_discount_percent() if customer else Decimal('0.00'))
-    code = (secret_code or '').strip()
+    code = _norm_secret_code(secret_code)
     settings_obj = AppSettings.get_solo()
     if code:
-        markup_code = (settings_obj.pos_secret_markup_code or '').strip()
-        if markup_code and code == markup_code:
+        kind = _secret_code_kind(code, settings_obj)
+        if kind == 'markup':
             markup_pct = money_dec(settings_obj.pos_secret_markup_percent or 0)
             if markup_pct > 0:
                 return {'mode': 'markup', 'percent': markup_pct}
-        discount_code = (settings_obj.pos_secret_code or '').strip()
-        if discount_code and code == discount_code:
+        elif kind == 'discount':
             secret_pct = money_dec(settings_obj.pos_secret_discount_percent or 0)
             if secret_pct > loyalty_pct:
                 return {'mode': 'discount', 'percent': secret_pct}
@@ -2573,7 +2600,13 @@ def checkout_cash(request):
                         pk=partner_id, is_active=True, customer_type=Customer.TYPE_PARTNER
                     ).first()
 
-                adjust = _checkout_price_adjust(customer, data.get('secretCode'))
+                secret_code = (data.get('secretCode') or '').strip()
+                cash_text = '' if cash_raw is None else str(cash_raw).strip()
+                if cash_text and not secret_code and _secret_code_kind(cash_text):
+                    secret_code = cash_text
+                    cash_raw = None
+
+                adjust = _checkout_price_adjust(customer, secret_code)
                 priced = _price_lines_from_cart(cart, adjust)
                 priced_lines = priced['priced_lines']
                 list_total = priced['list_total']
@@ -2584,6 +2617,11 @@ def checkout_cash(request):
 
                 if cash_raw is None or str(cash_raw).strip() == '':
                     cash_received = total_amount
+                elif not _is_money_text(cash_raw):
+                    return JsonResponse({
+                        'success': False,
+                        'message': 'Naqd maydonga summa yoki maxfiy kod yozing. Chegirma qarz emas.',
+                    }, status=400)
                 else:
                     cash_received = parse_decimal(cash_raw)
                 if cash_received < 0:

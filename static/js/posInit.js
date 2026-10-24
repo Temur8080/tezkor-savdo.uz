@@ -215,6 +215,10 @@ function initPosTerminal() {
                 partner_id: (partnerHid && partnerHid.value) || null,
             }
 
+            if (typeof tryApplySecretDiscountFromCashInput === 'function') {
+                tryApplySecretDiscountFromCashInput()
+            }
+
             const total = getCheckoutTotal()
             if (typeof IS_CONSULTANT !== 'undefined' && IS_CONSULTANT) {
                 submitQuoteOrder(getCheckoutCart(), total, customerData)
@@ -222,10 +226,19 @@ function initPosTerminal() {
             }
 
             const cashRaw = (document.getElementById('cash-received-input').value || '').trim()
-            const cashReceived = cashRaw === '' ? total : (parseFloat(cashRaw) || 0)
-            const changeGiven = Math.max(0, cashReceived - total)
+            let cashReceived = null
+            if (cashRaw !== '') {
+                const parsed = typeof parseCashAmount === 'function' ? parseCashAmount(cashRaw) : parseFloat(cashRaw)
+                if (parsed === null || !isFinite(parsed)) {
+                    alert('Maxfiy kod tanilmadi. Chegirma uchun kodni to‘liq yozing — bu qarz emas, mijoz shart emas.')
+                    return
+                }
+                cashReceived = parsed
+            }
+            const payCash = cashReceived === null ? total : cashReceived
+            const changeGiven = Math.max(0, payCash - total)
 
-            if (cashReceived < total && (!customerData.name || !customerData.phone)) {
+            if (cashReceived !== null && cashReceived < total && (!customerData.name || !customerData.phone)) {
                 alert('Qarz uchun mijoz ismi va telefon majburiy')
                 return
             }

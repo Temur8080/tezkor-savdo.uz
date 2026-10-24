@@ -988,14 +988,25 @@ function getActiveSecretCode() {
     return ''
 }
 
+function normalizeSecretCode(value) {
+    return String(value || '').trim().toLocaleLowerCase('uz-UZ')
+}
+
+function parseCashAmount(raw) {
+    const text = String(raw || '').trim().replace(/\s/g, '').replace(',', '.')
+    if (!/^\d+(\.\d+)?$/.test(text)) return null
+    const amount = parseFloat(text)
+    return isFinite(amount) ? amount : null
+}
+
 function tryApplySecretDiscountFromCashInput() {
     const input = document.getElementById('cash-received-input')
     if (!input) return false
-    const raw = (input.value || '').trim()
+    const raw = normalizeSecretCode(input.value)
     if (!raw) return false
 
-    const markupCode = (typeof SECRET_MARKUP_CODE !== 'undefined' ? SECRET_MARKUP_CODE : '') || ''
-    const discountCode = (typeof SECRET_DISCOUNT_CODE !== 'undefined' ? SECRET_DISCOUNT_CODE : '') || ''
+    const markupCode = normalizeSecretCode(typeof SECRET_MARKUP_CODE !== 'undefined' ? SECRET_MARKUP_CODE : '')
+    const discountCode = normalizeSecretCode(typeof SECRET_DISCOUNT_CODE !== 'undefined' ? SECRET_DISCOUNT_CODE : '')
 
     if (markupCode && raw === markupCode) {
         secretMarkupActive = true
@@ -1262,7 +1273,15 @@ function calculateChange(){
         return
     }
 
-    const cashRecieved = parseFloat(raw) || 0
+    const cashRecieved = parseCashAmount(raw)
+    if (cashRecieved === null) {
+        if (changeLabel) changeLabel.textContent = 'Chegirma'
+        changeToDisplay.textContent = 'kod'
+        changeToDisplay.style.color = '#059669'
+        setFoot('Maxfiy kod — bu qarz emas', '#059669')
+        if (debtHint) debtHint.classList.add('hidden')
+        return
+    }
     const change = cashRecieved - currentGrandTotal
 
     if (change < 0) {
