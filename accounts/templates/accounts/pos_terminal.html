@@ -52,6 +52,32 @@
     {% include 'components/cash_modal.html' %}
 </div>
 
+<div id="receipt-preview" class="hidden fixed inset-0 z-[260] bg-slate-900/55 backdrop-blur-sm overflow-y-auto overscroll-contain" role="dialog" aria-modal="true" aria-labelledby="receipt-preview-title">
+    <div class="min-h-full flex flex-col items-center justify-end sm:justify-center p-0 sm:p-4">
+        <div class="w-full max-w-[440px] bg-slate-100 sm:bg-transparent sm:rounded-none">
+            <div id="receipt-sheet" class="receipt-paper bg-white text-gray-900 shadow-2xl sm:rounded-lg border-t-8 border-teal-700 px-5 py-6 mx-auto">
+                <div class="flex justify-end -mt-2 -mr-1 mb-1 print:hidden">
+                    <button type="button" id="receipt-preview-close"
+                            class="h-9 w-9 rounded-full text-2xl leading-none text-gray-500 hover:bg-gray-100 hover:text-gray-800"
+                            aria-label="Chekni yopish">&times;</button>
+                </div>
+                <div id="receipt-preview-body"></div>
+            </div>
+            <div id="receipt-preview-actions" class="flex gap-2 p-3 sm:px-0 sm:pt-3 pb-safe bg-slate-100 sm:bg-transparent">
+                <button type="button" id="receipt-share-btn"
+                        class="flex-1 min-h-[48px] rounded-xl bg-teal-700 hover:bg-teal-800 text-white text-sm font-semibold touch-manipulation">
+                    Ulashish
+                </button>
+                <button type="button" id="receipt-print-btn"
+                        class="flex-1 min-h-[48px] rounded-xl bg-gray-900 hover:bg-black text-white text-sm font-semibold touch-manipulation">
+                    Chop etish
+                </button>
+            </div>
+            <p id="receipt-share-status" class="px-3 sm:px-0 pb-3 text-center text-xs text-slate-600 sm:text-slate-100 min-h-[1rem]" aria-live="polite"></p>
+        </div>
+    </div>
+</div>
+
 <script>
     const currentEmployeeId = "{{ request.user.id }}"
     const cartKey = `pos_cart_user${currentEmployeeId}`;
@@ -71,10 +97,19 @@
     const SECRET_DISCOUNT_PERCENT = parseFloat("{{ secret_discount_percent|default:'0' }}") || 0;
     const SECRET_MARKUP_CODE = "{{ secret_markup_code|default:''|escapejs }}";
     const SECRET_MARKUP_PERCENT = parseFloat("{{ secret_markup_percent|default:'0' }}") || 0;
+    const RECEIPT_META = {
+        brand: "{{ brand.brand_name|escapejs }}",
+        company: "{{ brand.company_name|escapejs }}",
+        logo: "{% if brand.logo_is_static %}{% static brand.logo_url %}{% else %}{{ brand.logo_url|escapejs }}{% endif %}",
+        branch: "{{ employee.branch.name|escapejs }}",
+        address: "{{ employee.branch.address|escapejs }}",
+        phone: "{{ employee.branch.phone_number|escapejs }}",
+        cashier: "{{ employee.name|escapejs }}",
+    };
 </script>
 
 <script src="{% static 'js/moneyFormat.js' %}?v=48"></script>
 <script src="{% static 'js/posScanner.js' %}?v=48"></script>
-<script src="{% static 'js/posUI.js' %}?v=53"></script>
+<script src="{% static 'js/posUI.js' %}?v=54"></script>
 <script src="{% static 'js/posInit.js' %}?v=53"></script>
 {% endblock %}

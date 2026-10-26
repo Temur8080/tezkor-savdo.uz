@@ -1066,3 +1066,93 @@ body.checkout-modal-open {
     pointer-events: none;
   }
 }
+
+html.dark #preview-receipt-btn {
+  background: #0f172a !important;
+  color: #e2e8f0 !important;
+  border-color: #475569 !important;
+}
+
+.receipt-paper {
+  background: #fff !important;
+  color: #111827 !important;
+  font-family: 'Courier New', Courier, monospace;
+}
+
+html.dark .receipt-paper {
+  background: #fff !important;
+  color: #111827 !important;
+}
+
+html.dark .receipt-paper .text-gray-900,
+html.dark .receipt-paper .text-gray-800,
+html.dark .receipt-paper .text-gray-700,
+html.dark .receipt-paper .text-black {
+  color: #111827 !important;
+}
+
+html.dark .receipt-paper .text-gray-600,
+html.dark .receipt-paper .text-gray-500,
+html.dark .receipt-paper .text-gray-400 {
+  color: #4b5563 !important;
+}
+
+html.dark .receipt-paper .text-teal-800 {
+  color: #115e59 !important;
+}
+
+html.dark .receipt-paper .text-emerald-800,
+html.dark .receipt-paper .text-emerald-700 {
+  color: #065f46 !important;
+}
+
+html.dark .receipt-paper .text-amber-800 {
+  color: #92400e !important;
+}
+
+html.dark .receipt-paper .border-gray-800,
+html.dark .receipt-paper .border-gray-300,
+html.dark .receipt-paper .border-dashed {
+  border-color: #d1d5db !important;
+}
+
+html.dark .receipt-paper .divide-gray-200 > :not([hidden]) ~ :not([hidden]) {
+  border-color: #e5e7eb !important;
+}
+
+@media print {
+  body.printing-receipt,
+  body.printing-receipt #modal-container,
+  body.printing-receipt #receipt-preview {
+    overflow: visible !important;
+    height: auto !important;
+    max-height: none !important;
+    background: #fff !important;
+    position: static !important;
+  }
+
+  body.printing-receipt * {
+    visibility: hidden;
+  }
+
+  body.printing-receipt #receipt-sheet,
+  body.printing-receipt #receipt-sheet * {
+    visibility: visible;
+  }
+
+  body.printing-receipt #receipt-preview-close,
+  body.printing-receipt #receipt-preview-actions,
+  body.printing-receipt #receipt-share-status {
+    display: none !important;
+  }
+
+  body.printing-receipt #receipt-sheet {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    max-width: none;
+    box-shadow: none !important;
+    border-radius: 0;
+  }
+}

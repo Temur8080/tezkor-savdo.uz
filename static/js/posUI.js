@@ -1233,6 +1233,7 @@ function openCheckoutModal(type){
 }
 
 function closeCheckoutModal(){
+    if (typeof closeReceiptPreview === 'function') closeReceiptPreview()
     document.getElementById('modal-container').classList.add('hidden');
     document.body.classList.remove('checkout-modal-open')
 
@@ -1300,6 +1301,478 @@ function calculateChange(){
         changeToDisplay.style.color = '#059669'
         setFoot(change > 0 ? ('Qaytim: ' + changeText) : 'Aniq', '#059669')
         if (debtHint) debtHint.classList.add('hidden')
+    }
+}
+
+function escapeReceiptText(value) {
+    return String(value || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+}
+
+function receiptMeta() {
+    const meta = (typeof RECEIPT_META !== 'undefined' && RECEIPT_META) ? RECEIPT_META : {}
+    return {
+        brand: meta.brand || 'Tezkor',
+        company: meta.company || '',
+        logo: meta.logo || '',
+        branch: meta.branch || '',
+        address: meta.address || '',
+        phone: meta.phone || '',
+        cashier: meta.cashier || '',
+    }
+}
+
+function formatReceiptDate(date) {
+    const pad = (n) => String(n).padStart(2, '0')
+    return `${pad(date.getDate())}.${pad(date.getMonth() + 1)}.${date.getFullYear()} ${pad(date.getHours())}:${pad(date.getMinutes())}`
+}
+
+function formatReceiptPct(value) {
+    const n = Math.round((parseFloat(value) || 0) * 100) / 100
+    return Number.isInteger(n) ? String(n) : String(n)
+}
+
+function buildReceiptPreview() {
+    const items = getCheckoutCart()
+    const cur = normalizeCurrency(checkoutCurrency || getCartCurrency())
+    const list = getCheckoutListSubtotal()
+    const net = getCheckoutNetSubtotal()
+    const vat = calcTax(net)
+    const grand = net + vat
+    const discountPct = Math.min(100, Math.max(0, parseFloat(checkoutDiscountPercent) || 0))
+    const markupPct = Math.min(1000, Math.max(0, parseFloat(checkoutMarkupPercent) || 0))
+    const discount = Math.max(0, list - net)
+    const markup = Math.max(0, net - list)
+    const name = (document.getElementById('cash-cust-name')?.value || '').trim() || 'Oddiy mijoz'
+    let phone = (document.getElementById('cash-cust-phone')?.value || '').trim()
+    if (phone.replace(/\D/g, '').length <= 3) phone = ''
+    const cash = parseCashAmount(document.getElementById('cash-received-input')?.value)
+    const meta = receiptMeta()
+    return {
+        meta,
+        items,
+        cur,
+        list,
+        net,
+        vat,
+        vatPct: getVatPercent(),
+        vatOn: isVatEnabled() && vat > 0.001,
+        grand,
+        discount,
+        discountPct,
+        markup,
+        markupPct,
+        name,
+        phone,
+        cash,
+        when: formatReceiptDate(new Date()),
+    }
+}
+
+function receiptPlainText(model) {
+    const lines = []
+    const brand = String(model.meta.brand || 'Tezkor').toUpperCase()
+    lines.push(`${brand} CHEKI`)
+    lines.push('To‘lovdan oldingi ko‘rinish')
+    if (model.meta.company) lines.push(model.meta.company)
+    if (model.meta.branch) lines.push(`Filial: ${model.meta.branch}`)
+    if (model.meta.address) lines.push(model.meta.address)
+    if (model.meta.phone) lines.push(`Tel: ${model.meta.phone}`)
+    lines.push(`Sana: ${model.when}`)
+    lines.push(`Mijoz: ${model.name}`)
+    if (model.phone) lines.push(`Telefon: ${model.phone}`)
+    if (model.meta.cashier) lines.push(`Kassir: ${model.meta.cashier}`)
+    lines.push('------------------------------')
+    model.items.forEach((item) => {
+        const qty = formatQty(item.qty, item.unit)
+        const unit = normalizeUnit(item.unit)
+        const line = (parseFloat(item.price) || 0) * (parseFloat(item.qty) || 0)
+        lines.push(item.name)
+        lines.push(`  ${qty} ${unit} × ${formatMoney(item.price, model.cur)} = ${formatMoney(line, model.cur)}`)
+    })
+    lines.push('------------------------------')
+    if (model.discount > 0.001 || model.markup > 0.001) {
+        lines.push(`Oraliq: ${formatMoney(model.list, model.cur)}`)
+    }
+    if (model.discount > 0.001) {
+        const pct = model.discountPct > 0 ? ` ${formatReceiptPct(model.discountPct)}%` : ''
+        lines.push(`Chegirma${pct}: −${formatMoney(model.discount, model.cur)}`)
+    }
+    if (model.markup > 0.001) {
+        const pct = model.markupPct > 0 ? ` ${formatReceiptPct(model.markupPct)}%` : ''
+        lines.push(`Ustama${pct}: +${formatMoney(model.markup, model.cur)}`)
+    }
+    if (model.vatOn) {
+        lines.push(`QQS ${formatReceiptPct(model.vatPct)}%: ${formatMoney(model.vat, model.cur)}`)
+    }
+    lines.push(`UMUMIY: ${formatMoney(model.grand, model.cur)}`)
+    if (model.cash !== null) {
+        lines.push(`Qabul qilingan: ${formatMoney(model.cash, model.cur)}`)
+        const diff = model.cash - model.grand
+        if (diff < -0.001) lines.push(`Qarz: ${formatMoney(Math.abs(diff), model.cur)}`)
+        else if (diff > 0.001) lines.push(`Qaytim: ${formatMoney(diff, model.cur)}`)
+        else lines.push('To‘lov: aniq summa')
+    } else {
+        lines.push('To‘lov: hali qabul qilinmagan')
+    }
+    lines.push('')
+    lines.push('Bu chek hali tasdiqlanmagan.')
+    return lines.join('\n')
+}
+
+function renderReceiptPreview(model) {
+    const meta = model.meta
+    const logo = meta.logo
+        ? `<img src="${escapeReceiptText(meta.logo)}" alt="" class="mx-auto h-14 w-auto object-contain mb-2">`
+        : ''
+    const rows = model.items.map((item) => {
+        const qty = formatQty(item.qty, item.unit)
+        const unit = normalizeUnit(item.unit)
+        const line = (parseFloat(item.price) || 0) * (parseFloat(item.qty) || 0)
+        return `
+            <tr>
+                <td class="py-2 pr-2 align-top">
+                    <p class="font-bold leading-snug">${escapeReceiptText(item.name)}</p>
+                    <p class="text-[11px] text-gray-500">@ ${escapeReceiptText(formatMoney(item.price, model.cur))}</p>
+                </td>
+                <td class="py-2 text-center align-top whitespace-nowrap">${escapeReceiptText(qty)} ${escapeReceiptText(unit)}</td>
+                <td class="py-2 text-right align-top font-bold whitespace-nowrap">${escapeReceiptText(formatMoney(line, model.cur))}</td>
+            </tr>`
+    }).join('')
+
+    let adjust = ''
+    if (model.discount > 0.001 || model.markup > 0.001) {
+        adjust += `<div class="flex justify-between text-sm"><span>ORALIQ</span><span>${escapeReceiptText(formatMoney(model.list, model.cur))}</span></div>`
+    }
+    if (model.discount > 0.001) {
+        const pct = model.discountPct > 0 ? ` ${formatReceiptPct(model.discountPct)}%` : ''
+        adjust += `<div class="flex justify-between text-sm font-bold text-emerald-800"><span>CHEGIRMA${pct}</span><span>−${escapeReceiptText(formatMoney(model.discount, model.cur))}</span></div>`
+    }
+    if (model.markup > 0.001) {
+        const pct = model.markupPct > 0 ? ` ${formatReceiptPct(model.markupPct)}%` : ''
+        adjust += `<div class="flex justify-between text-sm font-bold text-amber-800"><span>USTAMA${pct}</span><span>+${escapeReceiptText(formatMoney(model.markup, model.cur))}</span></div>`
+    }
+    if (model.vatOn) {
+        adjust += `<div class="flex justify-between text-sm"><span>QQS ${formatReceiptPct(model.vatPct)}%</span><span>${escapeReceiptText(formatMoney(model.vat, model.cur))}</span></div>`
+    }
+
+    let pay = ''
+    if (model.cash !== null) {
+        const diff = model.cash - model.grand
+        pay += `<div class="flex justify-between text-sm mt-2"><span>QABUL QILINGAN</span><span class="font-semibold">${escapeReceiptText(formatMoney(model.cash, model.cur))}</span></div>`
+        if (diff < -0.001) {
+            pay += `<div class="flex justify-between text-sm font-bold text-amber-800"><span>QARZ</span><span>${escapeReceiptText(formatMoney(Math.abs(diff), model.cur))}</span></div>`
+        } else if (diff > 0.001) {
+            pay += `<div class="flex justify-between text-sm font-bold text-emerald-700"><span>QAYTIM</span><span>${escapeReceiptText(formatMoney(diff, model.cur))}</span></div>`
+        } else {
+            pay += `<div class="flex justify-between text-sm italic text-emerald-700"><span>TO‘LOV</span><span>ANIQ SUMMA</span></div>`
+        }
+    } else {
+        pay = `<p class="text-xs text-gray-500 mt-2">Naqd summa hali kiritilmagan.</p>`
+    }
+
+    const branchBits = [
+        meta.branch ? `<p class="text-xs text-gray-600">Filial: ${escapeReceiptText(meta.branch)}</p>` : '',
+        meta.address ? `<p class="text-xs text-gray-500">${escapeReceiptText(meta.address)}</p>` : '',
+        meta.phone ? `<p class="text-xs text-gray-500">Tel: ${escapeReceiptText(meta.phone)}</p>` : '',
+    ].join('')
+
+    return `
+        <div id="receipt-preview-title" class="text-center">
+            ${logo}
+            <h2 class="text-xl font-black tracking-tight">${escapeReceiptText(String(meta.brand || 'Tezkor').toUpperCase())} CHEKI</h2>
+            <p class="text-[11px] font-bold uppercase tracking-wide text-teal-800 mt-1">To‘lovdan oldingi ko‘rinish</p>
+            ${meta.company ? `<p class="text-sm font-bold text-gray-800 mt-2">${escapeReceiptText(meta.company)}</p>` : ''}
+            ${branchBits}
+            <div class="border-b-2 border-dashed border-gray-300 my-3"></div>
+        </div>
+        <div class="flex justify-between gap-3 text-xs mb-3">
+            <div class="min-w-0">
+                <p><span class="font-bold">SANA:</span> ${escapeReceiptText(model.when)}</p>
+                <p class="break-words"><span class="font-bold">MIJOZ:</span> ${escapeReceiptText(model.name)}</p>
+                ${model.phone ? `<p><span class="font-bold">TEL:</span> ${escapeReceiptText(model.phone)}</p>` : ''}
+            </div>
+            <div class="text-right shrink-0">
+                <p><span class="font-bold">KASSIR:</span></p>
+                <p>${escapeReceiptText(meta.cashier || '—')}</p>
+            </div>
+        </div>
+        <table class="w-full text-xs mb-3">
+            <thead class="border-b border-gray-800">
+                <tr>
+                    <th class="text-left py-1.5 font-bold">MAHSULOT</th>
+                    <th class="text-center py-1.5 font-bold">MIQDOR</th>
+                    <th class="text-right py-1.5 font-bold">JAMI</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-dashed divide-gray-200">${rows}</tbody>
+        </table>
+        <div class="space-y-1.5 border-t-2 border-gray-800 pt-3">
+            ${adjust}
+            <div class="flex justify-between text-base font-black pt-1">
+                <span>UMUMIY</span>
+                <span>${escapeReceiptText(formatMoney(model.grand, model.cur))}</span>
+            </div>
+            ${pay}
+        </div>
+        <p class="mt-5 text-center text-[11px] text-gray-500 border-t border-dashed border-gray-300 pt-3">
+            Tasdiqlanguncha bu chek rasmiy hisoblanmaydi.
+        </p>`
+}
+
+let receiptPreviewModel = null
+
+function setReceiptShareStatus(message) {
+    const el = document.getElementById('receipt-share-status')
+    if (el) el.textContent = message || ''
+}
+
+function openReceiptPreview() {
+    const model = buildReceiptPreview()
+    if (!model.items.length) {
+        alert('Chek uchun savatda mahsulot bo‘lishi kerak')
+        return
+    }
+    receiptPreviewModel = model
+    const body = document.getElementById('receipt-preview-body')
+    const wrap = document.getElementById('receipt-preview')
+    if (!body || !wrap) return
+    body.innerHTML = renderReceiptPreview(model)
+    setReceiptShareStatus('')
+    wrap.classList.remove('hidden')
+}
+
+function closeReceiptPreview() {
+    const wrap = document.getElementById('receipt-preview')
+    if (wrap) wrap.classList.add('hidden')
+    document.body.classList.remove('printing-receipt')
+    setReceiptShareStatus('')
+}
+
+function wrapReceiptLine(ctx, text, maxWidth) {
+    const words = String(text || '').split(/\s+/).filter(Boolean)
+    if (!words.length) return ['']
+    const lines = []
+    let line = ''
+    words.forEach((word) => {
+        const test = line ? `${line} ${word}` : word
+        if (ctx.measureText(test).width > maxWidth && line) {
+            lines.push(line)
+            line = word
+        } else {
+            line = test
+        }
+    })
+    if (line) lines.push(line)
+    return lines
+}
+
+function drawReceiptCanvas(model) {
+    const width = 420
+    const pad = 28
+    const maxText = width - pad * 2
+    const canvas = document.createElement('canvas')
+    const ctx = canvas.getContext('2d')
+    ctx.font = '16px sans-serif'
+    const blocks = []
+    const push = (text, opts) => {
+        const o = opts || {}
+        ctx.font = `${o.bold ? '700 ' : ''}${o.size || 16}px sans-serif`
+        const parts = String(text || '').split('\n')
+        parts.forEach((part) => {
+            wrapReceiptLine(ctx, part, maxText).forEach((line) => {
+                blocks.push({
+                    text: line,
+                    size: o.size || 16,
+                    bold: !!o.bold,
+                    align: o.align || 'left',
+                    color: o.color || '#111827',
+                    gap: o.gap != null ? o.gap : 8,
+                })
+            })
+        })
+    }
+    const brand = String(model.meta.brand || 'Tezkor').toUpperCase()
+    push(`${brand} CHEKI`, { bold: true, size: 22, align: 'center', gap: 6 })
+    push('To‘lovdan oldingi ko‘rinish', { size: 13, align: 'center', color: '#0f766e', gap: 14 })
+    if (model.meta.company) push(model.meta.company, { bold: true, size: 14, align: 'center', gap: 4 })
+    if (model.meta.branch) push(`Filial: ${model.meta.branch}`, { size: 13, align: 'center', gap: 2 })
+    if (model.meta.address) push(model.meta.address, { size: 12, align: 'center', color: '#4b5563', gap: 2 })
+    if (model.meta.phone) push(`Tel: ${model.meta.phone}`, { size: 12, align: 'center', color: '#4b5563', gap: 10 })
+    push(`Sana: ${model.when}`, { size: 13, gap: 3 })
+    push(`Mijoz: ${model.name}`, { size: 13, gap: 3 })
+    if (model.phone) push(`Tel: ${model.phone}`, { size: 13, gap: 3 })
+    if (model.meta.cashier) push(`Kassir: ${model.meta.cashier}`, { size: 13, gap: 10 })
+    push('--------------------------------', { align: 'center', color: '#9ca3af', gap: 8 })
+    model.items.forEach((item) => {
+        const qty = formatQty(item.qty, item.unit)
+        const unit = normalizeUnit(item.unit)
+        const line = (parseFloat(item.price) || 0) * (parseFloat(item.qty) || 0)
+        push(item.name, { bold: true, size: 15, gap: 2 })
+        push(`${qty} ${unit}  ×  ${formatMoney(item.price, model.cur)}`, { size: 13, color: '#4b5563', gap: 2 })
+        push(formatMoney(line, model.cur), { bold: true, size: 14, align: 'right', gap: 10 })
+    })
+    push('--------------------------------', { align: 'center', color: '#9ca3af', gap: 8 })
+    if (model.discount > 0.001 || model.markup > 0.001) {
+        push(`Oraliq: ${formatMoney(model.list, model.cur)}`, { size: 14, gap: 4 })
+    }
+    if (model.discount > 0.001) {
+        const pct = model.discountPct > 0 ? ` ${formatReceiptPct(model.discountPct)}%` : ''
+        push(`Chegirma${pct}: −${formatMoney(model.discount, model.cur)}`, { size: 14, color: '#065f46', gap: 4 })
+    }
+    if (model.markup > 0.001) {
+        const pct = model.markupPct > 0 ? ` ${formatReceiptPct(model.markupPct)}%` : ''
+        push(`Ustama${pct}: +${formatMoney(model.markup, model.cur)}`, { size: 14, color: '#92400e', gap: 4 })
+    }
+    if (model.vatOn) {
+        push(`QQS ${formatReceiptPct(model.vatPct)}%: ${formatMoney(model.vat, model.cur)}`, { size: 14, gap: 4 })
+    }
+    push(`UMUMIY: ${formatMoney(model.grand, model.cur)}`, { bold: true, size: 18, gap: 8 })
+    if (model.cash !== null) {
+        push(`Qabul qilingan: ${formatMoney(model.cash, model.cur)}`, { size: 14, gap: 4 })
+        const diff = model.cash - model.grand
+        if (diff < -0.001) push(`Qarz: ${formatMoney(Math.abs(diff), model.cur)}`, { bold: true, size: 14, color: '#92400e', gap: 8 })
+        else if (diff > 0.001) push(`Qaytim: ${formatMoney(diff, model.cur)}`, { bold: true, size: 14, color: '#047857', gap: 8 })
+        else push('To‘lov: aniq summa', { size: 14, color: '#047857', gap: 8 })
+    } else {
+        push('Naqd summa hali kiritilmagan', { size: 13, color: '#6b7280', gap: 8 })
+    }
+    push('Tasdiqlanguncha bu chek rasmiy emas.', { size: 12, align: 'center', color: '#6b7280', gap: 4 })
+
+    const height = blocks.reduce((sum, block) => sum + block.size + block.gap, pad * 2 + 8)
+    const scale = 2
+    canvas.width = width * scale
+    canvas.height = Math.ceil(height) * scale
+    ctx.setTransform(scale, 0, 0, scale, 0, 0)
+    ctx.fillStyle = '#ffffff'
+    ctx.fillRect(0, 0, width, height)
+    ctx.fillStyle = '#0f766e'
+    ctx.fillRect(0, 0, width, 8)
+    let y = pad + 8
+    blocks.forEach((block) => {
+        ctx.fillStyle = block.color
+        ctx.font = `${block.bold ? '700 ' : ''}${block.size}px sans-serif`
+        ctx.textAlign = block.align
+        ctx.textBaseline = 'top'
+        const x = block.align === 'center' ? width / 2 : (block.align === 'right' ? width - pad : pad)
+        ctx.fillText(block.text, x, y)
+        y += block.size + block.gap
+    })
+    return canvas
+}
+
+function receiptCanvasBlob(model) {
+    const canvas = drawReceiptCanvas(model)
+    return new Promise((resolve) => {
+        canvas.toBlob((blob) => resolve(blob), 'image/png')
+    })
+}
+
+async function shareReceiptPreview() {
+    const model = receiptPreviewModel || buildReceiptPreview()
+    if (!model.items.length) return
+    const text = receiptPlainText(model)
+    const title = `${model.meta.brand || 'Tezkor'} cheki`
+    try {
+        const blob = await receiptCanvasBlob(model)
+        if (blob && navigator.canShare) {
+            const file = new File([blob], 'chek.png', { type: 'image/png' })
+            if (navigator.canShare({ files: [file] })) {
+                await navigator.share({ files: [file], title, text })
+                setReceiptShareStatus('')
+                return
+            }
+        }
+    } catch (error) {
+        if (error && error.name === 'AbortError') return
+    }
+    try {
+        if (navigator.share) {
+            await navigator.share({ title, text })
+            setReceiptShareStatus('')
+            return
+        }
+    } catch (error) {
+        if (error && error.name === 'AbortError') return
+    }
+    let copied = false
+    try {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            await navigator.clipboard.writeText(text)
+            copied = true
+        }
+    } catch (e) {
+        copied = false
+    }
+    try {
+        const blob = await receiptCanvasBlob(model)
+        if (blob) {
+            const url = URL.createObjectURL(blob)
+            const link = document.createElement('a')
+            link.href = url
+            link.download = 'chek.png'
+            document.body.appendChild(link)
+            link.click()
+            link.remove()
+            setTimeout(() => URL.revokeObjectURL(url), 1500)
+        }
+    } catch (e) {}
+    setReceiptShareStatus(copied
+        ? 'Chek rasmi saqlandi, matni nusxalandi.'
+        : 'Chek rasmi saqlandi.')
+}
+
+function printReceiptPreview() {
+    if (!receiptPreviewModel) return
+    document.body.classList.add('printing-receipt')
+    const done = () => document.body.classList.remove('printing-receipt')
+    window.addEventListener('afterprint', done, { once: true })
+    window.print()
+    setTimeout(done, 1200)
+}
+
+function initReceiptPreview() {
+    const openBtn = document.getElementById('preview-receipt-btn')
+    const closeBtn = document.getElementById('receipt-preview-close')
+    const shareBtn = document.getElementById('receipt-share-btn')
+    const printBtn = document.getElementById('receipt-print-btn')
+    const wrap = document.getElementById('receipt-preview')
+    if (openBtn && !openBtn.dataset.bound) {
+        openBtn.dataset.bound = '1'
+        openBtn.addEventListener('click', openReceiptPreview)
+    }
+    if (closeBtn && !closeBtn.dataset.bound) {
+        closeBtn.dataset.bound = '1'
+        closeBtn.addEventListener('click', closeReceiptPreview)
+    }
+    if (shareBtn && !shareBtn.dataset.bound) {
+        shareBtn.dataset.bound = '1'
+        shareBtn.addEventListener('click', () => { shareReceiptPreview() })
+    }
+    if (printBtn && !printBtn.dataset.bound) {
+        printBtn.dataset.bound = '1'
+        printBtn.addEventListener('click', printReceiptPreview)
+    }
+    if (wrap && !wrap.dataset.bound) {
+        wrap.dataset.bound = '1'
+        wrap.addEventListener('click', (event) => {
+            if (event.target.closest('#receipt-sheet') || event.target.closest('#receipt-preview-actions')) return
+            closeReceiptPreview()
+        })
+    }
+    if (!window.__receiptPreviewKeyBound) {
+        window.__receiptPreviewKeyBound = true
+        document.addEventListener('keydown', (event) => {
+            if (event.key !== 'Escape') return
+            const preview = document.getElementById('receipt-preview')
+            if (!preview || preview.classList.contains('hidden')) return
+            event.preventDefault()
+            event.stopPropagation()
+            closeReceiptPreview()
+        }, true)
     }
 }
 
@@ -1406,3 +1879,5 @@ async function processCashPayment(paymentCart, totalAmount, cashReceived, change
         console.error(error)
     }
 }
+
+initReceiptPreview()

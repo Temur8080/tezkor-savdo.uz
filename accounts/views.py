@@ -55,8 +55,7 @@ from django.utils.dateparse import parse_date
 from django.utils.text import slugify
 
 from django.db.models import (
-    Sum, F, ExpressionWrapper, Count, Q, DecimalField,
-    Case, When, Value, IntegerField, Max,
+    Sum, F, ExpressionWrapper, Count, Q, DecimalField, Max,
 )
 from django.db.models.functions import Coalesce
 from django.db import models
@@ -1434,16 +1433,8 @@ def salesDisplay(request):
         debt_base = CustomerDebt.objects.none()
         cash_base = Order.objects.none()
 
-    queryset = queryset.annotate(
-        _await_rank=Case(
-            When(order__order_status='AwaitingApproval', then=Value(0)),
-            default=Value(1),
-            output_field=IntegerField(),
-        )
-    ).order_by('_await_rank', '-order__order_date')
-
     myFilter = salesFilter(request.GET, queryset=queryset)
-    filtered_items = myFilter.qs
+    filtered_items = myFilter.qs.order_by('-order__order_date', '-order_id', '-id')
     debt_order_count = debt_base.exclude(status='Paid').values('order_id').distinct().count()
     cash_sales = cash_base.count()
     usd_rate = AppSettings.get_solo().usd_to_uzs
@@ -1492,10 +1483,10 @@ def export_sales_csv(request):
         except Employee.DoesNotExist:
             queryset = OrderItem.objects.none
 
-    queryset = queryset.order_by('-order__order_date')
-
     myFilter = salesFilter(request.GET, queryset=queryset)
-    filtered_items = myFilter.qs.select_related('order', 'order__customer', 'product', 'order__employee')
+    filtered_items = myFilter.qs.order_by(
+        '-order__order_date', '-order_id', '-id'
+    ).select_related('order', 'order__customer', 'product', 'order__employee')
 
     response = HttpResponse(content_type='text/csv')
     response['Content-Disposition'] = 'attachment; filename="sales_data.csv"'
