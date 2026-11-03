@@ -1,0 +1,181 @@
+{% extends 'accounts/main.html' %}
+{% load money_tags %}
+
+{% block content %}
+<div class="max-w-5xl mx-auto space-y-4">
+    <div class="bg-white border border-gray-200 rounded-lg shadow-sm overflow-hidden">
+        <div class="flex flex-wrap items-start justify-between gap-3 p-4 bg-gray-50 border-b border-gray-200">
+            <div>
+                <p class="text-xs font-semibold uppercase tracking-wide text-gray-500">Mahsulot tarixi</p>
+                <h1 class="text-xl font-bold text-gray-900 mt-0.5">{{ product.product_name }}</h1>
+                <p class="text-sm text-gray-600 mt-1">
+                    {{ inventory.branch.name }} · {{ product.barcode }} · {{ product.category }}
+                </p>
+            </div>
+            <a href="{% url 'branch_inventory' %}"
+               class="px-4 py-2 bg-gray-200 text-gray-700 text-sm rounded-md hover:bg-gray-300 transition">
+                ← Ombor ro‘yxati
+            </a>
+        </div>
+
+        <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 p-4 border-b border-gray-100">
+            <div class="rounded-lg border border-gray-200 bg-white p-3">
+                <p class="text-[11px] font-semibold uppercase text-gray-500">Hozirgi qoldiq</p>
+                {% if inventory.quantity <= 0 %}
+                <p class="mt-1 text-xl font-black text-red-700 tabular-nums">0 {{ product.unit|default:'ta' }}</p>
+                <p class="text-xs text-red-600 font-semibold">Tugagan{% if depleted_at %} · {{ depleted_at.created_at|date:"d.m.Y H:i" }}{% endif %}</p>
+                {% else %}
+                <p class="mt-1 text-xl font-black text-emerald-700 tabular-nums">{{ inventory.quantity|qty }} {{ product.unit|default:'ta' }}</p>
+                <p class="text-xs text-gray-500">Omborda mavjud</p>
+                {% endif %}
+            </div>
+            <div class="rounded-lg border border-gray-200 bg-white p-3">
+                <p class="text-[11px] font-semibold uppercase text-gray-500">Joriy sotish narxi</p>
+                <p class="mt-1 text-xl font-black text-gray-900 tabular-nums">{{ product.base_price|money:product.currency }}</p>
+                {% if product.is_sale_active %}
+                <p class="text-xs text-rose-600 font-semibold">Skidka: {{ product.get_effective_price|money:product.currency }}</p>
+                {% endif %}
+            </div>
+            <div class="rounded-lg border border-gray-200 bg-white p-3">
+                <p class="text-[11px] font-semibold uppercase text-gray-500">Tannarx</p>
+                <p class="mt-1 text-lg font-bold text-gray-800 tabular-nums">{{ product.cost_price|money:product.cost_currency }}</p>
+            </div>
+            <div class="rounded-lg border border-gray-200 bg-white p-3">
+                <p class="text-[11px] font-semibold uppercase text-gray-500">Yetkazib beruvchi</p>
+                <p class="mt-1 text-sm font-semibold text-gray-800">{{ product.supplier }}</p>
+            </div>
+        </div>
+
+        {% if can_edit_price %}
+        <div class="p-4 border-b border-gray-100 bg-slate-50">
+            <h2 class="text-sm font-bold text-gray-900 mb-2">Narxni o‘zgartirish</h2>
+            <p class="text-xs text-gray-500 mb-3">Oshirish, pasaytirish yoki yangi narx belgilash — o‘zgarish tarixga va kim o‘zgartirgani bilan yoziladi.</p>
+            <form method="post" action="{% url 'product_price_change' inventory.id %}" class="flex flex-wrap items-end gap-3">
+                {% csrf_token %}
+                <div class="flex flex-col">
+                    <label class="text-xs font-semibold text-gray-600 mb-1">Amal</label>
+                    <select name="mode" class="px-3 py-2 border border-gray-300 rounded-md text-sm bg-white min-w-[10rem]">
+                        <option value="set">Yangi narx belgilash</option>
+                        <option value="increase">Oshirish (+)</option>
+                        <option value="decrease">Pasaytirish (−)</option>
+                    </select>
+                </div>
+                <div class="flex flex-col">
+                    <label class="text-xs font-semibold text-gray-600 mb-1">Summa ({{ product.currency }})</label>
+                    <input type="number" name="amount" step="0.01" min="0" required
+                           placeholder="{{ product.base_price }}"
+                           class="px-3 py-2 border border-gray-300 rounded-md text-sm w-40 tabular-nums">
+                </div>
+                <div class="flex flex-col flex-grow min-w-[12rem]">
+                    <label class="text-xs font-semibold text-gray-600 mb-1">Izoh (ixtiyoriy)</label>
+                    <input type="text" name="note" maxlength="200" placeholder="Sabab..."
+                           class="px-3 py-2 border border-gray-300 rounded-md text-sm w-full">
+                </div>
+                <button type="submit"
+                        class="px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded-md hover:bg-blue-700 transition">
+                    Saqlash
+                </button>
+            </form>
+        </div>
+        {% endif %}
+    </div>
+
+    <div class="bg-white border border-gray-200 rounded-lg shadow-sm overflow-hidden">
+        <div class="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
+            <h2 class="text-sm font-bold text-gray-900">Amallar tarixi</h2>
+            <span class="text-xs text-gray-500">{{ history.paginator.count }} ta yozuv</span>
+        </div>
+
+        <div class="overflow-x-auto">
+            <table class="w-full text-sm text-left">
+                <thead class="text-xs uppercase text-gray-600 bg-gray-50 text-center">
+                    <tr>
+                        <th class="px-3 py-2">Vaqt</th>
+                        <th class="px-3 py-2">Amal</th>
+                        <th class="px-3 py-2">Miqdor</th>
+                        <th class="px-3 py-2">Qoldiq</th>
+                        <th class="px-3 py-2">Narx</th>
+                        <th class="px-3 py-2">Xodim</th>
+                        <th class="px-3 py-2">Izoh</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-100 text-center">
+                    {% for h in history %}
+                    <tr class="hover:bg-gray-50">
+                        <td class="px-3 py-2.5 whitespace-nowrap text-gray-700 tabular-nums">
+                            {{ h.created_at|date:"d.m.Y" }}<br>
+                            <span class="text-xs text-gray-400">{{ h.created_at|date:"H:i" }}</span>
+                        </td>
+                        <td class="px-3 py-2.5">
+                            {% if h.event_type == 'stock_in' %}
+                            <span class="inline-flex px-2 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800">Kirim</span>
+                            {% elif h.event_type == 'stock_undo' %}
+                            <span class="inline-flex px-2 py-0.5 rounded-full text-xs font-semibold bg-amber-100 text-amber-800">Kirim bekor</span>
+                            {% elif h.event_type == 'sale' %}
+                            <span class="inline-flex px-2 py-0.5 rounded-full text-xs font-semibold bg-blue-100 text-blue-800">Sotuv</span>
+                            {% elif h.event_type == 'return' %}
+                            <span class="inline-flex px-2 py-0.5 rounded-full text-xs font-semibold bg-violet-100 text-violet-800">Qaytarish</span>
+                            {% elif h.event_type == 'adjust' %}
+                            <span class="inline-flex px-2 py-0.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-800">Tahrirlash</span>
+                            {% elif h.event_type == 'price_change' %}
+                            <span class="inline-flex px-2 py-0.5 rounded-full text-xs font-semibold bg-orange-100 text-orange-800">Narx</span>
+                            {% elif h.event_type == 'depleted' %}
+                            <span class="inline-flex px-2 py-0.5 rounded-full text-xs font-semibold bg-red-100 text-red-800">Tugagan</span>
+                            {% else %}
+                            <span class="inline-flex px-2 py-0.5 rounded-full text-xs font-semibold bg-gray-100 text-gray-700">{{ h.get_event_type_display }}</span>
+                            {% endif %}
+                        </td>
+                        <td class="px-3 py-2.5 font-semibold tabular-nums
+                            {% if h.quantity and h.quantity > 0 %}text-emerald-700{% elif h.quantity and h.quantity < 0 %}text-red-700{% else %}text-gray-400{% endif %}">
+                            {% if h.quantity != None %}
+                                {% if h.quantity > 0 %}+{% endif %}{{ h.quantity|qty }}
+                            {% else %}—{% endif %}
+                        </td>
+                        <td class="px-3 py-2.5 tabular-nums text-gray-800">
+                            {% if h.quantity_after != None %}{{ h.quantity_after|qty }}{% else %}—{% endif %}
+                        </td>
+                        <td class="px-3 py-2.5 text-gray-800">
+                            {% if h.event_type == 'price_change' %}
+                            <span class="block text-xs text-gray-400 line-through">{% if h.old_price != None %}{{ h.old_price|money:h.currency }}{% endif %}</span>
+                            <span class="font-semibold text-orange-700">{% if h.new_price != None %}{{ h.new_price|money:h.currency }}{% endif %}</span>
+                            {% elif h.unit_price != None %}
+                            {{ h.unit_price|money:h.currency }}
+                            {% else %}—{% endif %}
+                        </td>
+                        <td class="px-3 py-2.5 text-gray-700">
+                            {% if h.user %}{{ h.user.name }}{% else %}—{% endif %}
+                        </td>
+                        <td class="px-3 py-2.5 text-left text-xs text-gray-600 max-w-[16rem]">
+                            {{ h.note|default:"—" }}
+                            {% if h.order_id %}
+                            <span class="block text-blue-600 mt-0.5">Buyurtma #{{ h.order_id }}</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="7" class="px-4 py-10 text-center text-gray-500">
+                            Hali tarix yozuvlari yo‘q. Kirim, sotuv yoki narx o‘zgarishi paydo bo‘lganda shu yerda ko‘rinadi.
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        {% if history.paginator.num_pages > 1 %}
+        <div class="flex items-center justify-between gap-2 p-3 border-t border-gray-100">
+            <span class="text-xs text-gray-500">Sahifa {{ history.number }} / {{ history.paginator.num_pages }}</span>
+            <div class="inline-flex gap-1">
+                {% if history.has_previous %}
+                <a href="?page={{ history.previous_page_number }}" class="px-3 py-1.5 text-xs font-medium bg-gray-800 text-white rounded-md">Oldingi</a>
+                {% endif %}
+                {% if history.has_next %}
+                <a href="?page={{ history.next_page_number }}" class="px-3 py-1.5 text-xs font-medium bg-gray-800 text-white rounded-md">Keyingi</a>
+                {% endif %}
+            </div>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

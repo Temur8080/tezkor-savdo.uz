@@ -238,7 +238,13 @@ function initPosTerminal() {
             const payCash = cashReceived === null ? total : cashReceived
             const changeGiven = Math.max(0, payCash - total)
 
-            if (cashReceived !== null && cashReceived < total && (!customerData.name || !customerData.phone)) {
+            const recordDebtEl = document.getElementById('record-debt-check')
+            const recordDebt = !!(recordDebtEl && recordDebtEl.checked)
+            if (cashReceived !== null && cashReceived + 0.001 < total && !recordDebt) {
+                alert('Qabul qilingan summa umumiy summadan kam. Bu chegirma emas va qarz ham yozilmaydi. Chegirma uchun maxfiy kod yozing. Qarz bo‘lsa, «Qarzga yozish»ni belgilang.')
+                return
+            }
+            if (recordDebt && cashReceived !== null && cashReceived < total && (!customerData.name || !customerData.phone)) {
                 alert('Qarz uchun mijoz ismi va telefon majburiy')
                 return
             }

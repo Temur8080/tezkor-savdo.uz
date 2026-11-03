@@ -678,6 +678,29 @@ class ProductAdmin(BranchScopedAdminMixin, admin.ModelAdmin):
             del actions['delete_selected']
         return actions
 
+@admin.register(ProductHistory)
+class ProductHistoryAdmin(BranchScopedAdminMixin, admin.ModelAdmin):
+    list_display = (
+        'created_at', 'product', 'branch', 'event_type', 'quantity',
+        'quantity_after', 'old_price', 'new_price', 'user',
+    )
+    list_filter = ('event_type', 'branch', 'created_at')
+    search_fields = ('product__product_name', 'product__barcode', 'note', 'user__name')
+    date_hierarchy = 'created_at'
+    readonly_fields = (
+        'product', 'branch', 'event_type', 'quantity', 'quantity_after',
+        'unit_price', 'old_price', 'new_price', 'currency', 'order', 'user',
+        'note', 'created_at',
+    )
+    branch_lookup = 'branch'
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+
 @admin.register(BranchInventory)
 class BranchInventoryAdmin(BranchScopedAdminMixin, admin.ModelAdmin):
     list_display = ('branch', 'product', 'product__category', 'quantity_display', 'get_is_active')

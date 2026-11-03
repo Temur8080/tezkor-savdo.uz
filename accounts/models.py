@@ -692,6 +692,132 @@ class BranchInventory(models.Model):
     def __str__(self):
         return f"{self.branch} | {self.product} | {self.quantity}"
 
+
+class ProductHistory(models.Model):
+    """Mahsulot bo‘yicha ombor kirimi, sotuv, qaytarish va narx o‘zgarishlari tarixi."""
+
+    EVENT_STOCK_IN = 'stock_in'
+    EVENT_STOCK_UNDO = 'stock_undo'
+    EVENT_SALE = 'sale'
+    EVENT_RETURN = 'return'
+    EVENT_ADJUST = 'adjust'
+    EVENT_PRICE_CHANGE = 'price_change'
+    EVENT_DEPLETED = 'depleted'
+    EVENT_CHOICES = (
+        (EVENT_STOCK_IN, 'Ombor kirimi'),
+        (EVENT_STOCK_UNDO, 'Kirim bekor'),
+        (EVENT_SALE, 'Sotuv'),
+        (EVENT_RETURN, 'Qaytarish'),
+        (EVENT_ADJUST, 'Qoldiq tahrirlash'),
+        (EVENT_PRICE_CHANGE, 'Narx o‘zgarishi'),
+        (EVENT_DEPLETED, 'Tugagan'),
+    )
+
+    product = models.ForeignKey(
+        Product, on_delete=models.CASCADE, related_name='history', verbose_name='Mahsulot'
+    )
+    branch = models.ForeignKey(
+        Branch, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='product_history', verbose_name='Filial',
+    )
+    event_type = models.CharField('Amal turi', max_length=20, choices=EVENT_CHOICES)
+    quantity = models.DecimalField(
+        'Miqdor o‘zgarishi', max_digits=12, decimal_places=3, null=True, blank=True,
+        help_text='+ kirim, − chiqim',
+    )
+    quantity_after = models.DecimalField(
+        'Qoldiq (keyin)', max_digits=12, decimal_places=3, null=True, blank=True,
+    )
+    unit_price = models.DecimalField(
+        'Birlik narxi', max_digits=14, decimal_places=2, null=True, blank=True,
+    )
+    old_price = models.DecimalField(
+        'Eski narx', max_digits=14, decimal_places=2, null=True, blank=True,
+    )
+    new_price = models.DecimalField(
+        'Yangi narx', max_digits=14, decimal_places=2, null=True, blank=True,
+    )
+    currency = models.CharField(
+        'Valyuta', max_length=3, choices=CURRENCY_CHOICES, blank=True, default='',
+    )
+    order = models.ForeignKey(
+        'Order', on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='product_history', verbose_name='Buyurtma',
+    )
+    user = models.ForeignKey(
+        'Employee', on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='product_history', verbose_name='Xodim',
+    )
+    note = models.CharField('Izoh', max_length=255, blank=True, default='')
+    created_at = models.DateTimeField('Vaqt', auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ['-created_at', '-id']
+        verbose_name = 'Mahsulot tarixi'
+        verbose_name_plural = 'Mahsulot tarixi'
+        indexes = [
+            models.Index(fields=['product', '-created_at']),
+            models.Index(fields=['branch', 'product', '-created_at']),
+        ]
+
+    def __str__(self):
+        return f"{self.product_id} · {self.event_type} · {self.created_at}"
+
+    @classmethod
+    def log(
+        cls,
+        *,
+        product,
+        event_type,
+        branch=None,
+        quantity=None,
+        quantity_after=None,
+        unit_price=None,
+        old_price=None,
+        new_price=None,
+        currency=None,
+        order=None,
+        user=None,
+        note='',
+        also_depleted=False,
+    ):
+        """Yozuv yaratadi; qoldiq 0 ga tushsa ixtiyoriy «tugagan» yozuvi ham qo‘shiladi."""
+        cur = currency or getattr(product, 'currency', None) or CURRENCY_UZS
+        entry = cls.objects.create(
+            product=product,
+            branch=branch,
+            event_type=event_type,
+            quantity=quantity,
+            quantity_after=quantity_after,
+            unit_price=unit_price,
+            old_price=old_price,
+            new_price=new_price,
+            currency=cur,
+            order=order,
+            user=user,
+            note=(note or '')[:255],
+        )
+        if (
+            also_depleted
+            and quantity_after is not None
+            and quantity_after <= 0
+            and event_type != cls.EVENT_DEPLETED
+        ):
+            cls.objects.create(
+                product=product,
+                branch=branch,
+                event_type=cls.EVENT_DEPLETED,
+                quantity=None,
+                quantity_after=quantity_after,
+                unit_price=unit_price or getattr(product, 'base_price', None),
+                currency=cur,
+                order=order,
+                user=user,
+                note='Omborda qoldiq tugadi',
+            )
+        return entry
+
+
 class Order(models.Model):
     ORDER_STATUS = (
         ('AwaitingApproval', 'Tasdiqlash kutilmoqda'),
