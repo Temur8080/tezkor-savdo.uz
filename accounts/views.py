@@ -561,10 +561,38 @@ def product_history(request, pk):
             | models.Q(event_type=ProductHistory.EVENT_PRICE_CHANGE)
         )
         .select_related('user', 'branch', 'order')
-        .order_by('-created_at', '-id')
     )
 
-    paginator = Paginator(history_qs, 50)
+    # Jadvaldagi qoldiq faqat KO‘RSATILADIGAN amallar bo‘yicha hisoblansin
+    # (yashirilgan bron/ushlash auditdagi «after» ni buzib yuboradi).
+    type_order = {
+        ProductHistory.EVENT_STOCK_IN: 0,
+        ProductHistory.EVENT_RETURN: 1,
+        ProductHistory.EVENT_SALE: 2,
+        ProductHistory.EVENT_DEPLETED: 3,
+        ProductHistory.EVENT_PRICE_CHANGE: 4,
+    }
+    events = list(history_qs)
+    events.sort(key=lambda e: (e.created_at, type_order.get(e.event_type, 9), e.id))
+    running = Decimal('0')
+    for e in events:
+        if (
+            e.event_type in (
+                ProductHistory.EVENT_STOCK_IN,
+                ProductHistory.EVENT_SALE,
+                ProductHistory.EVENT_RETURN,
+            )
+            and e.quantity is not None
+        ):
+            running += e.quantity
+            if running < 0:
+                running = Decimal('0')
+        if e.event_type == ProductHistory.EVENT_DEPLETED:
+            running = Decimal('0')
+        e.display_qty_after = running
+
+    events_desc = list(reversed(events))
+    paginator = Paginator(events_desc, 50)
     page_obj = paginator.get_page(request.GET.get('page') or 1)
 
     depleted_at = (
