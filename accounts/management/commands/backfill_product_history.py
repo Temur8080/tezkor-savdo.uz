@@ -1,4 +1,8 @@
-"""Mavjud sotuv / audit / ombor yozuvlaridan ProductHistory ni tiklash."""
+"""Mavjud sotuv / audit / ombor yozuvlaridan ProductHistory ni tiklash.
+
+Faqat muhim amallar: kirim, sotuv, qaytarish, narx o‘zgarishi, tugagan.
+Vaqtinchalik qoldiq ushlab turish / qo‘lda tahrir shovqini yozilmaydi.
+"""
 
 from __future__ import annotations
 
@@ -8,6 +12,7 @@ from decimal import Decimal, InvalidOperation
 from django.contrib.contenttypes.models import ContentType
 from django.core.management.base import BaseCommand
 from django.db import transaction
+
 from accounts.models import (
     AuditTrail,
     BranchInventory,
@@ -37,7 +42,7 @@ def _set_created_at(pk, when):
 
 
 class Command(BaseCommand):
-    help = 'Mahsulot tarixini sotuv, qaytarish va audit yozuvlaridan tiklaydi'
+    help = 'Mahsulot tarixini sotuv, qaytarish va audit yozuvlaridan tiklaydi (faqat muhim amallar)'
 
     def add_arguments(self, parser):
         parser.add_argument(
@@ -55,8 +60,8 @@ class Command(BaseCommand):
         force = options['force']
         dry = options['dry_run']
 
-        existing_live = ProductHistory.objects.exclude(note__startswith=BACKFILL_TAG).count()
         existing_backfill = ProductHistory.objects.filter(note__startswith=BACKFILL_TAG).count()
+        existing_live = ProductHistory.objects.exclude(note__startswith=BACKFILL_TAG).count()
 
         if existing_backfill and not force:
             self.stdout.write(self.style.WARNING(
@@ -85,18 +90,17 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS(
             f'Tayyor: {created} ta yozuv'
             + (' (dry-run)' if dry else '')
-            + (f'; jonli yozuvlar saqlanadi: {existing_live}' if existing_live else '')
+            + (f'; jonli yozuvlar: {existing_live}' if existing_live else '')
         ))
 
     def _backfill_stock_audits(self, *, dry: bool) -> int:
-        """BranchInventory audit: +kirim, −sotuv/tahrir; sotuvni OrderItem bilan bog‘laydi."""
+        """Kirim + sotuv (audit); bron/tahrir juftliklari tashlab ketiladi."""
         ct = ContentType.objects.get_for_model(BranchInventory)
         inv_map = {
             inv.id: inv
             for inv in BranchInventory.objects.select_related('product', 'branch')
         }
 
-        # Sotuvlarni (product, branch, qty, time) bo‘yicha bog‘lash uchun indeks
         sale_index = []
         for oi in (
             OrderItem.objects
@@ -112,14 +116,14 @@ class Command(BaseCommand):
                 'used': False,
             })
 
-        created = 0
+        # 1) Barcha miqdor o‘zgarishlarini yig‘ish
+        moves = []
         audits = (
             AuditTrail.objects
             .filter(content_type=ct)
             .select_related('user')
             .order_by('timestamp', 'id')
         )
-
         for audit in audits:
             inv = inv_map.get(audit.object_id)
             if not inv:
@@ -142,56 +146,91 @@ class Command(BaseCommand):
             if old_q is None or new_q is None:
                 continue
             delta = new_q - old_q
-            if delta == 0 and audit.action != 'CREATE':
-                continue
-            # CREATE + 0 — keyin UPDATE bo‘ladi, shovqinni o‘tkazib yuboramiz
             if audit.action == 'CREATE' and new_q == 0:
                 continue
+            if delta == 0:
+                continue
 
-            matched_sale = None
-            if delta < 0:
-                need = -delta
-                window = timedelta(seconds=5)
-                for slot in sale_index:
-                    if slot['used']:
-                        continue
-                    if slot['product_id'] != inv.product_id or slot['branch_id'] != inv.branch_id:
-                        continue
-                    if slot['qty'] != need:
-                        continue
-                    if slot['when'] is None:
-                        continue
-                    if abs(slot['when'] - audit.timestamp) <= window:
-                        matched_sale = slot
-                        slot['used'] = True
-                        break
+            moves.append({
+                'audit': audit,
+                'inv': inv,
+                'delta': delta,
+                'new_q': new_q,
+                'skip': False,
+                'sale': None,
+            })
+
+        # 2) Sotuvlarga bog‘lash
+        for move in moves:
+            if move['delta'] >= 0:
+                continue
+            need = -move['delta']
+            window = timedelta(seconds=5)
+            inv = move['inv']
+            for slot in sale_index:
+                if slot['used']:
+                    continue
+                if slot['product_id'] != inv.product_id or slot['branch_id'] != inv.branch_id:
+                    continue
+                if slot['qty'] != need or slot['when'] is None:
+                    continue
+                if abs(slot['when'] - move['audit'].timestamp) <= window:
+                    move['sale'] = slot
+                    slot['used'] = True
+                    break
+
+        # 3) Sotuv bo‘lmagan −/+ juftliklarni (bron ushlash/qaytarish) o‘chirish
+        pair_window = timedelta(hours=6)
+        for i, move in enumerate(moves):
+            if move['skip'] or move['sale'] or move['delta'] >= 0:
+                continue
+            abs_d = -move['delta']
+            inv = move['inv']
+            for j in range(i + 1, len(moves)):
+                nxt = moves[j]
+                if nxt['skip'] or nxt['sale']:
+                    continue
+                if nxt['inv'].id != inv.id:
+                    continue
+                if nxt['audit'].timestamp - move['audit'].timestamp > pair_window:
+                    break
+                if nxt['delta'] == abs_d:
+                    move['skip'] = True
+                    nxt['skip'] = True
+                    break
+
+        # 4) Faqat kirim va sotuvni yozish; bog‘lanmagan − ni tashlash
+        created = 0
+        for move in moves:
+            if move['skip']:
+                continue
+            delta = move['delta']
+            if delta < 0 and not move['sale']:
+                continue
+
+            audit = move['audit']
+            inv = move['inv']
+            new_q = move['new_q']
 
             if delta > 0:
                 event = ProductHistory.EVENT_STOCK_IN
-                note = f'{BACKFILL_TAG} Ombor kirimi (audit)'
+                note = f'{BACKFILL_TAG} Ombor kirimi'
                 order = None
                 user = audit.user
                 unit_price = inv.product.base_price
                 currency = inv.product.currency
-            elif matched_sale:
+            else:
+                oi = move['sale']['oi']
                 event = ProductHistory.EVENT_SALE
-                oi = matched_sale['oi']
                 note = f'{BACKFILL_TAG} Sotuv #{oi.order_id}'
                 order = oi.order
                 user = oi.order.employee or audit.user
                 unit_price = oi.unit_price
                 currency = oi.order.currency or inv.product.currency
-            else:
-                event = ProductHistory.EVENT_ADJUST
-                note = f'{BACKFILL_TAG} Qoldiq o‘zgarishi (audit)'
-                order = None
-                user = audit.user
-                unit_price = inv.product.base_price
-                currency = inv.product.currency
 
             if dry:
                 created += 1
-                if new_q <= 0 and delta < 0:
+                if new_q <= 0 and event == ProductHistory.EVENT_SALE:
                     created += 1
                 continue
 
@@ -199,7 +238,7 @@ class Command(BaseCommand):
                 product=inv.product,
                 branch=inv.branch,
                 event_type=event,
-                quantity=delta if delta != 0 else None,
+                quantity=delta,
                 quantity_after=new_q,
                 unit_price=unit_price,
                 currency=currency or '',
@@ -210,7 +249,7 @@ class Command(BaseCommand):
             _set_created_at(row.pk, audit.timestamp)
             created += 1
 
-            if new_q <= 0 and delta < 0:
+            if new_q <= 0 and event == ProductHistory.EVENT_SALE:
                 dep = ProductHistory.objects.create(
                     product=inv.product,
                     branch=inv.branch,
@@ -227,12 +266,10 @@ class Command(BaseCommand):
                 created += 1
 
         self.stdout.write(f'  stock/audit: {created}')
-        # orphan sales for later method — store unused on self
         self._unused_sales = [s for s in sale_index if not s['used']]
         return created
 
     def _backfill_orphan_sales(self, *, dry: bool) -> int:
-        """Auditga bog‘lanmagan sotuvlar."""
         unused = getattr(self, '_unused_sales', [])
         created = 0
         for slot in unused:
@@ -252,7 +289,7 @@ class Command(BaseCommand):
                 currency=order.currency or getattr(oi.product, 'currency', '') or '',
                 order=order,
                 user=order.employee,
-                note=f'{BACKFILL_TAG} Sotuv #{order.id} (buyurtmadan)',
+                note=f'{BACKFILL_TAG} Sotuv #{order.id}',
             )
             _set_created_at(row.pk, order.order_date)
             created += 1
@@ -264,7 +301,10 @@ class Command(BaseCommand):
         qs = (
             SaleReturnItem.objects
             .filter(sale_return__is_active=True, sale_return__status='Completed')
-            .select_related('sale_return', 'product', 'sale_return__branch', 'sale_return__employee', 'sale_return__order')
+            .select_related(
+                'sale_return', 'product', 'sale_return__branch',
+                'sale_return__employee', 'sale_return__order',
+            )
         )
         for item in qs:
             ret = item.sale_return
@@ -304,22 +344,20 @@ class Command(BaseCommand):
             if not product:
                 continue
             log = audit.change_log or {}
+            if 'base_price' not in log:
+                continue
             price_change = log.get('base_price')
-            if not isinstance(price_change, dict):
-                # ba’zan faqat yangi qiymat bo‘lishi mumkin
-                if 'base_price' not in log:
-                    continue
-                old_p = None
-                new_p = _dec(price_change)
-            else:
+            if isinstance(price_change, dict):
                 old_p = _dec(price_change.get('old'))
                 new_p = _dec(price_change.get('new'))
+            else:
+                old_p = None
+                new_p = _dec(price_change)
             if new_p is None:
                 continue
             if old_p is not None and old_p == new_p:
                 continue
 
-            # Filial: birinchi inventar (narx mahsulot darajasida)
             inv = (
                 BranchInventory.objects
                 .filter(product=product)
@@ -340,7 +378,7 @@ class Command(BaseCommand):
                 unit_price=new_p,
                 currency=product.currency or '',
                 user=audit.user,
-                note=f'{BACKFILL_TAG} Narx o‘zgarishi (audit)',
+                note=f'{BACKFILL_TAG} Narx o‘zgarishi',
             )
             _set_created_at(row.pk, audit.timestamp)
             created += 1

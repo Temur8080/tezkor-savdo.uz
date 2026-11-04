@@ -509,20 +509,6 @@ def inventory_update(request, pk):
                     user=emp,
                     note=f'Ombor tahriri: {format_money(old_price, old_currency)} → {format_money(product.base_price, product.currency)}',
                 )
-            if new_qty != old_qty:
-                delta = new_qty - old_qty
-                ProductHistory.log(
-                    product=product,
-                    branch=inventory.branch,
-                    event_type=ProductHistory.EVENT_ADJUST,
-                    quantity=delta,
-                    quantity_after=new_qty,
-                    unit_price=product.base_price,
-                    currency=product.currency,
-                    user=emp,
-                    note=f'Qoldiq qo‘lda: {format_qty(old_qty)} → {format_qty(new_qty)}',
-                    also_depleted=True,
-                )
             messages.success(
                 request,
                 f"«{inventory.product.product_name}» ma’lumotlari yangilandi "
@@ -559,10 +545,17 @@ def product_history(request, pk):
             raise PermissionDenied('Bu filial omborini ko‘rish huquqi yo‘q')
 
     product = inventory.product
-    # Shu filial kirim/sotuvlari + barcha narx o‘zgarishlari
+    # Faqat muhim amallar: kirim, sotuv, qaytarish, narx, tugagan
+    meaningful = (
+        ProductHistory.EVENT_STOCK_IN,
+        ProductHistory.EVENT_SALE,
+        ProductHistory.EVENT_RETURN,
+        ProductHistory.EVENT_PRICE_CHANGE,
+        ProductHistory.EVENT_DEPLETED,
+    )
     history_qs = (
         ProductHistory.objects
-        .filter(product=product)
+        .filter(product=product, event_type__in=meaningful)
         .filter(
             models.Q(branch_id=inventory.branch_id)
             | models.Q(event_type=ProductHistory.EVENT_PRICE_CHANGE)
