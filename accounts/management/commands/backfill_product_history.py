@@ -13,12 +13,15 @@ from django.contrib.contenttypes.models import ContentType
 from django.core.management.base import BaseCommand
 from django.db import transaction
 
+from django.db.models import Sum
+
 from accounts.models import (
     AuditTrail,
     BranchInventory,
     OrderItem,
     Product,
     ProductHistory,
+    ProductReservationItem,
     SaleReturnItem,
 )
 
@@ -196,6 +199,32 @@ class Command(BaseCommand):
                     move['skip'] = True
                     nxt['skip'] = True
                     break
+
+        # 3b) Hali yopilmagan faol bron: qaytarish yo‘q, lekin mahsulot do‘konda turibdi
+        active_held = {}
+        for row in (
+            ProductReservationItem.objects
+            .filter(reservation__status='Active', reservation__stock_held=True)
+            .values('product_id', 'reservation__branch_id')
+            .annotate(total=Sum('quantity'))
+        ):
+            active_held[(row['product_id'], row['reservation__branch_id'])] = row['total'] or Decimal('0')
+
+        for inv_id, inv in inv_map.items():
+            remain = active_held.get((inv.product_id, inv.branch_id), Decimal('0'))
+            if remain <= 0:
+                continue
+            for move in reversed(moves):
+                if remain <= 0:
+                    break
+                if move['skip'] or move['sale'] or move['inv'].id != inv_id:
+                    continue
+                if move['delta'] >= 0:
+                    continue
+                need = -move['delta']
+                if need <= remain:
+                    move['skip'] = True
+                    remain -= need
 
         # 4) Kirim, sotuv, va qaytib kelmagan doimiy kamayishlar (bron juftligi emas)
         created = 0
