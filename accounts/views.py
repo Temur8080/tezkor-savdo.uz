@@ -545,13 +545,14 @@ def product_history(request, pk):
             raise PermissionDenied('Bu filial omborini ko‘rish huquqi yo‘q')
 
     product = inventory.product
-    # Faqat muhim amallar: kirim, sotuv, qaytarish, narx, tugagan
+    # Kirim, sotuv, qaytarish, narx, tugagan + sotuvsiz doimiy kamayish
     meaningful = (
         ProductHistory.EVENT_STOCK_IN,
         ProductHistory.EVENT_SALE,
         ProductHistory.EVENT_RETURN,
         ProductHistory.EVENT_PRICE_CHANGE,
         ProductHistory.EVENT_DEPLETED,
+        ProductHistory.EVENT_ADJUST,
     )
     history_qs = (
         ProductHistory.objects
@@ -564,13 +565,14 @@ def product_history(request, pk):
     )
 
     # Jadvaldagi qoldiq faqat KO‘RSATILADIGAN amallar bo‘yicha hisoblansin
-    # (yashirilgan bron/ushlash auditdagi «after» ni buzib yuboradi).
+    # (vaqtinchalik bron juftliklari backfillda allaqachon tashlab ketilgan).
     type_order = {
         ProductHistory.EVENT_STOCK_IN: 0,
         ProductHistory.EVENT_RETURN: 1,
         ProductHistory.EVENT_SALE: 2,
-        ProductHistory.EVENT_DEPLETED: 3,
-        ProductHistory.EVENT_PRICE_CHANGE: 4,
+        ProductHistory.EVENT_ADJUST: 3,
+        ProductHistory.EVENT_DEPLETED: 4,
+        ProductHistory.EVENT_PRICE_CHANGE: 5,
     }
     events = list(history_qs)
     events.sort(key=lambda e: (e.created_at, type_order.get(e.event_type, 9), e.id))
@@ -581,6 +583,7 @@ def product_history(request, pk):
                 ProductHistory.EVENT_STOCK_IN,
                 ProductHistory.EVENT_SALE,
                 ProductHistory.EVENT_RETURN,
+                ProductHistory.EVENT_ADJUST,
             )
             and e.quantity is not None
         ):
@@ -606,6 +609,20 @@ def product_history(request, pk):
         .first()
     )
 
+    reserved_qty = (
+        ProductReservationItem.objects
+        .filter(
+            product=product,
+            reservation__branch=inventory.branch,
+            reservation__status='Active',
+            reservation__stock_held=True,
+        )
+        .aggregate(total=models.Sum('quantity'))
+        .get('total')
+    ) or Decimal('0')
+    available_qty = inventory.quantity or Decimal('0')
+    physical_qty = available_qty + reserved_qty
+
     can_edit_price = has_portal_cap(request.user, 'btn_product_edit')
 
     return render(request, 'accounts/product_history.html', {
@@ -615,6 +632,9 @@ def product_history(request, pk):
         'depleted_at': depleted_at,
         'can_edit_price': can_edit_price,
         'is_manager': _is_inventory_manager(request.user),
+        'available_qty': available_qty,
+        'reserved_qty': reserved_qty,
+        'physical_qty': physical_qty,
     })
 
 

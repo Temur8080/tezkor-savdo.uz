@@ -197,14 +197,12 @@ class Command(BaseCommand):
                     nxt['skip'] = True
                     break
 
-        # 4) Faqat haqiqiy kirim va sotuv; bog‘lanmagan − ni tashlash
+        # 4) Kirim, sotuv, va qaytib kelmagan doimiy kamayishlar (bron juftligi emas)
         created = 0
         for move in moves:
             if move['skip']:
                 continue
             delta = move['delta']
-            if delta < 0 and not move['sale']:
-                continue
 
             audit = move['audit']
             inv = move['inv']
@@ -217,7 +215,7 @@ class Command(BaseCommand):
                 user = audit.user
                 unit_price = inv.product.base_price
                 currency = inv.product.currency
-            else:
+            elif move['sale']:
                 oi = move['sale']['oi']
                 event = ProductHistory.EVENT_SALE
                 note = f'{BACKFILL_TAG} Sotuv #{oi.order_id}'
@@ -225,6 +223,14 @@ class Command(BaseCommand):
                 user = oi.order.employee or audit.user
                 unit_price = oi.unit_price
                 currency = oi.order.currency or inv.product.currency
+            else:
+                # Sotuv ham, bron juftligi ham emas — tarixda ko‘rinsin (hisob to‘g‘ri bo‘lishi uchun)
+                event = ProductHistory.EVENT_ADJUST
+                note = f'{BACKFILL_TAG} Sotuvsiz qoldiq kamayishi'
+                order = None
+                user = audit.user
+                unit_price = inv.product.base_price
+                currency = inv.product.currency
 
             if dry:
                 created += 1

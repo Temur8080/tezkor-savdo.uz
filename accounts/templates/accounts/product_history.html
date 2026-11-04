@@ -18,16 +18,26 @@
             </a>
         </div>
 
-        <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 p-4 border-b border-gray-100">
-            <div class="rounded-lg border border-gray-200 bg-white p-3">
-                <p class="text-[11px] font-semibold uppercase text-gray-500">Hozirgi qoldiq</p>
-                {% if inventory.quantity <= 0 %}
+        <div class="grid grid-cols-2 lg:grid-cols-5 gap-3 p-4 border-b border-gray-100">
+            <div class="rounded-lg border border-emerald-200 bg-white p-3">
+                <p class="text-[11px] font-semibold uppercase text-gray-500">Sotishga mavjud</p>
+                {% if available_qty <= 0 %}
                 <p class="mt-1 text-xl font-black text-red-700 tabular-nums">0 {{ product.unit|default:'ta' }}</p>
                 <p class="text-xs text-red-600 font-semibold">Tugagan{% if depleted_at %} · {{ depleted_at.created_at|date:"d.m.Y H:i" }}{% endif %}</p>
                 {% else %}
-                <p class="mt-1 text-xl font-black text-emerald-700 tabular-nums">{{ inventory.quantity|qty }} {{ product.unit|default:'ta' }}</p>
-                <p class="text-xs text-gray-500">Omborda mavjud</p>
+                <p class="mt-1 text-xl font-black text-emerald-700 tabular-nums">{{ available_qty|qty }} {{ product.unit|default:'ta' }}</p>
+                <p class="text-xs text-gray-500">Bronsiz qoldiq</p>
                 {% endif %}
+            </div>
+            <div class="rounded-lg border border-amber-200 bg-white p-3">
+                <p class="text-[11px] font-semibold uppercase text-gray-500">Bronda</p>
+                <p class="mt-1 text-xl font-black text-amber-700 tabular-nums">{{ reserved_qty|qty }} {{ product.unit|default:'ta' }}</p>
+                <p class="text-xs text-gray-500">Ushlab turilgan</p>
+            </div>
+            <div class="rounded-lg border border-slate-200 bg-white p-3">
+                <p class="text-[11px] font-semibold uppercase text-gray-500">Jami omborda</p>
+                <p class="mt-1 text-xl font-black text-slate-900 tabular-nums">{{ physical_qty|qty }} {{ product.unit|default:'ta' }}</p>
+                <p class="text-xs text-gray-500">Mavjud + bron</p>
             </div>
             <div class="rounded-lg border border-gray-200 bg-white p-3">
                 <p class="text-[11px] font-semibold uppercase text-gray-500">Joriy sotish narxi</p>
@@ -37,12 +47,9 @@
                 {% endif %}
             </div>
             <div class="rounded-lg border border-gray-200 bg-white p-3">
-                <p class="text-[11px] font-semibold uppercase text-gray-500">Tannarx</p>
+                <p class="text-[11px] font-semibold uppercase text-gray-500">Tannarx · yetkazuvchi</p>
                 <p class="mt-1 text-lg font-bold text-gray-800 tabular-nums">{{ product.cost_price|money:product.cost_currency }}</p>
-            </div>
-            <div class="rounded-lg border border-gray-200 bg-white p-3">
-                <p class="text-[11px] font-semibold uppercase text-gray-500">Yetkazib beruvchi</p>
-                <p class="mt-1 text-sm font-semibold text-gray-800">{{ product.supplier }}</p>
+                <p class="text-xs text-gray-600 mt-0.5">{{ product.supplier }}</p>
             </div>
         </div>
 
@@ -115,6 +122,8 @@
                             <span class="inline-flex px-2 py-0.5 rounded-full text-xs font-semibold bg-blue-100 text-blue-800">Sotuv</span>
                             {% elif h.event_type == 'return' %}
                             <span class="inline-flex px-2 py-0.5 rounded-full text-xs font-semibold bg-violet-100 text-violet-800">Qaytarish</span>
+                            {% elif h.event_type == 'adjust' %}
+                            <span class="inline-flex px-2 py-0.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-800">Kamayish</span>
                             {% elif h.event_type == 'price_change' %}
                             <span class="inline-flex px-2 py-0.5 rounded-full text-xs font-semibold bg-orange-100 text-orange-800">Narx</span>
                             {% elif h.event_type == 'depleted' %}
