@@ -179,8 +179,8 @@ class Command(BaseCommand):
                     slot['used'] = True
                     break
 
-        # 3) Sotuv bo‘lmagan −/+ juftliklarni (bron ushlash/qaytarish) o‘chirish
-        pair_window = timedelta(hours=6)
+        # 3) Sotuv bo‘lmagan −/+ juftliklarni (bron ushlash/qaytarish) o‘chirish.
+        # Vaqt cheklovisiz FIFO: aks holda ertasi kungi qaytarish «ikkinchi kirim» bo‘lib qoladi.
         for i, move in enumerate(moves):
             if move['skip'] or move['sale'] or move['delta'] >= 0:
                 continue
@@ -192,14 +192,12 @@ class Command(BaseCommand):
                     continue
                 if nxt['inv'].id != inv.id:
                     continue
-                if nxt['audit'].timestamp - move['audit'].timestamp > pair_window:
-                    break
                 if nxt['delta'] == abs_d:
                     move['skip'] = True
                     nxt['skip'] = True
                     break
 
-        # 4) Faqat kirim va sotuvni yozish; bog‘lanmagan − ni tashlash
+        # 4) Faqat haqiqiy kirim va sotuv; bog‘lanmagan − ni tashlash
         created = 0
         for move in moves:
             if move['skip']:
