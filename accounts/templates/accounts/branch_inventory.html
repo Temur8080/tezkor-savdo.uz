@@ -222,6 +222,16 @@
                                     <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
                                 </svg>
                             </a>
+                            {% if 'inventory_intake' in portal_caps or 'btn_product_edit' in portal_caps %}
+                            <a href="{% url 'inventory_intake' %}?barcode={{ i.product.barcode|urlencode }}{% if is_manager %}&branch_id={{ i.branch_id }}{% endif %}"
+                               title="{% if i.quantity <= 0 %}Qayta kirim{% else %}Ombor kirimi{% endif %}"
+                               class="inline-flex items-center justify-center w-9 h-9 rounded-md border border-emerald-200 text-emerald-700 bg-emerald-50 hover:bg-emerald-600 hover:text-white transition"
+                               aria-label="Kirim">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+                                </svg>
+                            </a>
+                            {% endif %}
                             {% if 'btn_product_edit' in portal_caps %}
                             <a href="{% url 'inventory_update' i.id %}"
                                title="Qoldiqni tahrirlash"

@@ -707,4 +707,20 @@
     } catch (e) {
         console.error(e)
     }
+
+    // Ombor ro‘yxati / tarixdan «Kirim» → ?barcode=...&branch_id=...
+    try {
+        const params = new URLSearchParams(window.location.search || '')
+        const branchPrefill = (params.get('branch_id') || '').trim()
+        if (branchPrefill && branchSelect && branchSelect.tagName === 'SELECT') {
+            branchSelect.value = branchPrefill
+        }
+        const prefill = (params.get('barcode') || '').trim()
+        if (prefill) {
+            barcodeInput.value = prefill
+            setTimeout(() => lookupBarcode(prefill), 100)
+        }
+    } catch (e) {
+        console.error(e)
+    }
 })()

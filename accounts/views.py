@@ -25,7 +25,7 @@ from .admin_branch import (
     scope_queryset_by_branch,
     user_can_access_branch,
 )
-from .models import Product, Employee, Branch, BranchInventory, ProductHistory, Customer, Order, OrderItem, Payment, CashPayment, \
+from .models import Product, Employee, Branch, BranchInventory, Customer, Order, OrderItem, Payment, CashPayment, \
     Invoice, WarrantyClaims, DefectiveInventory, ReplacementRecord, AuditTrail, \
     Organization, Supplier, ProductCategory, AppSettings, CustomerDebt, DebtPayment, Expense, PriceTier, \
     SalesAgent, ProductReservation, ProductReservationItem, SaleReturn, SaleReturnItem
@@ -236,18 +236,6 @@ def _execute_sale_return(*, order, employee, lines, reason=''):
         )
         inventory.quantity = (inventory.quantity or Decimal('0')) + qty
         inventory.save(update_fields=['quantity'])
-        ProductHistory.log(
-            product=locked_oi.product,
-            branch=order.branch,
-            event_type=ProductHistory.EVENT_RETURN,
-            quantity=qty,
-            quantity_after=inventory.quantity,
-            unit_price=locked_oi.unit_price,
-            currency=order.currency,
-            order=order,
-            user=employee,
-            note=f'Qaytarish · {receipt_number}',
-        )
 
     if debt_reduced > 0 and debt:
         debt = CustomerDebt.objects.select_for_update().get(pk=debt.pk)
@@ -507,7 +495,33 @@ def inventory_update(request, pk):
                     unit_price=product.base_price,
                     currency=product.currency,
                     user=emp,
-                    note=f'Ombor tahriri: {format_money(old_price, old_currency)} → {format_money(product.base_price, product.currency)}',
+                    note=f'Tahrirlash: {format_money(old_price, old_currency)} → {format_money(product.base_price, product.currency)}',
+                )
+            delta = new_qty - old_qty
+            if delta > 0:
+                ProductHistory.log(
+                    product=product,
+                    branch=inventory.branch,
+                    event_type=ProductHistory.EVENT_STOCK_IN,
+                    quantity=delta,
+                    quantity_after=new_qty,
+                    unit_price=product.base_price,
+                    currency=product.currency,
+                    user=emp,
+                    note=f'Tahrirlash orqali kirim: +{format_qty(delta)}',
+                )
+            elif delta < 0:
+                ProductHistory.log(
+                    product=product,
+                    branch=inventory.branch,
+                    event_type=ProductHistory.EVENT_ADJUST,
+                    quantity=delta,
+                    quantity_after=new_qty,
+                    unit_price=product.base_price,
+                    currency=product.currency,
+                    user=emp,
+                    note=f'Tahrirlash: {format_qty(old_qty)} → {format_qty(new_qty)}',
+                    also_depleted=True,
                 )
             messages.success(
                 request,
@@ -525,197 +539,6 @@ def inventory_update(request, pk):
         'usd_rate': str(AppSettings.get_solo().usd_to_uzs),
         'is_manager': _is_inventory_manager(request.user),
     })
-
-
-@login_required(login_url='login')
-@portal_cap_required('inventory')
-def product_history(request, pk):
-    """Filial omboridagi mahsulotning kirim / sotuv / narx tarixi."""
-    if is_consultant(request.user):
-        return redirect('pos_terminal')
-
-    inventory = get_object_or_404(
-        BranchInventory.objects.select_related('product', 'product__supplier', 'branch'),
-        pk=pk,
-        branch__is_active=True,
-    )
-    if not _is_inventory_manager(request.user):
-        emp_branch = getattr(getattr(request.user, 'employee', None), 'branch', None)
-        if not emp_branch or emp_branch.id != inventory.branch_id:
-            raise PermissionDenied('Bu filial omborini ko‘rish huquqi yo‘q')
-
-    product = inventory.product
-    # Kirim, sotuv, qaytarish, narx, tugagan + sotuvsiz doimiy kamayish
-    meaningful = (
-        ProductHistory.EVENT_STOCK_IN,
-        ProductHistory.EVENT_SALE,
-        ProductHistory.EVENT_RETURN,
-        ProductHistory.EVENT_PRICE_CHANGE,
-        ProductHistory.EVENT_DEPLETED,
-        ProductHistory.EVENT_ADJUST,
-    )
-    history_qs = (
-        ProductHistory.objects
-        .filter(product=product, event_type__in=meaningful)
-        .filter(
-            models.Q(branch_id=inventory.branch_id)
-            | models.Q(event_type=ProductHistory.EVENT_PRICE_CHANGE)
-        )
-        .select_related('user', 'branch', 'order')
-    )
-
-    # Jadvaldagi qoldiq faqat KO‘RSATILADIGAN amallar bo‘yicha hisoblansin
-    # (vaqtinchalik bron juftliklari backfillda allaqachon tashlab ketilgan).
-    type_order = {
-        ProductHistory.EVENT_STOCK_IN: 0,
-        ProductHistory.EVENT_RETURN: 1,
-        ProductHistory.EVENT_SALE: 2,
-        ProductHistory.EVENT_ADJUST: 3,
-        ProductHistory.EVENT_DEPLETED: 4,
-        ProductHistory.EVENT_PRICE_CHANGE: 5,
-    }
-    events = list(history_qs)
-    events.sort(key=lambda e: (e.created_at, type_order.get(e.event_type, 9), e.id))
-    running = Decimal('0')
-    for e in events:
-        if (
-            e.event_type in (
-                ProductHistory.EVENT_STOCK_IN,
-                ProductHistory.EVENT_SALE,
-                ProductHistory.EVENT_RETURN,
-                ProductHistory.EVENT_ADJUST,
-            )
-            and e.quantity is not None
-        ):
-            running += e.quantity
-            if running < 0:
-                running = Decimal('0')
-        if e.event_type == ProductHistory.EVENT_DEPLETED:
-            running = Decimal('0')
-        e.display_qty_after = running
-
-    events_desc = list(reversed(events))
-    paginator = Paginator(events_desc, 50)
-    page_obj = paginator.get_page(request.GET.get('page') or 1)
-
-    depleted_at = (
-        ProductHistory.objects
-        .filter(
-            product=product,
-            branch=inventory.branch,
-            event_type=ProductHistory.EVENT_DEPLETED,
-        )
-        .order_by('-created_at')
-        .first()
-    )
-
-    reserved_qty = (
-        ProductReservationItem.objects
-        .filter(
-            product=product,
-            reservation__branch=inventory.branch,
-            reservation__status='Active',
-            reservation__stock_held=True,
-        )
-        .aggregate(total=models.Sum('quantity'))
-        .get('total')
-    ) or Decimal('0')
-    available_qty = inventory.quantity or Decimal('0')
-    physical_qty = available_qty + reserved_qty
-
-    can_edit_price = has_portal_cap(request.user, 'btn_product_edit')
-
-    return render(request, 'accounts/product_history.html', {
-        'inventory': inventory,
-        'product': product,
-        'history': page_obj,
-        'depleted_at': depleted_at,
-        'can_edit_price': can_edit_price,
-        'is_manager': _is_inventory_manager(request.user),
-        'available_qty': available_qty,
-        'reserved_qty': reserved_qty,
-        'physical_qty': physical_qty,
-    })
-
-
-@login_required(login_url='login')
-@portal_cap_required('btn_product_edit')
-@transaction.atomic
-def product_price_change(request, pk):
-    """Mahsulot sotish narxini oshirish / pasaytirish (tarixga yoziladi)."""
-    if is_consultant(request.user):
-        return redirect('pos_terminal')
-    if request.method != 'POST':
-        return redirect('product_history', pk=pk)
-
-    inventory = get_object_or_404(
-        BranchInventory.objects.select_related('product', 'branch'),
-        pk=pk,
-        product__is_active=True,
-        branch__is_active=True,
-    )
-    if not _is_inventory_manager(request.user):
-        emp_branch = getattr(getattr(request.user, 'employee', None), 'branch', None)
-        if not emp_branch or emp_branch.id != inventory.branch_id:
-            raise PermissionDenied('Bu filial omborini tahrirlash huquqi yo‘q')
-
-    product = inventory.product
-    old_price = product.base_price
-    currency = product.currency
-
-    mode = (request.POST.get('mode') or 'set').strip().lower()
-    note = (request.POST.get('note') or '').strip()[:200]
-    try:
-        amount = parse_decimal(request.POST.get('amount'))
-    except Exception:
-        messages.error(request, 'Narx qiymati noto‘g‘ri')
-        return redirect('product_history', pk=pk)
-
-    if amount < 0:
-        messages.error(request, 'Narx manfiy bo‘lishi mumkin emas')
-        return redirect('product_history', pk=pk)
-
-    if mode == 'increase':
-        new_price = (old_price + amount).quantize(Decimal('0.01'))
-        change_note = f'+{format_money(amount, currency)}'
-    elif mode == 'decrease':
-        new_price = (old_price - amount).quantize(Decimal('0.01'))
-        if new_price < 0:
-            messages.error(request, 'Narx 0 dan past bo‘lishi mumkin emas')
-            return redirect('product_history', pk=pk)
-        change_note = f'−{format_money(amount, currency)}'
-    else:
-        new_price = amount.quantize(Decimal('0.01'))
-        change_note = 'Belgilangan narx'
-
-    if new_price == old_price:
-        messages.info(request, 'Narx o‘zgarmadi')
-        return redirect('product_history', pk=pk)
-
-    product.base_price = new_price
-    product.save(update_fields=['base_price'])
-
-    emp = get_active_employee(request.user)
-    who = emp.name if emp else (request.user.get_username() if request.user else '—')
-    ProductHistory.log(
-        product=product,
-        branch=inventory.branch,
-        event_type=ProductHistory.EVENT_PRICE_CHANGE,
-        quantity_after=inventory.quantity,
-        old_price=old_price,
-        new_price=new_price,
-        unit_price=new_price,
-        currency=currency,
-        user=emp,
-        note=(note or f'{who}: {change_note} ({format_money(old_price, currency)} → {format_money(new_price, currency)})'),
-    )
-
-    messages.success(
-        request,
-        f'Narx yangilandi: {format_money(old_price, currency)} → {format_money(new_price, currency)}',
-    )
-    return redirect('product_history', pk=pk)
-
 
 class salesUpdateView(UpdateView):
     model = Order
@@ -2418,7 +2241,6 @@ def inventory_stock_in(request):
     )
 
     current = inventory_item.quantity or 0
-    emp = get_active_employee(request.user)
     if undo:
         if qty > current:
             return JsonResponse({
@@ -2427,26 +2249,12 @@ def inventory_stock_in(request):
         inventory_item.quantity = current - qty
         action_qty = -qty
         message = f"{product.product_name}: {qty} dona bekor qilindi"
-        event_type = ProductHistory.EVENT_STOCK_UNDO
     else:
         inventory_item.quantity = current + qty
         action_qty = qty
         message = f"{product.product_name}: +{qty} qo‘shildi"
-        event_type = ProductHistory.EVENT_STOCK_IN
 
     inventory_item.save(update_fields=['quantity'])
-    ProductHistory.log(
-        product=product,
-        branch=branch,
-        event_type=event_type,
-        quantity=action_qty,
-        quantity_after=inventory_item.quantity,
-        unit_price=product.base_price,
-        currency=product.currency,
-        user=emp,
-        note=note,
-        also_depleted=undo,
-    )
 
     return JsonResponse({
         'success': True,
@@ -2584,11 +2392,7 @@ def inventory_product_save(request):
 
     product = Product.objects.filter(barcode__iexact=barcode).select_related('supplier').first()
     created_product = False
-    prev_base_price = None
-    prev_currency = None
     if product:
-        prev_base_price = product.base_price
-        prev_currency = product.currency
         if not product.is_active:
             product.is_active = True
             product.deleted_at = None
@@ -2645,36 +2449,6 @@ def inventory_product_save(request):
     )
     inventory_item.quantity = (inventory_item.quantity or 0) + qty
     inventory_item.save(update_fields=['quantity'])
-
-    emp = get_active_employee(request.user)
-    if (
-        not created_product
-        and prev_base_price is not None
-        and (prev_base_price != product.base_price or prev_currency != product.currency)
-    ):
-        ProductHistory.log(
-            product=product,
-            branch=branch,
-            event_type=ProductHistory.EVENT_PRICE_CHANGE,
-            quantity_after=inventory_item.quantity,
-            old_price=prev_base_price,
-            new_price=product.base_price,
-            unit_price=product.base_price,
-            currency=product.currency,
-            user=emp,
-            note=f'Kirim bilan narx: {format_money(prev_base_price, prev_currency)} → {format_money(product.base_price, product.currency)}',
-        )
-    ProductHistory.log(
-        product=product,
-        branch=branch,
-        event_type=ProductHistory.EVENT_STOCK_IN,
-        quantity=qty,
-        quantity_after=inventory_item.quantity,
-        unit_price=product.base_price,
-        currency=product.currency,
-        user=emp,
-        note=note or ('Yangi mahsulot' if created_product else 'Ombor kirimi'),
-    )
 
     cost_alt = convert_amount(
         cost_price,
@@ -2949,19 +2723,6 @@ def checkout_cash(request):
 
                     inventory.quantity -= qty
                     inventory.save()
-                    ProductHistory.log(
-                        product=product,
-                        branch=branch,
-                        event_type=ProductHistory.EVENT_SALE,
-                        quantity=-qty,
-                        quantity_after=inventory.quantity,
-                        unit_price=unit_price,
-                        currency=order_currency,
-                        order=order,
-                        user=employee,
-                        note=f'Sotuv #{order.id}',
-                        also_depleted=True,
-                    )
 
                 payment = Payment.objects.create(
                     order=order,
@@ -3521,19 +3282,6 @@ def order_approve(request, pk):
             return redirect('sales_display')
         inventory.quantity -= item.quantity
         inventory.save(update_fields=['quantity'])
-        ProductHistory.log(
-            product=item.product,
-            branch=order.branch,
-            event_type=ProductHistory.EVENT_SALE,
-            quantity=-item.quantity,
-            quantity_after=inventory.quantity,
-            unit_price=item.unit_price,
-            currency=order.currency,
-            order=order,
-            user=get_active_employee(request.user) or order.employee,
-            note=f'Tasdiqlangan sotuv #{order.id}',
-            also_depleted=True,
-        )
     payment = Payment.objects.create(
         order=order, amount_paid=order.total_amount, payment_type='CASH', date_paid=timezone.now(),
     )

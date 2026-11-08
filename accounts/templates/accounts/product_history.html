@@ -12,10 +12,18 @@
                     {{ inventory.branch.name }} · {{ product.barcode }} · {{ product.category }}
                 </p>
             </div>
-            <a href="{% url 'branch_inventory' %}"
-               class="px-4 py-2 bg-gray-200 text-gray-700 text-sm rounded-md hover:bg-gray-300 transition">
-                ← Ombor ro‘yxati
-            </a>
+            <div class="flex flex-wrap items-center gap-2">
+                {% if 'inventory_intake' in portal_caps or 'btn_product_edit' in portal_caps %}
+                <a href="{% url 'inventory_intake' %}?barcode={{ product.barcode|urlencode }}{% if is_manager %}&branch_id={{ inventory.branch_id }}{% endif %}"
+                   class="px-4 py-2 bg-emerald-600 text-white text-sm font-semibold rounded-md hover:bg-emerald-700 transition">
+                    {% if available_qty <= 0 %}+ Qayta kirim{% else %}+ Ombor kirimi{% endif %}
+                </a>
+                {% endif %}
+                <a href="{% url 'branch_inventory' %}"
+                   class="px-4 py-2 bg-gray-200 text-gray-700 text-sm rounded-md hover:bg-gray-300 transition">
+                    ← Ombor ro‘yxati
+                </a>
+            </div>
         </div>
 
         <div class="grid grid-cols-2 lg:grid-cols-5 gap-3 p-4 border-b border-gray-100">
