@@ -1095,12 +1095,20 @@ function refreshCheckoutTotalsUI() {
     calculateChange()
 }
 
+function _phoneLocalDigits(phone) {
+    let digits = String(phone || '').replace(/\D/g, '')
+    if (digits.startsWith('998') && digits.length > 9) digits = digits.slice(3)
+    return digits
+}
+
 async function lookupCustomerByPhone() {
     const phoneEl = document.getElementById('cash-cust-phone')
     const hint = document.getElementById('cash-cust-lookup-hint')
     if (!phoneEl) return
     const phone = (phoneEl.value || '').trim()
-    if (phone.length < 5) {
+    const localDigits = _phoneLocalDigits(phone)
+    // To‘liq 9 raqam bo‘lmaguncha qidirilmasin — qisman match eski ismni (Jo‘rabek) yozib yuborardi
+    if (localDigits.length < 9) {
         if (hint) {
             hint.classList.add('hidden')
             hint.textContent = ''
@@ -1131,8 +1139,21 @@ async function lookupCustomerByPhone() {
         const nameEl = document.getElementById('cash-cust-name')
         const addrEl = document.getElementById('cash-cust-address')
         const typeEl = document.getElementById('cash-cust-type')
-        if (nameEl) nameEl.value = c.name || ''
-        if (addrEl) addrEl.value = c.address || ''
+        // Foydalanuvchi yozgan ismni ustiga yozmaslik (faqat bo‘sh yoki avvalgi autofill)
+        if (nameEl) {
+            const current = (nameEl.value || '').trim()
+            if (!current || nameEl.dataset.autofilled === '1') {
+                nameEl.value = c.name || ''
+                nameEl.dataset.autofilled = '1'
+            }
+        }
+        if (addrEl) {
+            const currentAddr = (addrEl.value || '').trim()
+            if (!currentAddr || addrEl.dataset.autofilled === '1') {
+                addrEl.value = c.address || ''
+                addrEl.dataset.autofilled = '1'
+            }
+        }
         if (typeEl) typeEl.value = c.customer_type || 'regular'
         loyaltyDiscountPercent = parseFloat(c.discount_percent) || 0
         syncCheckoutDiscountPercent()
@@ -1199,9 +1220,15 @@ function openCheckoutModal(type){
     const phoneEl = document.getElementById('cash-cust-phone')
     if (phoneEl && !(phoneEl.value || '').trim()) phoneEl.value = '+998'
     const nameEl = document.getElementById('cash-cust-name')
-    if (nameEl) nameEl.value = ''
+    if (nameEl) {
+        nameEl.value = ''
+        delete nameEl.dataset.autofilled
+    }
     const addrEl = document.getElementById('cash-cust-address')
-    if (addrEl) addrEl.value = ''
+    if (addrEl) {
+        addrEl.value = ''
+        delete addrEl.dataset.autofilled
+    }
 
     currentGrandTotal = getCheckoutTotal()
 

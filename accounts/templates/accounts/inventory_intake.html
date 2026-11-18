@@ -219,8 +219,16 @@
                         Dollar ↔ so‘m kurs bo‘yicha hisoblanadi.
                     </p>
 
+                    <label class="flex items-start gap-3 rounded-md border border-violet-200 bg-violet-50/60 px-3 py-2.5 cursor-pointer">
+                        <input id="is-service-input" type="checkbox" class="mt-0.5 h-4 w-4 rounded border-gray-300 text-violet-600 focus:ring-violet-500">
+                        <span class="text-sm">
+                            <span class="font-semibold text-gray-800">Xizmat (ombor hisobisiz)</span>
+                            <span class="block text-xs text-gray-500">Masalan: «Ornatib berish». Kassada sotiladi va chekda chiqadi, omborda qoldiq yuritilmaydi.</span>
+                        </span>
+                    </label>
+
                     <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                        <div>
+                        <div id="qty-wrap">
                             <label class="block text-xs font-semibold text-gray-600 mb-1">Qo‘shiladigan miqdor *</label>
                             <div class="flex items-center gap-2">
                                 <button type="button" id="qty-minus"

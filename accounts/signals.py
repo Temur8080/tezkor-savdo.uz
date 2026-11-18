@@ -5,7 +5,6 @@ from django.dispatch import receiver
 from .models import Product, AuditTrail, BranchInventory, Order, OrderItem, Employee, WarrantyClaims, \
     Supplier
 from .middleware import get_current_user
-from .views import employeeProfile
 
 MODELS_TO_AUDIT = {
     Product: [

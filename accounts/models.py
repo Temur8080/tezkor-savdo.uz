@@ -286,7 +286,7 @@ class Customer(models.Model):
         max_digits=5,
         decimal_places=2,
         default=Decimal('0.00'),
-        help_text='Tur chegirmasidan yuqori bo‘lsa, kassada shu foiz qo‘llanadi',
+        help_text='0 dan katta bo‘lsa kassada shu foiz qo‘llanadi (tur chegirmasini bosadi). 0 bo‘lsa — faqat tur foizi.',
     )
     notes = models.CharField('Izoh', max_length=255, blank=True)
     date_created = models.DateField('Yaratilgan sana', auto_now_add=True)
@@ -316,9 +316,12 @@ class Customer(models.Model):
         return Decimal('0.00')
 
     def get_discount_percent(self):
+        """Shaxsiy aksiya berilgan bo‘lsa u ustun — 2% yozilsa 5% (tur) qolib ketmasin."""
         tier_pct = self.get_tier_discount_percent()
         bonus = self.bonus_discount_percent or Decimal('0.00')
-        return max(tier_pct, bonus)
+        if bonus > 0:
+            return bonus
+        return tier_pct
 
     def save(self, *args, **kwargs):
         if not self.price_tier_id and self.customer_type:
@@ -367,8 +370,8 @@ class Employee(models.Model):
 class SalesAgent(models.Model):
     employee = models.OneToOneField(Employee, on_delete=models.CASCADE, limit_choices_to={'is_active': True}, verbose_name='Xodim')
     commission_rate = models.DecimalField('Komissiya foizi', max_digits=5, decimal_places=2, default=0.00)
-    total_commission_earned = models.DecimalField('Jami komissiya', max_digits=12, decimal_places=2, default=0.00)
-    total_sales = models.DecimalField('Jami savdo', max_digits=12, decimal_places=2, default=0.00)
+    total_commission_earned = models.DecimalField('Jami komissiya', max_digits=16, decimal_places=2, default=0.00)
+    total_sales = models.DecimalField('Jami savdo', max_digits=16, decimal_places=2, default=0.00)
 
     class Meta:
         verbose_name = 'Sotuvchi'
@@ -620,6 +623,11 @@ class Product(models.Model):
         help_text='Ta’mirlash/xizmatdan keyin qo‘shimcha kafolat muddati',
     )
     image = models.ImageField('Rasm', upload_to='products/', null=True, blank=True)
+    is_service = models.BooleanField(
+        'Xizmat (ombor hisobisiz)',
+        default=False,
+        help_text='Yoqilganda ombor qoldig‘i tekshirilmaydi va kamaymaydi (masalan: ornatib berish)',
+    )
     is_active = models.BooleanField('Faol', default=True)
     deleted_at = models.DateTimeField('O‘chirilgan vaqt', null=True, blank=True)
 
@@ -629,6 +637,11 @@ class Product(models.Model):
 
     def __str__(self):
         return f"{self.product_name} | {self.barcode}"
+
+    @property
+    def tracks_stock(self):
+        """Xizmat bo‘lmasa — ombor qoldig‘i hisobga olinadi."""
+        return not self.is_service
 
     def get_category_display(self):
 
@@ -987,7 +1000,7 @@ class OrderItem(models.Model):
 
 class Payment(models.Model):
     order = models.ForeignKey(Order, on_delete=models.PROTECT, limit_choices_to={'is_active': True}, verbose_name='Buyurtma')
-    amount_paid = models.DecimalField('To‘langan summa', max_digits=10, decimal_places=2)
+    amount_paid = models.DecimalField('To‘langan summa', max_digits=14, decimal_places=2)
     date_paid = models.DateField('To‘lov sanasi')
     payment_type = models.CharField('To‘lov turi', max_length=100, choices=Order.PAYMENT_METHOD)
 
@@ -1000,8 +1013,8 @@ class Payment(models.Model):
 
 class CashPayment(models.Model):
     payment = models.OneToOneField(Payment, on_delete=models.CASCADE, verbose_name='To‘lov')
-    cash_received = models.DecimalField('Qabul qilingan naqd', max_digits=10, decimal_places=2)
-    change_given = models.DecimalField('Qaytim', max_digits=10, decimal_places=2)
+    cash_received = models.DecimalField('Qabul qilingan naqd', max_digits=14, decimal_places=2)
+    change_given = models.DecimalField('Qaytim', max_digits=14, decimal_places=2)
 
     class Meta:
         verbose_name = 'Naqd to‘lov'
@@ -1011,8 +1024,8 @@ class Invoice(models.Model):
     order = models.ForeignKey(Order, on_delete=models.PROTECT, related_name='invoice', limit_choices_to={'is_active': True}, verbose_name='Buyurtma')
     or_number = models.CharField('Chek raqami', max_length=100, unique=True)
     invoice_date = models.DateField('Hisob-faktura sanasi')
-    vat_amount = models.DecimalField('QQS', max_digits=10, decimal_places=2, default=0.00)
-    grand_total = models.DecimalField('Umumiy jami', max_digits=10, decimal_places=2)
+    vat_amount = models.DecimalField('QQS', max_digits=14, decimal_places=2, default=0.00)
+    grand_total = models.DecimalField('Umumiy jami', max_digits=14, decimal_places=2)
     issued_by = models.ForeignKey(Employee, on_delete=models.CASCADE, verbose_name='Bergan xodim')
 
     class Meta:

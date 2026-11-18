@@ -62,8 +62,9 @@
                     data-unit="{{ item.product.unit|default:'ta' }}"
                     data-category="{{ item.product.get_category_display }}"
                     data-image="{% if item.product.image %}{{ item.product.image.url }}{% endif %}"
-                    data-stock="{{ item.quantity|qty }}"
-                    {% if item.quantity <= 0 %}disabled{% endif %}>
+                    data-stock="{% if item.product.is_service %}{% else %}{{ item.quantity|qty }}{% endif %}"
+                    data-service="{% if item.product.is_service %}1{% else %}0{% endif %}"
+                    {% if not item.product.is_service and item.quantity <= 0 %}disabled{% endif %}>
                 <div class="product-card-media h-20 sm:h-24 xl:h-28 w-full bg-slate-50 border border-gray-100 rounded-lg sm:rounded-md mb-1.5 sm:mb-2 overflow-hidden relative">
                     {% if item.product.is_sale_active %}
                     <span class="absolute top-1 left-1 z-10 px-1.5 py-0.5 rounded text-[10px] font-bold bg-rose-600 text-white shadow-sm">
@@ -90,9 +91,13 @@
                         <span class="text-xs sm:text-sm font-bold text-blue-700 truncate">{{ item.product.base_price|money:item.product.currency }}</span>
                         {% endif %}
                     </span>
+                    {% if item.product.is_service %}
+                    <span class="text-[10px] font-semibold uppercase shrink-0 text-violet-600">Xizmat</span>
+                    {% else %}
                     <span class="text-[10px] font-semibold uppercase shrink-0 {% if item.quantity > 0 %}text-emerald-600{% else %}text-red-600{% endif %}">
                         {{ item.quantity|qty }} {{ item.product.unit|default:'ta' }}
                     </span>
+                    {% endif %}
                 </div>
             </button>
             {% empty %}

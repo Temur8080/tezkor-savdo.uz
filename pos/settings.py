@@ -41,9 +41,14 @@ SECRET_KEY = os.getenv('SECRET_KEY', 'django-insecure-fallback-key-for-ci-checks
 
 DEBUG = os.getenv('DEBUG') == 'True'
 
-EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
 EMAIL_HOST = os.getenv('EMAIL_HOST')
-EMAIL_PORT = os.getenv('EMAIL_PORT', 2525)
+# EMAIL_HOST berilmasa — konsolga yoziladi; berilsa haqiqiy SMTP orqali yuboriladi
+EMAIL_BACKEND = (
+    'django.core.mail.backends.smtp.EmailBackend'
+    if EMAIL_HOST
+    else 'django.core.mail.backends.console.EmailBackend'
+)
+EMAIL_PORT = int(os.getenv('EMAIL_PORT', 2525))
 EMAIL_USE_TLS = os.getenv('EMAIL_USE_TLS') == 'True'
 EMAIL_USE_SSL = os.getenv('EMAIL_USE_SSL') == 'True'
 EMAIL_HOST_USER = os.getenv('EMAIL_HOST_USER')
@@ -175,7 +180,21 @@ Q_CLUSTER = {
     'orm': 'default',
 }
 
-if DEBUG:
-    STATICFILES_STORAGE = 'django.contrib.staticfiles.storage.StaticFilesStorage'
-else:
-    STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
+# Django 5.1+ da STATICFILES_STORAGE olib tashlangan — STORAGES ishlatiladi
+STORAGES = {
+    'default': {'BACKEND': 'django.core.files.storage.FileSystemStorage'},
+    'staticfiles': {
+        'BACKEND': (
+            'django.contrib.staticfiles.storage.StaticFilesStorage'
+            if DEBUG
+            else 'whitenoise.storage.CompressedStaticFilesStorage'
+        ),
+    },
+}
+
+# HTTPS orqali ishlatilsa .env da SECURE_COOKIES=True qo‘ying
+_secure_cookies = os.getenv('SECURE_COOKIES') == 'True'
+SESSION_COOKIE_SECURE = _secure_cookies
+CSRF_COOKIE_SECURE = _secure_cookies
+SESSION_COOKIE_HTTPONLY = True
+SECURE_CONTENT_TYPE_NOSNIFF = True

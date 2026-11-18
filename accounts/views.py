@@ -44,6 +44,7 @@ from django.contrib.messages.views import SuccessMessageMixin
 from django.contrib.auth.models import User
 from django.contrib import messages
 from django.db import transaction
+from django.views.decorators.http import require_POST
 
 from datetime import timedelta, datetime
 from django.utils import timezone
@@ -68,6 +69,18 @@ import csv
 
 
 _ZERO_MONEY = Decimal('0.00')
+
+
+def _json_for_script(value):
+    """JSON ni <script> ichiga |safe bilan qo‘yish uchun xavfsiz qilish (XSS: </script>)."""
+    return (
+        json.dumps(value, ensure_ascii=False)
+        .replace('<', '\\u003c')
+        .replace('>', '\\u003e')
+        .replace('&', '\\u0026')
+        .replace('\u2028', '\\u2028')
+        .replace('\u2029', '\\u2029')
+    )
 
 
 def _list_page_size(request, default=15, minimum=7, maximum=50):
@@ -229,6 +242,9 @@ def _execute_sale_return(*, order, employee, lines, reason=''):
             unit_price=locked_oi.unit_price,
             line_total=line_total,
         )
+        if locked_oi.product.is_service:
+            # Xizmat qaytarilganda omborga qaytarilmaydi
+            continue
         inventory, _created = BranchInventory.objects.select_for_update().get_or_create(
             branch=order.branch,
             product=locked_oi.product,
@@ -743,11 +759,15 @@ def product_price_change(request, pk):
     return redirect('product_history', pk=pk)
 
 
-class salesUpdateView(UpdateView):
+class salesUpdateView(PortalCapRequiredMixin, UpdateView):
+    portal_cap = 'btn_sale_edit'
     model = Order
     fields = ['employee', 'order_status']
     template_name = 'components/sales_edit.html'
     success_url = reverse_lazy('sales_display')
+
+    def get_queryset(self):
+        return scope_queryset_by_branch(Order.objects.filter(is_active=True), self.request)
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -756,6 +776,7 @@ class salesUpdateView(UpdateView):
 
 @login_required(login_url='login')
 @portal_cap_required('btn_sale_delete')
+@require_POST
 def delete_order(request, pk):
     order = get_object_or_404(Order, pk=pk)
 
@@ -1389,11 +1410,11 @@ def _reports_build_context(request):
         'summary_sof_foyda': summary_sof_foyda,
         'top_expenses': top_expenses,
         'transactions_qs': transactions,
-        'branch_names': json.dumps(branch_names, ensure_ascii=False),
+        'branch_names': _json_for_script(branch_names),
         'branch_totals': json.dumps(branch_totals),
-        'employee_names': json.dumps(employee_names, ensure_ascii=False),
+        'employee_names': _json_for_script(employee_names),
         'employee_totals': json.dumps(employee_totals),
-        'product_name': json.dumps(product_name, ensure_ascii=False),
+        'product_name': _json_for_script(product_name),
         'product_totals': json.dumps(product_totals),
     }
 
@@ -1774,6 +1795,7 @@ def export_sales_csv(request):
 
 @login_required(login_url='login')
 @portal_cap_required('btn_product_delete')
+@require_POST
 def delete_product(request, pk):
     product = get_object_or_404(Product, pk=pk, is_active=True)
     product.soft_delete()
@@ -1783,6 +1805,7 @@ def delete_product(request, pk):
 
 @login_required(login_url='login')
 @portal_cap_required('btn_product_edit')
+@require_POST
 def restore_product(request, pk):
     product = get_object_or_404(Product, pk=pk, is_active=False)
     product.is_active = True
@@ -1825,8 +1848,8 @@ def branchInventory(request):
     active_count = count_base.filter(product__is_active=True).count()
     archived_count = count_base.filter(product__is_active=False).count() if is_manager else 0
     total_count = active_count + archived_count
-    in_stock_count = count_base.filter(product__is_active=True, quantity__gt=0).count()
-    out_of_stock_count = count_base.filter(product__is_active=True, quantity__lte=0).count()
+    in_stock_count = count_base.filter(product__is_active=True, product__is_service=False, quantity__gt=0).count()
+    out_of_stock_count = count_base.filter(product__is_active=True, product__is_service=False, quantity__lte=0).count()
 
     myFilter = InventoryFilter(request.GET, queryset=items)
     filtered_items = myFilter.qs
@@ -1907,8 +1930,12 @@ def export_branch_inventory_csv(request):
 
     return response
 
+@login_required(login_url='login')
 def employeeProfile(request):
-    sales_agent = request.user.employee
+    sales_agent = get_active_employee(request.user)
+    if sales_agent is None:
+        messages.error(request, 'Xodim profili topilmadi.')
+        return redirect('dashboard' if request.user.is_superuser else 'pos_terminal')
     form = EmployeeForm(instance=sales_agent)
 
     if request.method == 'POST':
@@ -2154,7 +2181,7 @@ def posTerminal(request):
         'vat_enabled': app_settings.vat_enabled,
         'vat_percent': str(app_settings.vat_percent),
         'loyalty_tiers_json': json.dumps(tier_map),
-        'loyalty_meta_json': json.dumps(tier_meta, ensure_ascii=False),
+        'loyalty_meta_json': _json_for_script(tier_meta),
         'is_consultant': employee.role == ROLE_CONSULTANT,
         'can_complete_sale': can_complete_sale(request.user),
         'secret_discount_code': (app_settings.pos_secret_code or '').strip(),
@@ -2219,7 +2246,8 @@ def scanProduct(request):
         'currency': product.currency,
         'unit': getattr(product, 'unit', None) or Product.UNIT_TA,
         'fractional': product.allows_fractional_qty(),
-        'stock': format_qty(inventory_item.quantity),
+        'stock': None if product.is_service else format_qty(inventory_item.quantity),
+        'is_service': product.is_service,
         'category': product.get_category_display(),
         'image': image_url,
     }
@@ -2260,7 +2288,8 @@ def product_scan_info(request):
         'currency': product.currency,
         'unit': getattr(product, 'unit', None) or Product.UNIT_TA,
         'fractional': product.allows_fractional_qty(),
-        'stock': format_qty(stock) if stock is not None else None,
+        'stock': format_qty(stock) if (stock is not None and not product.is_service) else None,
+        'is_service': product.is_service,
         'category': product.get_category_display(),
         'image': image_url,
         'branch_name': branch_name,
@@ -2344,7 +2373,8 @@ def _product_payload(product, branch):
         'warranty_days': product.warranty_days,
         'replacement_days': product.replacement_days,
         'service_warranty_days': product.service_warranty_days,
-        'is_low_stock': stock <= min_stock,
+        'is_service': product.is_service,
+        'is_low_stock': (not product.is_service) and stock <= min_stock,
         'branch_id': branch.id,
         'branch_name': branch.name,
         'in_branch': inventory_item is not None,
@@ -2524,10 +2554,15 @@ def inventory_product_save(request):
     if unit not in valid_units:
         unit = Product.UNIT_TA
 
-    qty = parse_decimal(data.get('qty', 1))
+    is_service = data.get('is_service') in ('1', 'true', 'True', 'on', 'yes')
+    qty = Decimal('0') if is_service else parse_decimal(data.get('qty', 1))
     min_stock = parse_decimal(data.get('min_stock_level', 3))
     if min_stock < 0:
         min_stock = Decimal('0')
+    if is_service:
+        min_stock = Decimal('0')
+        if not barcode:
+            barcode = f"XIZMAT-{uuid.uuid4().hex[:8].upper()}"
 
     def _pos_int(key, default):
         try:
@@ -2563,10 +2598,11 @@ def inventory_product_save(request):
         return JsonResponse({'error': 'Mahsulot nomi majburiy'}, status=400)
     if not category:
         return JsonResponse({'error': 'Kategoriya tanlang yoki yarating'}, status=400)
-    if qty <= 0:
-        return JsonResponse({'error': 'Miqdor 0 dan katta bo‘lishi kerak'}, status=400)
-    if unit not in Product.FRACTIONAL_UNITS and qty != qty.to_integral_value():
-        return JsonResponse({'error': 'Bu birlik uchun butun son kerak'}, status=400)
+    if not is_service:
+        if qty <= 0:
+            return JsonResponse({'error': 'Miqdor 0 dan katta bo‘lishi kerak'}, status=400)
+        if unit not in Product.FRACTIONAL_UNITS and qty != qty.to_integral_value():
+            return JsonResponse({'error': 'Bu birlik uchun butun son kerak'}, status=400)
     qty = qty.quantize(Decimal('0.001'))
 
     branch = _resolve_intake_branch(request, data.get('branch_id'))
@@ -2630,6 +2666,7 @@ def inventory_product_save(request):
         product.warranty_days = warranty_days
         product.replacement_days = replacement_days
         product.service_warranty_days = service_warranty_days
+        product.is_service = is_service
         if 'sale_active' in data or 'sale_discount_percent' in data:
             product.sale_active = sale_active
             product.sale_discount_percent = sale_discount_percent
@@ -2658,6 +2695,7 @@ def inventory_product_save(request):
             sale_discount_percent=sale_discount_percent,
             sale_starts_at=sale_starts_at,
             sale_ends_at=sale_ends_at,
+            is_service=is_service,
             is_active=True,
         )
         if request.FILES.get('image'):
@@ -2669,8 +2707,9 @@ def inventory_product_save(request):
         product=product,
         defaults={'quantity': 0},
     )
-    inventory_item.quantity = (inventory_item.quantity or 0) + qty
-    inventory_item.save(update_fields=['quantity'])
+    if not is_service:
+        inventory_item.quantity = (inventory_item.quantity or 0) + qty
+        inventory_item.save(update_fields=['quantity'])
 
     emp = get_active_employee(request.user)
     if (
@@ -2690,17 +2729,18 @@ def inventory_product_save(request):
             user=emp,
             note=f'Kirim bilan narx: {format_money(prev_base_price, prev_currency)} → {format_money(product.base_price, product.currency)}',
         )
-    ProductHistory.log(
-        product=product,
-        branch=branch,
-        event_type=ProductHistory.EVENT_STOCK_IN,
-        quantity=qty,
-        quantity_after=inventory_item.quantity,
-        unit_price=product.base_price,
-        currency=product.currency,
-        user=emp,
-        note=note or ('Yangi mahsulot' if created_product else 'Ombor kirimi'),
-    )
+    if not is_service:
+        ProductHistory.log(
+            product=product,
+            branch=branch,
+            event_type=ProductHistory.EVENT_STOCK_IN,
+            quantity=qty,
+            quantity_after=inventory_item.quantity,
+            unit_price=product.base_price,
+            currency=product.currency,
+            user=emp,
+            note=note or ('Yangi mahsulot' if created_product else 'Ombor kirimi'),
+        )
 
     cost_alt = convert_amount(
         cost_price,
@@ -2718,6 +2758,8 @@ def inventory_product_save(request):
     resp = {
         'success': True,
         'message': (
+            f"{'Yangi xizmat yaratildi' if created_product else 'Xizmat yangilandi'} — kassada sotiladi (ombor hisobisiz)"
+            if is_service else
             f"{'Yangi mahsulot yaratildi va' if created_product else 'Mahsulot yangilandi va'}"
             f" +{qty} omborga qo‘shildi"
         ),
@@ -2727,7 +2769,8 @@ def inventory_product_save(request):
         'qty_added': format_qty(qty),
         'stock': format_qty(inventory_item.quantity),
         'min_stock_level': format_qty(product.min_stock_level or 0),
-        'is_low_stock': inventory_item.quantity <= (product.min_stock_level or 0),
+        'is_low_stock': (not is_service) and inventory_item.quantity <= (product.min_stock_level or 0),
+        'is_service': is_service,
         'supplier': product.supplier.name if product.supplier else '',
         'cost_price': str(product.cost_price),
         'cost_currency': product.cost_currency,
@@ -2816,6 +2859,7 @@ def inventory_save_rate(request):
         'message': f'Kurs saqlandi: 1 USD = {settings_obj.usd_to_uzs} so‘m',
     })
 
+@login_required(login_url='login')
 @transaction.atomic
 def checkout_cash(request):
         if request.method == 'POST':
@@ -2843,7 +2887,11 @@ def checkout_cash(request):
                     }, status=403)
 
                 name = (customer_data.get('name') or '').strip()
-                phone = (customer_data.get('phone') or '').strip()
+                phone_raw = (customer_data.get('phone') or '').strip()
+                phone, _phone_digits = _normalize_customer_phone(phone_raw)
+                # Chala raqam bilan saqlamaslik (qisman match / noto‘g‘ri ism oldini olish)
+                if not phone:
+                    phone = None
                 email = (customer_data.get('email') or '').strip()
                 address = (customer_data.get('address') or '').strip()
                 cust_type = (customer_data.get('customer_type') or Customer.TYPE_REGULAR).strip()
@@ -2853,18 +2901,23 @@ def checkout_cash(request):
 
                 customer = None
                 if phone:
-                    customer, _created = Customer.objects.get_or_create(
-                        phone=phone,
-                        defaults={
-                            'name': name or 'Oddiy mijoz',
-                            'email': email,
-                            'address': address,
-                            'customer_type': cust_type,
-                        }
-                    )
+                    customer = _find_customer_by_phone(phone)
+                    _created = False
+                    if customer is None:
+                        customer = Customer.objects.create(
+                            phone=phone,
+                            name=name or 'Oddiy mijoz',
+                            email=email,
+                            address=address,
+                            customer_type=cust_type,
+                        )
+                        _created = True
                     updated = False
                     if name and customer.name != name:
                         customer.name = name
+                        updated = True
+                    if phone and customer.phone != phone:
+                        customer.phone = phone
                         updated = True
                     if email and customer.email != email:
                         customer.email = email
@@ -2963,8 +3016,12 @@ def checkout_cash(request):
                         service_warranty_days=product.service_warranty_days,
                     )
 
+                    if product.is_service:
+                        # Xizmat (masalan: ornatib berish) — ombor hisobi yo‘q
+                        continue
+
                     try:
-                        inventory = BranchInventory.objects.get(branch=branch, product=product)
+                        inventory = BranchInventory.objects.select_for_update().get(branch=branch, product=product)
                     except BranchInventory.DoesNotExist:
                         raise ValueError(f"{product.product_name} mahsuloti ushbu filialda ro‘yxatdan o‘tmagan.")
 
@@ -3097,6 +3154,8 @@ def checkout_cash(request):
                 return JsonResponse(payload)
 
             except Exception as e:
+                # @transaction.atomic ichida xato yutib yuborilsa yarim buyurtma saqlanib qolardi
+                transaction.set_rollback(True)
                 return JsonResponse({'success': False, 'message': str(e)}, status=400)
 
         return JsonResponse({'success': False, 'message': 'Noto‘g‘ri so‘rov'}, status=405)
@@ -3118,7 +3177,10 @@ def checkout_quote(request):
             return JsonResponse({'success': False, 'message': 'Faqat maslahatchi buyurtma yuboradi.'}, status=403)
         branch = emp.branch
         name = (customer_data.get('name') or '').strip()
-        phone = (customer_data.get('phone') or '').strip()
+        phone_raw = (customer_data.get('phone') or '').strip()
+        phone, _phone_digits = _normalize_customer_phone(phone_raw)
+        if not phone:
+            phone = None
         email = (customer_data.get('email') or '').strip()
         address = (customer_data.get('address') or '').strip()
         cust_type = (customer_data.get('customer_type') or Customer.TYPE_REGULAR).strip()
@@ -3128,12 +3190,21 @@ def checkout_quote(request):
 
         customer = None
         if phone:
-            customer, created = Customer.objects.get_or_create(
-                phone=phone,
-                defaults={'name': name or 'Oddiy mijoz', 'email': email, 'address': address, 'customer_type': cust_type},
-            )
+            customer = _find_customer_by_phone(phone)
+            created = False
+            if customer is None:
+                customer = Customer.objects.create(
+                    phone=phone,
+                    name=name or 'Oddiy mijoz',
+                    email=email,
+                    address=address,
+                    customer_type=cust_type,
+                )
+                created = True
             if name and customer.name != name:
                 customer.name = name
+            if phone and customer.phone != phone:
+                customer.phone = phone
             if email:
                 customer.email = email
             if address:
@@ -3161,6 +3232,8 @@ def checkout_quote(request):
         discount_amount = priced['discount_amount']
 
         for product, qty, _lp, _up, _adj in priced_lines:
+            if product.is_service:
+                continue
             inv = BranchInventory.objects.filter(branch=branch, product=product).first()
             if not inv:
                 raise ValueError(f"{product.product_name} ushbu filialda yo‘q.")
@@ -3221,6 +3294,7 @@ def checkout_quote(request):
             'message': 'Buyurtma menejerga yuborildi — tasdiqlash kutilmoqda.',
         })
     except Exception as e:
+        transaction.set_rollback(True)
         return JsonResponse({'success': False, 'message': str(e)}, status=400)
 
 
@@ -3231,8 +3305,8 @@ def _release_reservation_stock(reservation):
         inv = BranchInventory.objects.filter(
             branch=reservation.branch, product=item.product
         ).first()
-        if inv:
-            inv.quantity = int(inv.quantity or 0) + int(item.quantity or 0)
+        if inv and not item.product.is_service:
+            inv.quantity = (inv.quantity or Decimal('0')) + (item.quantity or Decimal('0'))
             inv.save(update_fields=['quantity'])
     reservation.stock_held = False
 
@@ -3263,7 +3337,9 @@ def checkout_reserve(request):
 
         customer = None
         if phone:
-            customer = Customer.objects.filter(phone__iexact=phone, is_active=True).first()
+            phone_norm, _digits = _normalize_customer_phone(phone)
+            phone = phone_norm or phone
+            customer = _find_customer_by_phone(phone)
             if customer is None:
                 customer = Customer.objects.create(
                     name=customer_name,
@@ -3271,9 +3347,16 @@ def checkout_reserve(request):
                     customer_type=Customer.TYPE_REGULAR,
                     is_active=True,
                 )
-            elif customer_name and customer.name != customer_name:
-                customer.name = customer_name
-                customer.save(update_fields=['name'])
+            else:
+                updated_fields = []
+                if customer_name and customer.name != customer_name:
+                    customer.name = customer_name
+                    updated_fields.append('name')
+                if phone and customer.phone != phone:
+                    customer.phone = phone
+                    updated_fields.append('phone')
+                if updated_fields:
+                    customer.save(update_fields=updated_fields)
 
         lines = []
         total = Decimal('0.00')
@@ -3286,16 +3369,19 @@ def checkout_reserve(request):
             product = Product.objects.filter(pk=product_id, is_active=True).first()
             if product is None:
                 raise ValueError(f'Mahsulot topilmadi (id={product_id})')
-            try:
-                inventory = BranchInventory.objects.select_for_update().get(
-                    branch=branch, product=product
-                )
-            except BranchInventory.DoesNotExist:
-                raise ValueError(f'{product.product_name} ushbu filialda yo‘q')
-            if inventory.quantity < qty:
-                raise ValueError(
-                    f'{product.product_name}: omborda yetarli emas (qoldiq {inventory.quantity})'
-                )
+            if product.is_service:
+                inventory = None
+            else:
+                try:
+                    inventory = BranchInventory.objects.select_for_update().get(
+                        branch=branch, product=product
+                    )
+                except BranchInventory.DoesNotExist:
+                    raise ValueError(f'{product.product_name} ushbu filialda yo‘q')
+                if inventory.quantity < qty:
+                    raise ValueError(
+                        f'{product.product_name}: omborda yetarli emas (qoldiq {inventory.quantity})'
+                    )
             unit_price = parse_decimal(raw.get('price'))
             if unit_price <= 0:
                 unit_price = product.base_price or Decimal('0.00')
@@ -3328,8 +3414,9 @@ def checkout_reserve(request):
                 unit_price=unit_price,
                 line_total=line_total,
             )
-            inventory.quantity -= qty
-            inventory.save(update_fields=['quantity'])
+            if inventory is not None:
+                inventory.quantity -= qty
+                inventory.save(update_fields=['quantity'])
 
         return JsonResponse({
             'success': True,
@@ -3337,6 +3424,7 @@ def checkout_reserve(request):
             'message': f'Bronlandi: {customer_name} — {unit_count} dona',
         })
     except Exception as e:
+        transaction.set_rollback(True)
         return JsonResponse({'success': False, 'message': str(e)}, status=400)
 
 
@@ -3537,6 +3625,8 @@ def order_approve(request, pk):
         messages.error(request, 'Bu buyurtma tasdiqlash holatida emas.')
         return redirect('sales_display')
     for item in order.orderitem_set.all():
+        if item.product.is_service:
+            continue
         try:
             inventory = BranchInventory.objects.select_for_update().get(branch=order.branch, product=item.product)
         except BranchInventory.DoesNotExist:
@@ -3983,7 +4073,7 @@ def dashboard(request):
     inv_scope = scope_queryset_by_branch(BranchInventory.objects.all(), request)
     low_stock = inv_scope.filter(quantity__lte=F('product__min_stock_level'), quantity__gt=0, product__is_active=True).count()
 
-    out_of_stocks = inv_scope.filter(quantity=0, product__is_active=True).count()
+    out_of_stocks = inv_scope.filter(quantity=0, product__is_active=True, product__is_service=False).count()
 
     healthy_stocks = inv_scope.filter(quantity__gt=F('product__min_stock_level'), product__is_active=True).count()
 
@@ -4137,6 +4227,7 @@ def warranty_list_export_csv(request):
     return response
 
 @login_required(login_url='login')
+@portal_cap_required('warranty')
 def update_claim_status(request, pk):
     if request.method == 'POST':
         claim = get_object_or_404(
@@ -4145,7 +4236,7 @@ def update_claim_status(request, pk):
         )
         new_status = request.POST.get('status')
 
-        if new_status:
+        if new_status in dict(WarrantyClaims._meta.get_field('status').choices):
             claim.status = new_status
 
             if new_status in ['Released', 'Completed'] and not claim.resolution_date:
@@ -4619,18 +4710,47 @@ def expense_delete(request, pk):
     messages.success(request, f'Xarajat o‘chirildi: {expense.title}')
     return redirect('expenses_list')
 
+def _customer_phone_digits(phone):
+    digits = ''.join(ch for ch in (phone or '') if ch.isdigit())
+    if digits.startswith('998') and len(digits) > 9:
+        digits = digits[3:]
+    return digits
+
+
+def _find_customer_by_phone(phone):
+    """Faqat to‘liq raqam bo‘yicha qidiradi — qisman match Jo‘rabek kabi noto‘g‘ri ismni yozmasin."""
+    raw = (phone or '').strip()
+    if not raw:
+        return None
+    normalized, local_digits = _normalize_customer_phone(raw)
+    digits = local_digits or _customer_phone_digits(raw)
+    if len(digits) < 9:
+        return None
+    local = digits[-9:]
+
+    qs = Customer.objects.filter(is_active=True)
+    if normalized:
+        customer = qs.filter(phone__iexact=normalized).first()
+        if customer:
+            return customer
+    customer = qs.filter(phone__iexact=raw).first()
+    if customer:
+        return customer
+
+    # Bir xil 9 raqam, turli format (+998… / 9…)
+    for c in qs.filter(Q(phone__endswith=local) | Q(phone__icontains=local))[:30]:
+        c_digits = _customer_phone_digits(c.phone)
+        if len(c_digits) >= 9 and c_digits[-9:] == local:
+            return c
+    return None
+
+
 @login_required(login_url='login')
 def customer_lookup(request):
-
     phone = (request.GET.get('phone') or '').strip()
-    if len(phone) < 5:
-        return JsonResponse({'found': False, 'message': 'Telefon qisqa'})
-    customer = Customer.objects.filter(phone__iexact=phone, is_active=True).first()
+    customer = _find_customer_by_phone(phone)
     if not customer:
-
-        customer = Customer.objects.filter(phone__icontains=phone[-9:], is_active=True).first()
-    if not customer:
-        return JsonResponse({'found': False})
+        return JsonResponse({'found': False, 'message': 'Telefon qisqa yoki topilmadi'})
     return JsonResponse({'found': True, 'customer': customer_payload(customer)})
 
 def _make_price_tier_kind(name):

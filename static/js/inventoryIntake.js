@@ -3,6 +3,8 @@
     const branchSelect = document.getElementById('intake-branch')
     const productPanel = document.getElementById('product-panel')
     const qtyInput = document.getElementById('qty-input')
+    const serviceInput = document.getElementById('is-service-input')
+    const qtyWrap = document.getElementById('qty-wrap')
     const noteInput = document.getElementById('note-input')
     const addBtn = document.getElementById('add-stock-btn')
     const quickMode = document.getElementById('quick-mode')
@@ -206,6 +208,8 @@
         if (noteInput) noteInput.value = ''
         entryCurrency.value = 'USD'
         storeCurrency.value = 'UZS'
+        if (serviceInput) serviceInput.checked = false
+        syncServiceMode()
         syncQtyStep()
         setImagePreview(null)
         document.getElementById('product-meta').textContent =
@@ -214,6 +218,14 @@
         updateConversionHints()
         productNameInput.focus()
     }
+
+    function syncServiceMode() {
+        const on = !!(serviceInput && serviceInput.checked)
+        if (qtyWrap) qtyWrap.classList.toggle('hidden', on)
+        if (minStockInput) minStockInput.disabled = on
+    }
+
+    if (serviceInput) serviceInput.addEventListener('change', syncServiceMode)
 
     function showExistingProduct(data) {
         isNewProduct = false
@@ -243,6 +255,8 @@
         if (replacementDaysInput) replacementDaysInput.value = data.replacement_days != null ? data.replacement_days : 7
         if (serviceWarrantyInput) serviceWarrantyInput.value = data.service_warranty_days != null ? data.service_warranty_days : 90
         qtyInput.value = 1
+        if (serviceInput) serviceInput.checked = !!data.is_service
+        syncServiceMode()
         syncQtyStep()
         if (noteInput) noteInput.value = ''
         setImagePreview(data.image || null)
@@ -391,8 +405,9 @@
             return null
         }
 
-        const qty = parseFloat(qtyInput.value) || 0
-        if (qty <= 0) {
+        const isService = !!(serviceInput && serviceInput.checked)
+        const qty = isService ? 0 : (parseFloat(qtyInput.value) || 0)
+        if (!isService && qty <= 0) {
             setStatus('Miqdor 0 dan katta bo‘lishi kerak', 'err')
             return null
         }
@@ -422,6 +437,7 @@
         form.append('replacement_days', replacementDaysInput ? replacementDaysInput.value || '7' : '7')
         form.append('service_warranty_days', serviceWarrantyInput ? serviceWarrantyInput.value || '90' : '90')
         form.append('qty', String(qty))
+        if (isService) form.append('is_service', '1')
         form.append('note', noteInput ? noteInput.value.trim() : '')
         form.append('branch_id', branchId())
         form.append('usd_rate', String(rate()))
@@ -456,6 +472,7 @@
                 in_branch: true,
                 is_low_stock: data.is_low_stock,
                 min_stock_level: data.min_stock_level,
+                is_service: !!data.is_service,
             }
             showExistingProduct(Object.assign({}, currentProduct, {
                 supplier_id: supplierSelect.value,

@@ -267,6 +267,21 @@ function initPosTerminal() {
             if (typeof lookupCustomerByPhone === 'function') lookupCustomerByPhone()
         })
     }
+
+    const nameEl = document.getElementById('cash-cust-name')
+    if (nameEl && !nameEl.dataset.manualBound) {
+        nameEl.dataset.manualBound = '1'
+        nameEl.addEventListener('input', () => {
+            delete nameEl.dataset.autofilled
+        })
+    }
+    const addrEl = document.getElementById('cash-cust-address')
+    if (addrEl && !addrEl.dataset.manualBound) {
+        addrEl.dataset.manualBound = '1'
+        addrEl.addEventListener('input', () => {
+            delete addrEl.dataset.autofilled
+        })
+    }
 }
 
 function consumePendingTerminalScan() {
