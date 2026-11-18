@@ -1422,9 +1422,23 @@ function buildReceiptPreview() {
     if (phone.replace(/\D/g, '').length <= 3) phone = ''
     const cash = parseCashAmount(document.getElementById('cash-received-input')?.value)
     const meta = receiptMeta()
+    // Sozlamalar: chekda chegirma / ustama qatori ko‘rsatilsinmi
+    const allowDiscount = typeof RECEIPT_SHOW_DISCOUNT === 'undefined' ? true : !!RECEIPT_SHOW_DISCOUNT
+    const allowMarkup = typeof RECEIPT_SHOW_MARKUP === 'undefined' ? true : !!RECEIPT_SHOW_MARKUP
+    const hideAdjust = (discount > 0.001 && !allowDiscount) || (markup > 0.001 && !allowMarkup)
+    const factor = markupPct > 0 ? (100 + markupPct) / 100 : (100 - discountPct) / 100
+    // Yashirilganda narxlar yakuniy bo‘ladi (qatorlar yig‘indisi UMUMIY ga teng); usta haqqi o‘zgarmaydi
+    const displayItems = hideAdjust
+        ? items.map((item) => (item.isService
+            ? item
+            : Object.assign({}, item, { price: Math.round((parseFloat(item.price) || 0) * factor * 100) / 100 })))
+        : items
     return {
         meta,
         items,
+        displayItems,
+        showDiscount: discount > 0.001 && allowDiscount,
+        showMarkup: markup > 0.001 && allowMarkup,
         cur,
         list,
         net,
@@ -1457,7 +1471,7 @@ function receiptPlainText(model) {
     if (model.phone) lines.push(`Telefon: ${model.phone}`)
     if (model.meta.cashier) lines.push(`Kassir: ${model.meta.cashier}`)
     lines.push('------------------------------')
-    model.items.forEach((item) => {
+    model.displayItems.forEach((item) => {
         const qty = formatQty(item.qty, item.unit)
         const unit = normalizeUnit(item.unit)
         const line = (parseFloat(item.price) || 0) * (parseFloat(item.qty) || 0)
@@ -1465,14 +1479,14 @@ function receiptPlainText(model) {
         lines.push(`  ${qty} ${unit} × ${formatMoney(item.price, model.cur)} = ${formatMoney(line, model.cur)}`)
     })
     lines.push('------------------------------')
-    if (model.discount > 0.001 || model.markup > 0.001) {
+    if (model.showDiscount || model.showMarkup) {
         lines.push(`Oraliq: ${formatMoney(model.list, model.cur)}`)
     }
-    if (model.discount > 0.001) {
+    if (model.showDiscount) {
         const pct = model.discountPct > 0 ? ` ${formatReceiptPct(model.discountPct)}%` : ''
         lines.push(`Chegirma${pct}: −${formatMoney(model.discount, model.cur)}`)
     }
-    if (model.markup > 0.001) {
+    if (model.showMarkup) {
         const pct = model.markupPct > 0 ? ` ${formatReceiptPct(model.markupPct)}%` : ''
         lines.push(`Ustama${pct}: +${formatMoney(model.markup, model.cur)}`)
     }
@@ -1499,7 +1513,7 @@ function renderReceiptPreview(model) {
     const logo = meta.logo
         ? `<img src="${escapeReceiptText(meta.logo)}" alt="" class="mx-auto h-14 w-auto object-contain mb-2">`
         : ''
-    const rows = model.items.map((item) => {
+    const rows = model.displayItems.map((item) => {
         const qty = formatQty(item.qty, item.unit)
         const unit = normalizeUnit(item.unit)
         const line = (parseFloat(item.price) || 0) * (parseFloat(item.qty) || 0)
@@ -1515,14 +1529,14 @@ function renderReceiptPreview(model) {
     }).join('')
 
     let adjust = ''
-    if (model.discount > 0.001 || model.markup > 0.001) {
+    if (model.showDiscount || model.showMarkup) {
         adjust += `<div class="flex justify-between text-sm"><span>ORALIQ</span><span>${escapeReceiptText(formatMoney(model.list, model.cur))}</span></div>`
     }
-    if (model.discount > 0.001) {
+    if (model.showDiscount) {
         const pct = model.discountPct > 0 ? ` ${formatReceiptPct(model.discountPct)}%` : ''
         adjust += `<div class="flex justify-between text-sm font-bold text-emerald-800"><span>CHEGIRMA${pct}</span><span>−${escapeReceiptText(formatMoney(model.discount, model.cur))}</span></div>`
     }
-    if (model.markup > 0.001) {
+    if (model.showMarkup) {
         const pct = model.markupPct > 0 ? ` ${formatReceiptPct(model.markupPct)}%` : ''
         adjust += `<div class="flex justify-between text-sm font-bold text-amber-800"><span>USTAMA${pct}</span><span>+${escapeReceiptText(formatMoney(model.markup, model.cur))}</span></div>`
     }
@@ -1678,7 +1692,7 @@ function drawReceiptCanvas(model) {
     if (model.phone) push(`Tel: ${model.phone}`, { size: 13, gap: 3 })
     if (model.meta.cashier) push(`Kassir: ${model.meta.cashier}`, { size: 13, gap: 10 })
     push('--------------------------------', { align: 'center', color: '#9ca3af', gap: 8 })
-    model.items.forEach((item) => {
+    model.displayItems.forEach((item) => {
         const qty = formatQty(item.qty, item.unit)
         const unit = normalizeUnit(item.unit)
         const line = (parseFloat(item.price) || 0) * (parseFloat(item.qty) || 0)
@@ -1687,14 +1701,14 @@ function drawReceiptCanvas(model) {
         push(formatMoney(line, model.cur), { bold: true, size: 14, align: 'right', gap: 10 })
     })
     push('--------------------------------', { align: 'center', color: '#9ca3af', gap: 8 })
-    if (model.discount > 0.001 || model.markup > 0.001) {
+    if (model.showDiscount || model.showMarkup) {
         push(`Oraliq: ${formatMoney(model.list, model.cur)}`, { size: 14, gap: 4 })
     }
-    if (model.discount > 0.001) {
+    if (model.showDiscount) {
         const pct = model.discountPct > 0 ? ` ${formatReceiptPct(model.discountPct)}%` : ''
         push(`Chegirma${pct}: −${formatMoney(model.discount, model.cur)}`, { size: 14, color: '#065f46', gap: 4 })
     }
-    if (model.markup > 0.001) {
+    if (model.showMarkup) {
         const pct = model.markupPct > 0 ? ` ${formatReceiptPct(model.markupPct)}%` : ''
         push(`Ustama${pct}: +${formatMoney(model.markup, model.cur)}`, { size: 14, color: '#92400e', gap: 4 })
     }

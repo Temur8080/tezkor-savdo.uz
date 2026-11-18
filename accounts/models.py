@@ -490,6 +490,16 @@ class AppSettings(models.Model):
         default=0,
         help_text='Ustama kodi kiritilganda umumiy summaga qo‘shiladigan foiz',
     )
+    receipt_show_discount = models.BooleanField(
+        'Chekda chegirmani ko‘rsatish',
+        default=True,
+        help_text='O‘chirilsa chekda chegirma qatori chiqmaydi, mahsulot narxlari chegirmadan keyingi narxda yoziladi',
+    )
+    receipt_show_markup = models.BooleanField(
+        'Chekda ustamani ko‘rsatish',
+        default=True,
+        help_text='O‘chirilsa chekda ustama qatori chiqmaydi, mahsulot narxlari ustamali narxda yoziladi',
+    )
     THEME_SYSTEM = 'system'
     THEME_DAY = 'day'
     THEME_NIGHT = 'night'

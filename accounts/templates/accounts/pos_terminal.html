@@ -97,6 +97,8 @@
     const SECRET_DISCOUNT_PERCENT = parseFloat("{{ secret_discount_percent|default:'0' }}") || 0;
     const SECRET_MARKUP_CODE = "{{ secret_markup_code|default:''|escapejs }}";
     const SECRET_MARKUP_PERCENT = parseFloat("{{ secret_markup_percent|default:'0' }}") || 0;
+    const RECEIPT_SHOW_DISCOUNT = {% if receipt_show_discount %}true{% else %}false{% endif %};
+    const RECEIPT_SHOW_MARKUP = {% if receipt_show_markup %}true{% else %}false{% endif %};
     const RECEIPT_META = {
         brand: "{{ brand.brand_name|escapejs }}",
         company: "{{ brand.company_name|escapejs }}",
@@ -109,7 +111,7 @@
 </script>
 
 <script src="{% static 'js/moneyFormat.js' %}?v=48"></script>
-<script src="{% static 'js/posScanner.js' %}?v=48"></script>
-<script src="{% static 'js/posUI.js' %}?v=54"></script>
-<script src="{% static 'js/posInit.js' %}?v=53"></script>
+<script src="{% static 'js/posScanner.js' %}?v=49"></script>
+<script src="{% static 'js/posUI.js' %}?v=55"></script>
+<script src="{% static 'js/posInit.js' %}?v=54"></script>
 {% endblock %}

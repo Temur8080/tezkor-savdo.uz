@@ -54,28 +54,30 @@
                     <td class="py-3">
                         <p class="font-bold text-gray-800">{{ item.product.product_name }}</p>
                         <p class="text-xs text-gray-500">
-                            @ {% if item.list_unit_price %}{{ item.list_unit_price|money:order.currency }}{% else %}{{ item.product.base_price|money:item.product.currency }}{% endif %}
+                            @ {% if hide_adjust %}{{ item.unit_price|money:order.currency }}{% elif item.list_unit_price %}{{ item.list_unit_price|money:order.currency }}{% else %}{{ item.product.base_price|money:item.product.currency }}{% endif %}
                         </p>
                     </td>
                     <td class="text-center py-3">{{ item.quantity|qty }}</td>
-                    <td class="text-right py-3 font-bold">{{ item.list_line_total|money:order.currency }}</td>
+                    <td class="text-right py-3 font-bold">{% if hide_adjust %}{{ item.line_total|money:order.currency }}{% else %}{{ item.list_line_total|money:order.currency }}{% endif %}</td>
                 </tr>
                 {% endfor %}
             </tbody>
         </table>
 
         <div class="space-y-2 border-t-2 border-gray-800 pt-4">
+            {% if not hide_adjust %}
             <div class="flex justify-between text-sm">
                 <span>ORALIQ</span>
                 <span>{{ list_total|money:order.currency }}</span>
             </div>
-            {% if discount_amount and discount_amount > 0 %}
+            {% endif %}
+            {% if not hide_adjust and discount_amount and discount_amount > 0 %}
             <div class="flex justify-between text-sm text-emerald-800 font-bold">
                 <span>CHEGIRMA{% if discount_percent and discount_percent > 0 %} {{ discount_percent }}%{% endif %}</span>
                 <span>−{{ discount_amount|money:order.currency }}</span>
             </div>
             {% endif %}
-            {% if markup_amount and markup_amount > 0 %}
+            {% if not hide_adjust and markup_amount and markup_amount > 0 %}
             <div class="flex justify-between text-sm text-amber-800 font-bold">
                 <span>USTAMA{% if markup_percent and markup_percent > 0 %} {{ markup_percent }}%{% endif %}</span>
                 <span>+{{ markup_amount|money:order.currency }}</span>

@@ -210,3 +210,70 @@ class SecurityAndIntegrityTests(TestCase):
         )
         resp = self.client.get(reverse('sales_edit', args=[self.order.pk]))
         self.assertEqual(resp.status_code, 200)
+
+
+class ReceiptDisplaySettingsTests(TestCase):
+    """Sozlama: chekda chegirma/ustama qatori ko‘rsatilsin yoki yashirilsin."""
+
+    def setUp(self):
+        from .models import AppSettings
+        self.user = User.objects.create_superuser('boss', password='x')
+        self.branch = Branch.objects.create(name='Asosiy')
+        self.emp = Employee.objects.create(user=self.user, branch=self.branch, name='Boss', role='Manager')
+        supplier = Supplier.objects.create(name='T', contract_expiration=date(2030, 1, 1))
+        self.product = Product.objects.create(
+            supplier=supplier, product_name='Kamera', barcode='K-1',
+            base_price=Decimal('1000'), cost_price=Decimal('1'),
+        )
+        self.order = Order.objects.create(
+            employee=self.emp, branch=self.branch, total_amount=Decimal('900'),
+            list_total=Decimal('1000'), discount_percent=Decimal('10'),
+            discount_amount=Decimal('100'), payment_method='CASH', order_status='Completed',
+        )
+        OrderItem.objects.create(
+            order=self.order, product=self.product, quantity=1,
+            list_unit_price=Decimal('1000'), unit_price=Decimal('900'), cost_price=Decimal('1'),
+        )
+        self.settings = AppSettings.get_solo()
+        self.client.force_login(self.user)
+
+    def _receipt(self):
+        resp = self.client.get(reverse('emp_receipt', args=[self.order.pk]))
+        self.assertEqual(resp.status_code, 200)
+        return resp.content.decode()
+
+    def test_discount_shown_by_default(self):
+        html = self._receipt()
+        self.assertIn('CHEGIRMA', html)
+        self.assertIn('ORALIQ', html)
+
+    def test_discount_hidden_uses_final_prices(self):
+        self.settings.receipt_show_discount = False
+        self.settings.save()
+        html = self._receipt()
+        self.assertNotIn('CHEGIRMA', html)
+        self.assertNotIn('ORALIQ', html)
+        self.assertIn('900', html)
+
+    def test_settings_page_saves_toggles(self):
+        from .models import PriceTier
+        tier_fields = {}
+        for t in PriceTier.objects.all():
+            tier_fields[f'tier_{t.id}_name'] = t.name
+            tier_fields[f'tier_{t.id}_percent'] = str(t.discount_percent)
+        resp = self.client.post(reverse('app_settings'), {
+            **tier_fields,
+            'vat_enabled': '0', 'vat_percent': '12',
+            'pos_secret_code': 'chegirma10', 'pos_secret_discount_percent': '10',
+            'pos_secret_markup_code': 'ustama10', 'pos_secret_markup_percent': '5',
+            'receipt_show_discount': '0', 'receipt_show_markup': '1',
+            'theme_mode': 'system',
+        })
+        self.assertEqual(resp.status_code, 302)
+        self.settings.refresh_from_db()
+        self.assertFalse(self.settings.receipt_show_discount)
+        self.assertTrue(self.settings.receipt_show_markup)
+        self.assertEqual(self.client.get(reverse('app_settings')).status_code, 200)
+        pos = self.client.get(reverse('pos_terminal')).content.decode()
+        self.assertIn('RECEIPT_SHOW_DISCOUNT = false', pos)
+        self.assertIn('RECEIPT_SHOW_MARKUP = true', pos)

@@ -1596,9 +1596,17 @@ def emp_receipt(request, pk):
         if list_total > 0:
             markup_percent = (markup_amount / list_total * Decimal('100')).quantize(Decimal('0.01'))
 
+    app_cfg = AppSettings.get_solo()
+    # Sozlamada o‘chirilgan bo‘lsa: chegirma/ustama qatori chiqmaydi, narxlar yakuniy (net) bo‘ladi
+    hide_adjust = bool(
+        (discount_amount > 0 and not app_cfg.receipt_show_discount)
+        or (markup_amount > 0 and not app_cfg.receipt_show_markup)
+    )
+
     context = {
         'order': order,
         'invoice': invoice,
+        'hide_adjust': hide_adjust,
         'subtotal': subtotal,
         'list_total': list_total,
         'discount_amount': discount_amount,
@@ -2228,6 +2236,8 @@ def posTerminal(request):
         'secret_discount_percent': str(app_settings.pos_secret_discount_percent or 0),
         'secret_markup_code': (app_settings.pos_secret_markup_code or '').strip(),
         'secret_markup_percent': str(app_settings.pos_secret_markup_percent or 0),
+        'receipt_show_discount': bool(app_settings.receipt_show_discount),
+        'receipt_show_markup': bool(app_settings.receipt_show_markup),
     }
 
     return render(request, 'accounts/pos_terminal.html', context)
@@ -4958,6 +4968,8 @@ def app_settings(request):
         app.pos_secret_discount_percent = secret_pct
         app.pos_secret_markup_code = markup_code
         app.pos_secret_markup_percent = markup_pct
+        app.receipt_show_discount = request.POST.get('receipt_show_discount') == '1'
+        app.receipt_show_markup = request.POST.get('receipt_show_markup') == '1'
         app.theme_mode = theme_mode
         app.theme_day_start = day_start
         app.theme_night_start = night_start

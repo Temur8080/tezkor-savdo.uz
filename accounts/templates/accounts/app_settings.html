@@ -108,6 +108,40 @@
                            min="0" max="1000" step="0.01"
                            class="w-full px-3 py-2 border border-gray-300 dark:border-slate-600 rounded-md text-sm bg-white dark:bg-slate-950 dark:text-slate-100">
                 </div>
+                <div class="sm:col-span-2 border-t border-gray-200 dark:border-slate-700 pt-4">
+                    <p class="text-sm font-bold text-gray-900 dark:text-slate-100">Chekda ko‘rsatish</p>
+                    <p class="text-xs text-gray-500 dark:text-slate-400 mt-0.5 mb-3">
+                        O‘chirilsa chekda chegirma / ustama qatori chiqmaydi, mahsulot narxlari yakuniy (chegirma yoki ustama qo‘shilgan) narxda yoziladi.
+                    </p>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                            <span class="block text-xs font-semibold text-gray-600 dark:text-slate-400 mb-2">Chegirma</span>
+                            <div class="inline-flex rounded-lg border border-gray-200 dark:border-slate-600 p-1 bg-gray-100 dark:bg-slate-800 gap-1">
+                                <label class="cursor-pointer">
+                                    <input type="radio" name="receipt_show_discount" value="1" class="peer sr-only" {% if app.receipt_show_discount %}checked{% endif %}>
+                                    <span class="block px-4 py-2 text-sm font-semibold rounded-md text-gray-600 dark:text-slate-300 peer-checked:bg-emerald-600 peer-checked:text-white peer-checked:shadow-sm transition">Ko‘rsatilsin</span>
+                                </label>
+                                <label class="cursor-pointer">
+                                    <input type="radio" name="receipt_show_discount" value="0" class="peer sr-only" {% if not app.receipt_show_discount %}checked{% endif %}>
+                                    <span class="block px-4 py-2 text-sm font-semibold rounded-md text-gray-600 dark:text-slate-300 peer-checked:bg-slate-700 peer-checked:text-white peer-checked:shadow-sm transition">Yashirilsin</span>
+                                </label>
+                            </div>
+                        </div>
+                        <div>
+                            <span class="block text-xs font-semibold text-gray-600 dark:text-slate-400 mb-2">Ustama</span>
+                            <div class="inline-flex rounded-lg border border-gray-200 dark:border-slate-600 p-1 bg-gray-100 dark:bg-slate-800 gap-1">
+                                <label class="cursor-pointer">
+                                    <input type="radio" name="receipt_show_markup" value="1" class="peer sr-only" {% if app.receipt_show_markup %}checked{% endif %}>
+                                    <span class="block px-4 py-2 text-sm font-semibold rounded-md text-gray-600 dark:text-slate-300 peer-checked:bg-emerald-600 peer-checked:text-white peer-checked:shadow-sm transition">Ko‘rsatilsin</span>
+                                </label>
+                                <label class="cursor-pointer">
+                                    <input type="radio" name="receipt_show_markup" value="0" class="peer sr-only" {% if not app.receipt_show_markup %}checked{% endif %}>
+                                    <span class="block px-4 py-2 text-sm font-semibold rounded-md text-gray-600 dark:text-slate-300 peer-checked:bg-slate-700 peer-checked:text-white peer-checked:shadow-sm transition">Yashirilsin</span>
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </div>
         </section>
 
