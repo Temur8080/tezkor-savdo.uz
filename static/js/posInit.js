@@ -305,6 +305,7 @@ function consumePendingTerminalScan() {
                 qty: 1,
                 img: data.product.image || '',
                 stock: data.product.stock,
+                isService: !!data.product.is_service,
             })
         } else if (typeof processScan === 'function') {
             processScan(data.barcode)

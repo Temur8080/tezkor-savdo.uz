@@ -42,14 +42,17 @@ class ServiceItemCheckoutTests(TestCase):
     def test_service_sold_with_goods_and_visible_on_receipt(self):
         resp = self._checkout([
             {'id': self.goods.id, 'qty': 1},
-            {'id': self.service.id, 'qty': 1},
+            {'id': self.service.id, 'qty': 1, 'price': 180000},
         ])
         self.assertEqual(resp.status_code, 200, resp.content)
         data = resp.json()
         self.assertTrue(data['success'], data)
 
         order = Order.objects.get(pk=data['order_id'])
-        self.assertEqual(order.total_amount, Decimal('650000.00'))
+        self.assertEqual(order.total_amount, Decimal('680000.00'))
+        self.assertEqual(order.service_amount, Decimal('180000.00'))
+        self.assertEqual(order.shop_amount, Decimal('500000.00'))
+        self.assertTrue(order.orderitem_set.get(product=self.service).price_adjusted)
         self.assertEqual(order.orderitem_set.count(), 2)
 
         self.assertEqual(BranchInventory.objects.get(product=self.goods).quantity, 4)
@@ -60,11 +63,43 @@ class ServiceItemCheckoutTests(TestCase):
         self.assertContains(receipt, 'Ornatib berish')
 
     def test_service_only_sale_works_with_zero_stock(self):
-        resp = self._checkout([{'id': self.service.id, 'qty': 1}], cash='150000')
+        resp = self._checkout([{'id': self.service.id, 'qty': 1, 'price': 150000}], cash='150000')
         self.assertTrue(resp.json()['success'], resp.content)
         order = Order.objects.get(pk=resp.json()['order_id'])
         self.assertEqual(order.total_amount, Decimal('150000.00'))
         self.assertEqual(BranchInventory.objects.get(product=self.service).quantity, 0)
+
+    def test_service_requires_manual_price(self):
+        before = Order.objects.count()
+        resp = self._checkout([{'id': self.service.id, 'qty': 1}])
+        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(Order.objects.count(), before)
+
+    def test_service_fee_not_discounted(self):
+        from .views import _price_lines_from_cart
+        priced = _price_lines_from_cart(
+            [{'id': self.goods.id, 'qty': 1}, {'id': self.service.id, 'qty': 1, 'price': 100000}],
+            {'mode': 'discount', 'percent': 10},
+        )
+        self.assertEqual(priced['service_total'], Decimal('100000.00'))
+        self.assertEqual(priced['net_total'], Decimal('550000.00'))  # 500000-10% + 100000
+        self.assertEqual(priced['discount_amount'], Decimal('50000.00'))
+
+    def test_reports_exclude_service_fee_from_profit(self):
+        resp = self._checkout([
+            {'id': self.goods.id, 'qty': 1},
+            {'id': self.service.id, 'qty': 1, 'price': 200000},
+        ])
+        self.assertTrue(resp.json()['success'], resp.content)
+        report = self.client.get(reverse('admin_reports'), {'period': 'all'})
+        self.assertEqual(report.status_code, 200)
+        ctx = report.context
+        self.assertEqual(ctx['gross_revenue'], Decimal('500000'))
+        self.assertEqual(ctx['net_profit'], ctx['gross_revenue'] - ctx['cost'])
+        self.assertEqual(ctx['cost'], Decimal('125000'))  # $10 * kurs 12500
+        self.assertEqual(ctx['service_fee_total'], Decimal('200000'))
+        self.assertIn('Usta haqqi', report.content.decode())
+        self.assertEqual(self.client.get(reverse('dashboard')).status_code, 200)
 
     def test_regular_product_still_blocked_without_stock(self):
         resp = self._checkout([{'id': self.goods.id, 'qty': 6}])

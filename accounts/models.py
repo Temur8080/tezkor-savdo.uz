@@ -863,6 +863,13 @@ class Order(models.Model):
     list_total = models.DecimalField('Chegirmasiz jami', max_digits=14, decimal_places=2, default=0.00)
     discount_percent = models.DecimalField('Chegirma %', max_digits=5, decimal_places=2, default=Decimal('0.00'))
     discount_amount = models.DecimalField('Chegirma summa', max_digits=14, decimal_places=2, default=Decimal('0.00'))
+    service_amount = models.DecimalField(
+        'Usta haqqi (xizmat)',
+        max_digits=14,
+        decimal_places=2,
+        default=Decimal('0.00'),
+        help_text='Ornatib berish kabi xizmat summasi — do‘kon foydasi emas, hisobotlarga kirmaydi',
+    )
     currency = models.CharField('Valyuta', max_length=3, choices=CURRENCY_CHOICES, default=CURRENCY_UZS)
     order_status = models.CharField('Holat', choices=ORDER_STATUS, max_length=100, default='Pending')
     payment_method = models.CharField('To‘lov usuli', choices=PAYMENT_METHOD, max_length=100)
@@ -880,6 +887,11 @@ class Order(models.Model):
         self.is_active = False
         self.deleted_at = timezone.now()
         self.save()
+
+    @property
+    def shop_amount(self):
+        """Do‘kon savdosi: jami summadan usta haqqi (xizmat) ayirilgan."""
+        return (self.total_amount or Decimal('0.00')) - (self.service_amount or Decimal('0.00'))
 
     def get_cash_received(self):
 

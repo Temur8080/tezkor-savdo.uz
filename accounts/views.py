@@ -283,11 +283,14 @@ def _execute_sale_return(*, order, employee, lines, reason=''):
         order.order_status = 'Returned'
         order.save(update_fields=['order_status'])
 
-    # Reverse sales-agent commission on return total
+    # Reverse sales-agent commission on return total (usta haqqi komissiyaga kirmagan)
+    shop_total = total - sum(
+        (lt for oi_, _q, lt in prepared if oi_.product.is_service), Decimal('0.00')
+    )
     try:
         agent = order.employee.salesagent
-        agent.total_sales = max(Decimal('0.00'), (agent.total_sales or Decimal('0')) - total)
-        commission_cut = (total * (agent.commission_rate or Decimal('0'))).quantize(Decimal('0.01'))
+        agent.total_sales = max(Decimal('0.00'), (agent.total_sales or Decimal('0')) - shop_total)
+        commission_cut = (shop_total * (agent.commission_rate or Decimal('0'))).quantize(Decimal('0.01'))
         agent.total_commission_earned = max(
             Decimal('0.00'),
             (agent.total_commission_earned or Decimal('0')) - commission_cut,
@@ -303,7 +306,7 @@ def _customer_purchase_stats(customer):
     orders = _active_order_stats_qs().filter(customer=customer)
     agg = orders.aggregate(
         orders_count=Count('id'),
-        total_spent=Coalesce(Sum('total_amount'), _ZERO_MONEY),
+        total_spent=Coalesce(Sum(F('total_amount') - F('service_amount')), _ZERO_MONEY),
         total_discount=Coalesce(Sum('discount_amount'), _ZERO_MONEY),
         last_purchase=Max('order_date'),
     )
@@ -425,11 +428,22 @@ def _price_lines_from_cart(cart, adjust):
     priced_lines = []
     list_total = Decimal('0.00')
     net_total = Decimal('0.00')
+    service_total = Decimal('0.00')
     mode = adjust.get('mode') or 'none'
     percent = money_dec(adjust.get('percent') or 0)
     for item in cart:
         product = Product.objects.get(id=item['id'])
         qty = _parse_cart_qty(item.get('qty'), product)
+        if product.is_service:
+            # Usta haqqi: kassir qo‘lda kiritgan summa, chegirma/ustama qo‘llanmaydi
+            fee = money_dec(item.get('price'))
+            if fee <= 0:
+                raise ValueError(f'«{product.product_name}» summasini kiriting (usta haqqi)')
+            priced_lines.append((product, qty, fee, fee, True))
+            list_total += fee * qty
+            net_total += fee * qty
+            service_total += fee * qty
+            continue
         price_adjusted = bool(item.get('priceAdjusted') or item.get('price_adjusted'))
         catalog_price = money_dec(product.base_price)
         if price_adjusted:
@@ -473,6 +487,7 @@ def _price_lines_from_cart(cart, adjust):
         markup_amount = money_dec(0)
     return {
         'priced_lines': priced_lines,
+        'service_total': money_dec(service_total),
         'list_total': list_total,
         'net_total': net_total,
         'discount_percent': discount_percent,
@@ -880,13 +895,18 @@ def _reports_build_context(request):
         units = 0
         order_ids = set()
         cash = zero
-        for item in item_qs.select_related('order').iterator():
+        service = zero
+        for item in item_qs.select_related('order', 'product').iterator():
             order = item.order
             cur = getattr(order, 'currency', None) or CURRENCY_UZS
             line = (item.unit_price or zero) * (item.quantity or 0)
             line_cost = (item.cost_price or zero) * (item.quantity or 0)
             line_uzs = to_uzs(line, cur)
             cost_uzs = to_uzs(line_cost, cur)
+            if item.product.is_service:
+                # Usta haqqi — do‘kon savdosi/foydasi emas, alohida hisoblanadi
+                service += line_uzs
+                continue
             revenue += line_uzs
             cost_sum += cost_uzs
             units += float(item.quantity or 0)
@@ -900,6 +920,7 @@ def _reports_build_context(request):
             'units': units,
             'orders': len(order_ids),
             'cash': cash,
+            'service': service,
         }
 
     def sum_return_items_uzs(return_item_qs):
@@ -910,6 +931,7 @@ def _reports_build_context(request):
         return_ids = set()
         cash_refund = zero
         debt_reduced = zero
+        service = zero
         for ri in return_item_qs.select_related(
             'sale_return', 'order_item', 'product'
         ).iterator():
@@ -922,6 +944,9 @@ def _reports_build_context(request):
             )
             oi = ri.order_item
             line_cost = (getattr(oi, 'cost_price', None) or zero) * (ri.quantity or 0)
+            if ri.product.is_service:
+                service += to_uzs(line, cur)
+                continue
             revenue += to_uzs(line, cur)
             cost_sum += to_uzs(line_cost, cur)
             units += float(ri.quantity or 0)
@@ -939,6 +964,7 @@ def _reports_build_context(request):
             'returns': len(return_ids),
             'cash_refunded': cash_refund,
             'debt_reduced': debt_reduced,
+            'service': service,
         }
 
     def apply_returns_net(sales, returns):
@@ -948,6 +974,7 @@ def _reports_build_context(request):
             'units': float(sales['units'] or 0) - float(returns['units'] or 0),
             'orders': sales['orders'],
             'cash': (sales['cash'] or zero) - (returns['cash_refunded'] or zero),
+            'service': (sales.get('service') or zero) - (returns.get('service') or zero),
         }
 
     def returns_in_range(start=None, end=None):
@@ -967,8 +994,11 @@ def _reports_build_context(request):
 
     def sum_orders_field_uzs(order_qs, field='total_amount'):
         total = zero
-        for order in order_qs.only('currency', field).iterator():
-            total += to_uzs(getattr(order, field, zero) or zero, order.currency)
+        for order in order_qs.only('currency', field, 'service_amount').iterator():
+            amount = getattr(order, field, zero) or zero
+            if field == 'total_amount':
+                amount -= order.service_amount or zero
+            total += to_uzs(amount, order.currency)
         return total
 
     def sum_money_rows_uzs(qs, amount_field, currency_field='currency'):
@@ -1119,13 +1149,20 @@ def _reports_build_context(request):
     branch_totals_map = {}
     employee_totals_map = {}
     for order in Order.objects.filter(id__in=active_order_ids).select_related('branch', 'employee'):
-        amount = to_uzs(order.total_amount or zero, order.currency)
+        amount = to_uzs(order.shop_amount, order.currency)
         bname = order.branch.name if order.branch_id else "Asosiy do‘kon"
         ename = order.employee.name if order.employee_id else "Tizim administratori"
         branch_totals_map[bname] = branch_totals_map.get(bname, zero) + amount
         employee_totals_map[ename] = employee_totals_map.get(ename, zero) + amount
+    ret_service_map = {}
+    for ri in SaleReturnItem.objects.filter(
+        sale_return__in=period_returns_qs, product__is_service=True
+    ).iterator():
+        ret_service_map[ri.sale_return_id] = (
+            ret_service_map.get(ri.sale_return_id, zero) + (ri.line_total or zero)
+        )
     for ret in period_returns_qs.select_related('branch', 'employee').iterator():
-        amount = to_uzs(ret.total_amount or zero, ret.currency)
+        amount = to_uzs((ret.total_amount or zero) - ret_service_map.get(ret.id, zero), ret.currency)
         bname = ret.branch.name if ret.branch_id else "Asosiy do‘kon"
         ename = ret.employee.name if ret.employee_id else "Tizim administratori"
         branch_totals_map[bname] = branch_totals_map.get(bname, zero) - amount
@@ -1143,7 +1180,7 @@ def _reports_build_context(request):
 
     product_qty_map = {}
     for row in (
-        OrderItem.objects.filter(order_id__in=active_order_ids)
+        OrderItem.objects.filter(order_id__in=active_order_ids, product__is_service=False)
         .values('product__product_name')
         .annotate(total=Sum('quantity'))
     ):
@@ -1154,6 +1191,7 @@ def _reports_build_context(request):
             sale_return__status='Completed',
             sale_return__is_active=True,
             sale_return__return_date__lte=end_dt,
+            product__is_service=False,
         ),
         request,
         field='sale_return__branch_id',
@@ -1262,7 +1300,7 @@ def _reports_build_context(request):
             'discount': zero,
         })
         row['orders'] += 1
-        row['total'] += to_uzs(order.total_amount or zero, order.currency)
+        row['total'] += to_uzs(order.shop_amount, order.currency)
         row['discount'] += to_uzs(order.discount_amount or zero, order.currency)
     top_partners = sorted(partner_map.values(), key=lambda r: r['total'], reverse=True)[:10]
 
@@ -1294,7 +1332,7 @@ def _reports_build_context(request):
             'discount': zero,
         })
         row['orders'] += 1
-        row['total'] += to_uzs(order.total_amount or zero, order.currency)
+        row['total'] += to_uzs(order.shop_amount, order.currency)
         row['discount'] += to_uzs(order.discount_amount or zero, order.currency)
     top_loyal_customers = sorted(loyal_map.values(), key=lambda r: r['total'], reverse=True)[:15]
     tier_name_map = {
@@ -1358,6 +1396,7 @@ def _reports_build_context(request):
         'loyalty_customers_count': loyalty_customers_count,
         'cost': cost,
         'net_profit': net_profit,
+        'service_fee_total': stats_uzs.get('service') or zero,
         'aov': aov,
         'sold_units': sold_units,
         'total_transactions': total_count,
@@ -1448,6 +1487,7 @@ def admin_reports_export_csv(request):
     writer.writerow(['Sof sotuv', ctx['gross_revenue']])
     writer.writerow(['Tannarx (sof)', ctx['cost']])
     writer.writerow(['Foyda', ctx['net_profit']])
+    writer.writerow(['Usta haqqi (foydaga kirmaydi)', ctx['service_fee_total']])
     writer.writerow(['Ochiq qarz', ctx['outstanding_balance']])
     writer.writerow(['Xarajat (davr)', ctx['expense_period']])
     writer.writerow(['Sof foyda (foyda−qarz−xarajat)', ctx['summary_sof_foyda']])
@@ -2992,6 +3032,7 @@ def checkout_cash(request):
                     customer=customer,
                     partner=partner,
                     total_amount=total_amount,
+                    service_amount=priced['service_total'],
                     list_total=list_total,
                     discount_percent=discount_percent,
                     discount_amount=discount_amount,
@@ -3008,7 +3049,7 @@ def checkout_cash(request):
                         quantity=qty,
                         list_unit_price=list_price,
                         unit_price=unit_price,
-                        discount_percent=discount_percent,
+                        discount_percent=Decimal('0.00') if product.is_service else discount_percent,
                         price_adjusted=price_adjusted,
                         cost_price=_product_cost_in_currency(product, order_currency, usd_rate),
                         warranty_days=product.warranty_days,
@@ -3099,8 +3140,8 @@ def checkout_cash(request):
 
                 try:
                     agent_profile = order.employee.salesagent
-                    agent_profile.total_sales += order.total_amount
-                    commission_for_this_order = order.total_amount * agent_profile.commission_rate
+                    agent_profile.total_sales += order.shop_amount
+                    commission_for_this_order = order.shop_amount * agent_profile.commission_rate
                     agent_profile.total_commission_earned += commission_for_this_order
                     agent_profile.save()
                 except Exception:
@@ -3250,6 +3291,7 @@ def checkout_quote(request):
             customer=customer,
             partner=partner,
             total_amount=net_total,
+            service_amount=priced['service_total'],
             list_total=list_total,
             discount_percent=discount_percent,
             discount_amount=discount_amount,
@@ -3265,7 +3307,7 @@ def checkout_quote(request):
                 quantity=qty,
                 list_unit_price=list_price,
                 unit_price=unit_price,
-                discount_percent=discount_percent,
+                discount_percent=Decimal('0.00') if product.is_service else discount_percent,
                 price_adjusted=price_adjusted,
                 cost_price=_product_cost_in_currency(product, order_currency, usd_rate),
                 warranty_days=product.warranty_days,
@@ -3500,7 +3542,8 @@ def reservation_to_cart(request, pk):
             'currency': reservation.currency or 'UZS',
             'qty': held_qty,
             'img': product.image.url if product.image else '',
-            'stock': avail,
+            'stock': None if product.is_service else avail,
+            'isService': product.is_service,
         })
 
     _release_reservation_stock(reservation)
@@ -3658,8 +3701,8 @@ def order_approve(request, pk):
     order.save(update_fields=['order_status'])
     try:
         agent = order.employee.salesagent
-        agent.total_sales += order.total_amount
-        agent.total_commission_earned += order.total_amount * agent.commission_rate
+        agent.total_sales += order.shop_amount
+        agent.total_commission_earned += order.shop_amount * agent.commission_rate
         agent.save()
     except Exception:
         pass
@@ -4023,6 +4066,7 @@ def dashboard(request):
                 order__order_date__gte=start_date,
                 order__is_active=True,
                 product__is_active=True,
+                product__is_service=False,
             ),
             request,
             field='order__branch_id',
@@ -4086,17 +4130,17 @@ def dashboard(request):
     yesterday = timezone.localtime(timezone.now()).date() - timedelta(days=1)
 
     today_oi = scope_queryset_by_branch(
-        OrderItem.objects.filter(order__order_date=today, order__is_active=True),
+        OrderItem.objects.filter(order__order_date__date=today, order__is_active=True, product__is_service=False),
         request,
         field='order__branch_id',
     )
     yesterday_oi = scope_queryset_by_branch(
-        OrderItem.objects.filter(order__order_date=yesterday, order__is_active=True),
+        OrderItem.objects.filter(order__order_date__date=yesterday, order__is_active=True, product__is_service=False),
         request,
         field='order__branch_id',
     )
     today_total = today_oi.aggregate(
-        total=Coalesce(Sum(F('order__total_amount') * F('quantity')), Decimal('0.00'))
+        total=Coalesce(Sum(F('unit_price') * F('quantity')), Decimal('0.00'))
     )['total']
 
     yesterday_total = yesterday_oi.aggregate(
@@ -5022,7 +5066,7 @@ def customers_loyalty(request):
         customer_type__in=allowed_types,
     ).select_related('price_tier').annotate(
         orders_count=Coalesce(Count('order', filter=active_orders), 0),
-        total_spent=Coalesce(Sum('order__total_amount', filter=active_orders), _ZERO_MONEY),
+        total_spent=Coalesce(Sum(F('order__total_amount') - F('order__service_amount'), filter=active_orders), _ZERO_MONEY),
         last_purchase=Max('order__order_date', filter=active_orders),
     )
     if type_filter in allowed_types:
@@ -5042,7 +5086,7 @@ def customers_loyalty(request):
         Customer.objects.filter(is_active=True, customer_type__in=allowed_types)
         .annotate(
             orders_count=Coalesce(Count('order', filter=active_orders), 0),
-            total_spent=Coalesce(Sum('order__total_amount', filter=active_orders), _ZERO_MONEY),
+            total_spent=Coalesce(Sum(F('order__total_amount') - F('order__service_amount'), filter=active_orders), _ZERO_MONEY),
         )
         .filter(orders_count__gt=0)
         .order_by('-total_spent')[:10]

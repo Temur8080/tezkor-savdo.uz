@@ -156,6 +156,7 @@
                 qty: 1,
                 img: product.image || '',
                 stock: product.stock,
+                isService: !!product.is_service,
             })
             return true
         }

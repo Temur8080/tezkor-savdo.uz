@@ -120,6 +120,7 @@ function selectProductFromCard(card) {
         qty: isFractionalUnit(unit) ? 1 : 1,
         img: card.getAttribute('data-image') || '',
         stock: stock,
+        isService: card.getAttribute('data-service') === '1',
     })
 }
 
@@ -392,6 +393,7 @@ function addItemToCart(scannedItem) {
         item.unit = normalizeUnit(item.unit)
     })
 
+    let askServicePrice = null
     const itemCurrency = normalizeCurrency(scannedItem.currency)
     const itemUnit = normalizeUnit(scannedItem.unit)
     const step = unitStep(itemUnit)
@@ -445,13 +447,45 @@ function addItemToCart(scannedItem) {
             saleDiscountPercent: parseFloat(scannedItem.saleDiscountPercent || scannedItem.sale_discount_percent || 0) || 0,
             currency: itemCurrency,
             stock: stock,
+            isService: !!(scannedItem.isService || scannedItem.is_service),
         })
+        if (cart[cart.length - 1].isService) {
+            askServicePrice = scannedItem.id
+        }
     }
 
     if (!cart.some((item) => normalizeCurrency(item.currency) === normalizeCurrency(checkoutCurrency))) {
         checkoutCurrency = itemCurrency
     }
 
+    localStorage.setItem(cartKey, JSON.stringify(cart))
+    renderCart()
+
+    if (askServicePrice !== null) {
+        // Usta haqqi har safar qo‘lda kiritiladi
+        setTimeout(() => promptServicePrice(askServicePrice), 0)
+    }
+}
+
+function promptServicePrice(id) {
+    const item = cart.find((i) => i.id === id)
+    if (!item) return
+    const cur = normalizeCurrency(item.currency)
+    const raw = prompt(
+        `«${item.name}» summasini kiriting (${cur === 'USD' ? 'USD' : 'so‘m'}) — usta haqqi, do‘kon foydasiga kirmaydi:`,
+        item.price > 0 ? String(item.price) : ''
+    )
+    const value = raw === null ? NaN : parseFloat(String(raw).replace(/\s/g, '').replace(',', '.'))
+    if (!isFinite(value) || value <= 0) {
+        cart = cart.filter((i) => i.id !== id)
+        localStorage.setItem(cartKey, JSON.stringify(cart))
+        renderCart()
+        if (raw !== null) alert('Summa 0 dan katta bo‘lishi kerak. Xizmat savatdan olib tashlandi.')
+        return
+    }
+    item.price = Math.round(value * 100) / 100
+    item.originalPrice = item.price
+    item.priceAdjusted = true
     localStorage.setItem(cartKey, JSON.stringify(cart))
     renderCart()
 }
@@ -620,7 +654,8 @@ async function openReservationToCart(reservationId) {
             currency: normalizeCurrency(item.currency),
             qty: parseInt(item.qty, 10) || 1,
             img: item.img || '',
-            stock: parseInt(item.stock, 10) || (parseInt(item.qty, 10) || 1),
+            stock: item.isService ? null : (parseInt(item.stock, 10) || (parseInt(item.qty, 10) || 1)),
+            isService: !!item.isService,
         }))
         localStorage.setItem(cartKey, JSON.stringify(cart))
         checkoutCurrency = getCartCurrency()
@@ -1039,14 +1074,23 @@ function getCheckoutListSubtotal() {
     }, 0)
 }
 
+// Usta haqqi (xizmat) — chegirma/ustama qo‘llanmaydi, qo‘lda kiritilgan summa o‘zgarmaydi
+function getCheckoutServiceSubtotal() {
+    return getCheckoutCart().reduce((sum, item) => {
+        if (!item.isService) return sum
+        return sum + (parseFloat(item.price) || 0) * (parseInt(item.qty, 10) || 1)
+    }, 0)
+}
+
 function getCheckoutNetSubtotal() {
-    const list = getCheckoutListSubtotal()
+    const service = getCheckoutServiceSubtotal()
+    const list = getCheckoutListSubtotal() - service
     const markupPct = Math.min(1000, Math.max(0, parseFloat(checkoutMarkupPercent) || 0))
     if (markupPct > 0) {
-        return Math.round(list * (100 + markupPct)) / 100
+        return Math.round(list * (100 + markupPct)) / 100 + service
     }
     const pct = Math.min(100, Math.max(0, parseFloat(checkoutDiscountPercent) || 0))
-    return Math.round(list * (100 - pct)) / 100
+    return Math.round(list * (100 - pct)) / 100 + service
 }
 
 function getCheckoutTotal() {

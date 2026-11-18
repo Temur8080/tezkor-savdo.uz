@@ -24,6 +24,7 @@ async function processScan(code) {
             qty: 1,
             img: data.image || '',
             stock: data.stock,
+            isService: !!data.is_service,
         })
     } catch (e) {
         console.error(e)

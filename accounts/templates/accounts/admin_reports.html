@@ -106,6 +106,12 @@
                 <p class="sof-hint text-[11px] mt-1">Foyda − qarz − xarajat</p>
             </div>
         </div>
+        {% if service_fee_total %}
+        <div class="px-5 py-3 border-t border-gray-200 bg-violet-50 text-sm text-violet-900 flex flex-wrap items-center justify-between gap-2">
+            <span class="font-semibold">Usta haqqi (ornatib berish) — ustaga beriladi, do‘kon foydasiga kirmaydi</span>
+            <span class="font-black tabular-nums">{{ service_fee_total|money }}</span>
+        </div>
+        {% endif %}
     </div>
 
     {# ── Sodiq / Hamkor / Reyting ── #}
