@@ -25,7 +25,7 @@ from .admin_branch import (
     scope_queryset_by_branch,
     user_can_access_branch,
 )
-from .models import Product, Employee, Branch, BranchInventory, ProductHistory, Customer, Order, OrderItem, Payment, CashPayment, \
+from .models import SERVICE_CATEGORY, is_service_category, Product, Employee, Branch, BranchInventory, ProductHistory, Customer, Order, OrderItem, Payment, CashPayment, \
     Invoice, WarrantyClaims, DefectiveInventory, ReplacementRecord, AuditTrail, \
     Organization, Supplier, ProductCategory, AppSettings, CustomerDebt, DebtPayment, Expense, PriceTier, \
     SalesAgent, ProductReservation, ProductReservationItem, SaleReturn, SaleReturnItem
@@ -2382,7 +2382,7 @@ def _resolve_intake_branch(request, branch_id=None):
 
 def _ensure_product_categories():
 
-    defaults = [label for _, label in Product.CATEGORIES]
+    defaults = [label for _, label in Product.CATEGORIES] + [SERVICE_CATEGORY]
     for name in defaults:
         ProductCategory.objects.get_or_create(name=name)
 
@@ -2604,7 +2604,11 @@ def inventory_product_save(request):
     if unit not in valid_units:
         unit = Product.UNIT_TA
 
-    is_service = data.get('is_service') in ('1', 'true', 'True', 'on', 'yes')
+    # «USTANOFKA» kategoriyasi tanlansa — avtomatik xizmat turi
+    is_service = (
+        data.get('is_service') in ('1', 'true', 'True', 'on', 'yes')
+        or is_service_category(category)
+    )
     qty = Decimal('0') if is_service else parse_decimal(data.get('qty', 1))
     min_stock = parse_decimal(data.get('min_stock_level', 3))
     if min_stock < 0:
@@ -2680,7 +2684,7 @@ def inventory_product_save(request):
         settings_obj.save(update_fields=['usd_to_uzs', 'updated_at'])
 
     try:
-        cost_entered = parse_decimal(data.get('cost_price'))
+        cost_entered = Decimal('0') if is_service else parse_decimal(data.get('cost_price'))
         sell_entered = parse_decimal(data.get('base_price'))
         # Tannarx kirim valyutasida saqlanadi; sotish narxi — saqlash valyutasida
         cost_price = cost_entered
@@ -2844,6 +2848,8 @@ def inventory_product_save(request):
         'time': timezone.localtime().strftime('%H:%M:%S'),
         'undo': False,
     }
+    if is_service:
+        resp['converted_hint'] = ''
     resp.update(_product_price_payload(product))
     return JsonResponse(resp)
 

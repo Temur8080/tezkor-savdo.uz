@@ -10,6 +10,14 @@ from django.contrib.contenttypes.models import ContentType
 from django.contrib.contenttypes.fields import GenericForeignKey
 from .money import CURRENCY_CHOICES, CURRENCY_UZS, CURRENCY_USD, format_money
 
+SERVICE_CATEGORY = 'USTANOFKA'
+
+
+def is_service_category(name):
+    """«USTANOFKA» (ustanovka) kategoriyasi — ombor hisobisiz xizmat turi."""
+    return (name or '').strip().upper() in {'USTANOFKA', 'USTANOVKA'}
+
+
 class Viloyat(models.Model):
     name = models.CharField('Nomi', max_length=120, unique=True)
     is_active = models.BooleanField('Faol', default=True)

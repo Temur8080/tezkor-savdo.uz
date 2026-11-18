@@ -121,6 +121,23 @@ class ServiceItemCheckoutTests(TestCase):
         self.assertIn('data-stock=""', card)
         self.assertNotIn('disabled', card)
 
+    def test_ustanofka_category_makes_service_and_hides_product_fields(self):
+        resp = self.client.post(reverse('inventory_product_save'), {
+            'barcode': 'U-1', 'product_name': 'Kamera ustanovka', 'category': 'USTANOFKA',
+            'entry_currency': 'UZS', 'store_currency': 'UZS',
+            'cost_price': '999', 'base_price': '150000', 'qty': '5',
+            'branch_id': self.branch.id,
+        })
+        self.assertEqual(resp.status_code, 200, resp.content)
+        product = Product.objects.get(barcode='U-1')
+        self.assertTrue(product.is_service)
+        self.assertEqual(product.cost_price, Decimal('0'))
+        self.assertEqual(BranchInventory.objects.get(product=product).quantity, 0)
+        page = self.client.get(reverse('inventory_intake')).content.decode()
+        self.assertIn('USTANOFKA', page)
+        self.assertIn('data-product-only', page)
+        self.assertIn('service-banner', page)
+
     def test_intake_creates_service_without_stock(self):
         resp = self.client.post(reverse('inventory_product_save'), {
             'product_name': 'Montaj', 'category': 'Xizmat', 'is_service': '1',

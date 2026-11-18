@@ -3,8 +3,9 @@
     const branchSelect = document.getElementById('intake-branch')
     const productPanel = document.getElementById('product-panel')
     const qtyInput = document.getElementById('qty-input')
-    const serviceInput = document.getElementById('is-service-input')
-    const qtyWrap = document.getElementById('qty-wrap')
+    const nameLabel = document.getElementById('name-label')
+    const sellPriceLabel = document.getElementById('sell-price-label')
+    const serviceBanner = document.getElementById('service-banner')
     const noteInput = document.getElementById('note-input')
     const addBtn = document.getElementById('add-stock-btn')
     const quickMode = document.getElementById('quick-mode')
@@ -182,6 +183,7 @@
             categorySelect.appendChild(opt)
         }
         categorySelect.value = name
+        syncServiceMode()
     }
 
     function showNewProductForm(barcode) {
@@ -208,7 +210,6 @@
         if (noteInput) noteInput.value = ''
         entryCurrency.value = 'USD'
         storeCurrency.value = 'UZS'
-        if (serviceInput) serviceInput.checked = false
         syncServiceMode()
         syncQtyStep()
         setImagePreview(null)
@@ -219,13 +220,33 @@
         productNameInput.focus()
     }
 
-    function syncServiceMode() {
-        const on = !!(serviceInput && serviceInput.checked)
-        if (qtyWrap) qtyWrap.classList.toggle('hidden', on)
-        if (minStockInput) minStockInput.disabled = on
+    let serviceModeOn = false
+    // «USTANOFKA» kategoriyasi = xizmat turi: mahsulotga xos sozlamalar yashiriladi
+    function isServiceMode() {
+        return /^(ustanofka|ustanovka)$/i.test(String(categorySelect.value || '').trim())
     }
 
-    if (serviceInput) serviceInput.addEventListener('change', syncServiceMode)
+    function syncServiceMode() {
+        const on = isServiceMode()
+        document.querySelectorAll('[data-product-only]').forEach((el) => {
+            el.classList.toggle('hidden', on)
+        })
+        if (serviceBanner) serviceBanner.classList.toggle('hidden', !on)
+        if (nameLabel) nameLabel.textContent = on ? 'Xizmat turi *' : 'Mahsulot nomi *'
+        productNameInput.placeholder = on ? 'Masalan: Kamera ustanovka (rayon)' : ''
+        if (sellPriceLabel) sellPriceLabel.textContent = on ? 'Odatiy narx (kassada o‘zgartiriladi)' : 'Sotish narxi *'
+        if (addBtn) addBtn.textContent = on ? 'Xizmatni saqlash' : 'Omborga qo‘shish'
+        if (on) {
+            // Xizmat narxi odatda so‘mda: birinchi marta yoqilganda UZS, keyin tanlov saqlanadi
+            if (!serviceModeOn) entryCurrency.value = 'UZS'
+            storeCurrency.value = entryCurrency.value
+            updateConversionHints()
+        }
+        serviceModeOn = on
+    }
+
+    categorySelect.addEventListener('change', syncServiceMode)
+    entryCurrency.addEventListener('change', () => { if (isServiceMode()) syncServiceMode() })
 
     function showExistingProduct(data) {
         isNewProduct = false
@@ -255,7 +276,6 @@
         if (replacementDaysInput) replacementDaysInput.value = data.replacement_days != null ? data.replacement_days : 7
         if (serviceWarrantyInput) serviceWarrantyInput.value = data.service_warranty_days != null ? data.service_warranty_days : 90
         qtyInput.value = 1
-        if (serviceInput) serviceInput.checked = !!data.is_service
         syncServiceMode()
         syncQtyStep()
         if (noteInput) noteInput.value = ''
@@ -405,7 +425,7 @@
             return null
         }
 
-        const isService = !!(serviceInput && serviceInput.checked)
+        const isService = isServiceMode()
         const qty = isService ? 0 : (parseFloat(qtyInput.value) || 0)
         if (!isService && qty <= 0) {
             setStatus('Miqdor 0 dan katta bo‘lishi kerak', 'err')
@@ -417,7 +437,7 @@
             return null
         }
 
-        if (!supplierSelect.value) {
+        if (!isService && !supplierSelect.value) {
             setStatus('Yetkazib beruvchini tanlang', 'err')
             return null
         }
@@ -426,11 +446,11 @@
         form.append('barcode', barcode)
         form.append('product_name', name)
         form.append('category', categorySelect.value)
-        form.append('supplier_id', supplierSelect.value)
+        form.append('supplier_id', supplierSelect.value || '')
         form.append('unit', unitInput ? unitInput.value : 'ta')
         form.append('entry_currency', entryCurrency.value)
-        form.append('store_currency', storeCurrency.value)
-        form.append('cost_price', costPriceInput.value || '0')
+        form.append('store_currency', isService ? entryCurrency.value : storeCurrency.value)
+        form.append('cost_price', isService ? '0' : (costPriceInput.value || '0'))
         form.append('base_price', basePriceInput.value || '0')
         form.append('min_stock_level', minStockInput.value || '3')
         form.append('warranty_days', warrantyDaysInput ? warrantyDaysInput.value || '365' : '365')
