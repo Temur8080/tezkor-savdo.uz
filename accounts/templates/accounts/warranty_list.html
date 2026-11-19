@@ -148,13 +148,13 @@
         <div class="inline-flex">
             {% if page_obj.has_previous %}
             <a href="?page={{ page_obj.previous_page_number }}{% if request.GET.urlencode %}&{{ request.GET.urlencode|cut:'page=' }}{% endif %}"
-               class="flex items-center justify-center px-3 h-8 text-sm font-medium text-white bg-gray-800 rounded-s hover:bg-gray-900">
+               class="flex items-center justify-center px-4 sm:px-3 h-11 sm:h-8 text-sm font-medium text-white bg-gray-800 rounded-s hover:bg-gray-900">
                 Oldingi
             </a>
             {% endif %}
             {% if page_obj.has_next %}
             <a href="?page={{ page_obj.next_page_number }}{% if request.GET.urlencode %}&{{ request.GET.urlencode|cut:'page=' }}{% endif %}"
-               class="flex items-center justify-center px-3 h-8 text-sm font-medium text-white bg-gray-800 border-0 border-s border-gray-700 rounded-e hover:bg-gray-900">
+               class="flex items-center justify-center px-4 sm:px-3 h-11 sm:h-8 text-sm font-medium text-white bg-gray-800 border-0 border-s border-gray-700 rounded-e hover:bg-gray-900">
                 Keyingi
             </a>
             {% endif %}

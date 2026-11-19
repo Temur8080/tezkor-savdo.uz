@@ -70,39 +70,39 @@
         {% endif %}
         {% if per_page %}<input type="hidden" name="per_page" value="{{ per_page }}">{% endif %}
 
-        <div class="flex flex-col">
+        <div class="flex flex-col filter-field">
             <label class="text-xs font-semibold text-gray-600 mb-1">Mahsulot nomi</label>
             {{ myFilter.form.product__product_name }}
         </div>
 
-        <div class="flex flex-col">
+        <div class="flex flex-col filter-field">
             <label class="text-xs font-semibold text-gray-600 mb-1">Shtrix-kod</label>
             {{ myFilter.form.product__barcode }}
         </div>
 
-        <div class="flex flex-col">
+        <div class="flex flex-col filter-field">
             <label class="text-xs font-semibold text-gray-600 mb-1">Mahsulotlar</label>
             {{ myFilter.form.product }}
         </div>
 
-        <div class="flex flex-col">
+        <div class="flex flex-col filter-field">
             <label class="text-xs font-semibold text-gray-600 mb-1">Kategoriya</label>
             {{ myFilter.form.product__category }}
         </div>
 
-        <div class="flex flex-col">
+        <div class="flex flex-col filter-field">
             <label class="text-xs font-semibold text-gray-600 mb-1">Holat</label>
             {{ myFilter.form.stock_status }}
         </div>
 
         {% if is_manager %}
-        <div class="flex flex-col">
+        <div class="flex flex-col filter-field">
             <label class="text-xs font-semibold text-gray-600 mb-1">Filial</label>
             {{ myFilter.form.branch }}
         </div>
         {% endif %}
 
-        <div class="flex gap-2">
+        <div class="flex gap-2 filter-actions">
             <button type="submit" class="px-4 py-2 bg-blue-600 text-white text-sm rounded-md hover:bg-blue-700 transition">
                 Filtrlash
             </button>
@@ -112,7 +112,7 @@
         </div>
 
         {% if not show_archived %}
-        <div class="flex gap-2">
+        <div class="flex gap-2 filter-actions">
             <a href="{% url 'inventory_intake' %}" class="px-4 py-2 bg-blue-700 text-white text-sm font-medium rounded-md hover:bg-blue-800 shadow-sm transition">
                 Skaner bilan kirim
             </a>
@@ -279,14 +279,14 @@
         <div class="inline-flex">
             {% if items.has_previous %}
                 <a href="?{% for key, value in request.GET.items %}{% if key != 'page' %}{{ key }}={{ value|urlencode }}&{% endif %}{% endfor %}page={{ items.previous_page_number }}"
-                   class="flex items-center justify-center px-3 h-8 text-sm font-medium text-white bg-gray-800 rounded-s hover:bg-gray-900">
+                   class="flex items-center justify-center px-4 sm:px-3 h-11 sm:h-8 text-sm font-medium text-white bg-gray-800 rounded-s hover:bg-gray-900">
                     Oldingi
                 </a>
             {% endif %}
 
             {% if items.has_next %}
                 <a href="?{% for key, value in request.GET.items %}{% if key != 'page' %}{{ key }}={{ value|urlencode }}&{% endif %}{% endfor %}page={{ items.next_page_number }}"
-                   class="flex items-center justify-center px-3 h-8 text-sm font-medium text-white bg-gray-800 border-0 border-s border-gray-700 rounded-e hover:bg-gray-900">
+                   class="flex items-center justify-center px-4 sm:px-3 h-11 sm:h-8 text-sm font-medium text-white bg-gray-800 border-0 border-s border-gray-700 rounded-e hover:bg-gray-900">
                     Keyingi
                 </a>
             {% endif %}
@@ -295,5 +295,5 @@
     {% endif %}
 </div>
 
-<script src="{% static 'js/listPageFit.js' %}?v=1"></script>
+<script src="{% static 'js/listPageFit.js' %}?v=2"></script>
 {% endblock %}

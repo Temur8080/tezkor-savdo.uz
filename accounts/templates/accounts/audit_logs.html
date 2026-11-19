@@ -27,6 +27,14 @@
         padding: 20px;
     }
 
+    /* Telefonda tepadagi filtr butun ekranni yopib qo‘ymasin */
+    @media (max-width: 767px) {
+        .audit-container { padding: 0 4px; }
+        .sticky-header { position: static; padding: 8px 0 12px; }
+        .filter-card { padding: 14px; }
+        .field-name { min-width: 96px; }
+    }
+
     
     .timeline-wrapper { margin-top: 10px; }
 
@@ -138,33 +146,31 @@
 
     <div class="sticky-header">
         <div class="filter-card shadow-sm">
-            <form method="GET" class="row g-3 flex justify-between items-center">
-                <div class="col-md-3 flex flex-col">
-                    <label class="small fw-bold text-muted text-uppercase">Boshlanish sanasi</label>
-                    <input type="date" name="start_date" value="{{ start_date_str }}" class="form-control">
+            <form method="GET" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 items-end">
+                <div class="flex flex-col min-w-0">
+                    <label class="small text-xs font-bold text-gray-500 uppercase tracking-wide mb-1">Boshlanish sanasi</label>
+                    <input type="date" name="start_date" value="{{ start_date_str }}" class="form-control w-full text-sm bg-white">
                 </div>
-                <div class="col-md-3 flex flex-col">
-                    <label class="small fw-bold text-muted text-uppercase">Tugash sanasi</label>
-                    <input type="date" name="end_date" value="{{ end_date_str }}" class="form-control">
+                <div class="flex flex-col min-w-0">
+                    <label class="small text-xs font-bold text-gray-500 uppercase tracking-wide mb-1">Tugash sanasi</label>
+                    <input type="date" name="end_date" value="{{ end_date_str }}" class="form-control w-full text-sm bg-white">
                 </div>
-                <div class="col-md-3 flex flex-col">
-                    <label class="small fw-bold text-muted text-uppercase">Amal turi</label>
-                    <select name="action_type" class="form-select">
+                <div class="flex flex-col min-w-0">
+                    <label class="small text-xs font-bold text-gray-500 uppercase tracking-wide mb-1">Amal turi</label>
+                    <select name="action_type" class="form-select w-full text-sm bg-white">
                         <option value="">Barcha amallar</option>
                         <option value="CREATE" {% if action_type == 'CREATE' %}selected{% endif %}>Yaratish</option>
                         <option value="UPDATE" {% if action_type == 'UPDATE' %}selected{% endif %}>Yangilash</option>
                         <option value="DELETE" {% if action_type == 'DELETE' %}selected{% endif %}>O'chirish</option>
                     </select>
                 </div>
-                <div class="col-md-3 d-flex gap-2 p-2 rounded mt-7" style="background-color:dodgerblue">
-                    <button type="submit" class="btn btn-primary w-full fw-bold px-4">Filtrlash</button>
-                    <a href="{% url 'audit_logs' %}" class="btn btn-outline-secondary" title="Filtrlarni tozalash">
-                        <i class="fas fa-undo"></i>
-                    </a>
+                <div class="flex gap-2">
+                    <button type="submit" class="flex-1 min-h-[44px] sm:min-h-0 px-4 py-2.5 bg-blue-600 text-white text-sm font-bold rounded-lg hover:bg-blue-700 shadow-sm transition">Filtrlash</button>
+                    <a href="{% url 'audit_logs' %}" class="inline-flex items-center justify-center min-h-[44px] sm:min-h-0 px-4 py-2.5 bg-gray-100 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-200 transition" title="Filtrlarni tozalash">Tozalash</a>
                 </div>
 
-                <div class="flex gap-2 mt-6">
-                    <a href="{% url 'audit_logs_export_csv' %}?{{ request.GET.urlencode }}" class="px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 shadow-sm transition">
+                <div class="sm:col-span-2 lg:col-span-4">
+                    <a href="{% url 'audit_logs_export_csv' %}?{{ request.GET.urlencode }}" class="inline-flex items-center justify-center gap-1 w-full sm:w-auto min-h-[44px] sm:min-h-0 px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-md hover:bg-green-700 shadow-sm transition">
                         <i class="fas fa-file-excel"></i> CSV yuklab olish
                     </a>
                 </div>
@@ -241,14 +247,14 @@
             <div class="inline-flex mt-2 xs:mt-0">
                 {% if logs.has_previous %}
                     <a href="?page={{ logs.previous_page_number }}{% if request.GET.urlencode %}&{{ request.GET.urlencode|cut:'page=' }}{% endif %}"
-                       class="flex items-center justify-center px-3 h-8 text-sm font-medium text-white bg-gray-800 rounded-s hover:bg-gray-900">
+                       class="flex items-center justify-center px-4 sm:px-3 h-11 sm:h-8 text-sm font-medium text-white bg-gray-800 rounded-s hover:bg-gray-900">
                         Oldingi
                     </a>
                 {% endif %}
 
                 {% if logs.has_next %}
                     <a href="?page={{ logs.next_page_number }}{% if request.GET.urlencode %}&{{ request.GET.urlencode|cut:'page=' }}{% endif %}"
-                       class="flex items-center justify-center px-3 h-8 text-sm font-medium text-white bg-gray-800 border-0 border-s border-gray-700 rounded-e hover:bg-gray-900">
+                       class="flex items-center justify-center px-4 sm:px-3 h-11 sm:h-8 text-sm font-medium text-white bg-gray-800 border-0 border-s border-gray-700 rounded-e hover:bg-gray-900">
                         Keyingi
                     </a>
                 {% endif %}

@@ -13,8 +13,19 @@
     return Number.isFinite(n) ? n : 0
   }
 
+  // Ko‘rinib turgan birinchi elementni qaytaradi (mobilda jadval yashirin, kartalar ko‘rinadi)
+  function firstVisible(selector) {
+    var list = document.querySelectorAll(selector)
+    for (var i = 0; i < list.length; i++) {
+      var el = list[i]
+      var r = el.getBoundingClientRect()
+      if (r.width > 0 && r.height > 0) return el
+    }
+    return null
+  }
+
   function measureRowHeight() {
-    var row = document.querySelector('.table-scroll tbody tr, .page-main table tbody tr')
+    var row = firstVisible('[data-fit-row], .table-scroll tbody tr, .page-main table tbody tr')
     if (!row) return ROW_FALLBACK
     var h = row.getBoundingClientRect().height
     return h > 28 ? h : ROW_FALLBACK
@@ -22,8 +33,9 @@
 
   function measureAvailable() {
     var anchor =
-      document.querySelector('.table-scroll') ||
-      document.querySelector('.page-main table') ||
+      firstVisible('[data-fit-anchor]') ||
+      firstVisible('.table-scroll') ||
+      firstVisible('.page-main table') ||
       document.querySelector('.page-main')
     if (!anchor) return Math.max(280, window.innerHeight - 220)
     var top = anchor.getBoundingClientRect().top

@@ -53,8 +53,14 @@ function initMobileCartControls() {
         })
         document.addEventListener('keydown', (e) => {
             if (e.key !== 'Escape') return
+            // To‘lov oynasi ochiq: Esc uni yopadi (chek ko‘rinishi ochiq bo‘lsa, uni alohida handler yopadi)
+            if (document.body.classList.contains('checkout-modal-open')) {
+                const preview = document.getElementById('receipt-preview')
+                if (preview && !preview.classList.contains('hidden')) return
+                if (typeof closeCheckoutModal === 'function') closeCheckoutModal()
+                return
+            }
             if (!document.body.classList.contains('pos-cart-open')) return
-            if (document.body.classList.contains('checkout-modal-open')) return
             if (typeof setMobileCartOpen === 'function') setMobileCartOpen(false)
         })
     }

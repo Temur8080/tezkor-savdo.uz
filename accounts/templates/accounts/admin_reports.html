@@ -668,8 +668,8 @@
                     {% for tx in page_obj %}
                     <tr class="hover:bg-gray-50 text-center">
                         <td class="px-4 py-3 text-gray-700">{{ tx.customer|default:"—" }}</td>
-                        <td class="px-4 py-3 text-gray-700">{{ tx.employee }}</td>
-                        <td class="px-4 py-3 text-gray-700">{{ tx.branch }}</td>
+                        <td class="px-4 py-3 text-gray-700">{{ tx.employee|default:"—" }}</td>
+                        <td class="px-4 py-3 text-gray-700">{{ tx.branch|default:"—" }}</td>
                         <td class="px-4 py-3 text-left text-gray-900 font-medium">{{ tx.orderitem_set.first.product|default:"—" }}</td>
                         <td class="px-4 py-3">{% with q=tx.orderitem_set.first.quantity %}{% if q != None %}{{ q|qty }}{% else %}—{% endif %}{% endwith %}</td>
                         <td class="px-4 py-3 text-gray-500 whitespace-nowrap">{{ tx.order_date|date:"d.m.Y H:i" }}</td>

@@ -512,6 +512,8 @@ html.dark #inventory-grid .product-card-media {
 #inventory-grid.pos-product-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(148px, 1fr));
+  /* Qatorlar kontent balandligida qoladi: kam mahsulotda kartalar siqilib, nom/rasm yo‘qolmasin */
+  grid-auto-rows: min-content;
   gap: 0.5rem;
   align-content: start;
 }
@@ -700,6 +702,111 @@ input, select, textarea, button {
   #inventory-grid {
     gap: 0.5rem !important;
     padding: 0.5rem !important;
+  }
+}
+
+/* ── Mobil: filtr formalari, o‘qiladigan matn, qulay bosish joylari ── */
+@media (max-width: 767px) {
+  /* Uzun variantli <select> / input karta chegarasidan chiqib ketmasin */
+  .page-main form select,
+  .page-main form input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]),
+  .page-main form textarea {
+    max-width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+  }
+
+  .page-main form .flex-col {
+    max-width: 100%;
+  }
+
+  /* Filtr maydonlari telefonda bir xil, to‘liq kenglikda */
+  .page-main form .filter-field {
+    width: 100%;
+  }
+
+  .page-main form .filter-field > select,
+  .page-main form .filter-field > input {
+    width: 100%;
+  }
+
+  .page-main form .filter-actions {
+    width: 100%;
+  }
+
+  .page-main form .filter-actions > * {
+    flex: 1 1 auto;
+    min-height: 2.75rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+  }
+
+  /* 10px yozuvlar telefonda o‘qilmaydi */
+  .text-\[10px\] {
+    font-size: 0.6875rem !important;
+    line-height: 1rem;
+  }
+
+  /* Ro‘yxat sahifalaridagi asosiy tugmalar barmoq uchun yetarli */
+  .page-main form button[type="submit"] {
+    min-height: 2.75rem;
+  }
+
+  /* Mobil kartalardagi amal tugmalari */
+  .m-card-action {
+    min-height: 2.75rem;
+    min-width: 2.75rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding-left: 0.9rem;
+    padding-right: 0.9rem;
+    border-radius: 0.6rem;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    touch-action: manipulation;
+  }
+}
+
+/* ── Kassa (POS): planshet/telefon savati ── */
+@media (max-width: 1023px) {
+  /* Sarlavha: nom birinchi qatorda, "Bronlash"/"Zahiralash" ostida to‘liq kenglikda — × bilan to‘qnashmaydi */
+  .pos-cart-panel .cart-head > div:first-child {
+    flex-wrap: wrap;
+    row-gap: 0.5rem;
+  }
+
+  .pos-cart-panel .cart-head > div:first-child > div:last-child {
+    width: 100%;
+    flex-wrap: nowrap;
+  }
+
+  .pos-cart-panel #reserve-btn-wrap,
+  .pos-cart-panel #hold-order-btn {
+    flex: 1 1 0;
+    min-width: 0;
+  }
+
+  .pos-cart-panel #reserve-order-btn {
+    width: 100%;
+  }
+
+  #joriy-cart #reserve-order-btn,
+  #joriy-cart #hold-order-btn {
+    min-height: 2.75rem;
+    font-size: 0.8125rem;
+  }
+
+  /* Savat qatori: −, +, miqdor, narx, o‘chirish — 44px */
+  #joriy-cart #cart-items button,
+  #joriy-cart #cart-items input {
+    min-height: 2.75rem;
+  }
+
+  #joriy-cart #cart-items button {
+    min-width: 2.75rem;
   }
 }
 
