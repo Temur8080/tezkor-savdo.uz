@@ -7,7 +7,7 @@ from django.test import TestCase
 from django.urls import reverse
 
 from .models import (
-    Branch, BranchInventory, Employee, Order, OrderItem, Product, Supplier,
+    Branch, BranchInventory, CustomerDebt, Employee, Order, OrderItem, Product, Supplier,
 )
 
 
@@ -294,3 +294,86 @@ class ReceiptDisplaySettingsTests(TestCase):
         pos = self.client.get(reverse('pos_terminal')).content.decode()
         self.assertIn('RECEIPT_SHOW_DISCOUNT = false', pos)
         self.assertIn('RECEIPT_SHOW_MARKUP = true', pos)
+
+
+class ServiceExcludedFromDebtTests(TestCase):
+    """Ustanovka (usta haqqi) qarzdorlar ro‘yxatiga tushmaydi: qarz faqat tovar qismi."""
+
+    def setUp(self):
+        self.user = User.objects.create_superuser('kassir2', password='x')
+        self.branch = Branch.objects.create(name='Asosiy')
+        Employee.objects.create(user=self.user, branch=self.branch, name='Kassir', role='Manager')
+        supplier = Supplier.objects.create(name='Test', contract_expiration=date(2030, 1, 1))
+        self.goods = Product.objects.create(
+            supplier=supplier, product_name='Kamera', barcode='G-9',
+            base_price=Decimal('500000'), cost_price=Decimal('10'),
+        )
+        self.service = Product.objects.create(
+            supplier=supplier, product_name='Ornatib berish', barcode='XIZMAT-9',
+            base_price=Decimal('150000'), cost_price=Decimal('0'), is_service=True,
+        )
+        BranchInventory.objects.create(branch=self.branch, product=self.goods, quantity=10)
+        self.client.force_login(self.user)
+
+    def _checkout(self, cash):
+        return self.client.post(
+            reverse('checkout_cash'),
+            data=json.dumps({
+                'cart': [
+                    {'id': self.goods.id, 'qty': 1},
+                    {'id': self.service.id, 'qty': 1, 'price': 200000},
+                ],
+                'currency': 'UZS',
+                'cashReceived': cash,
+                'customerData': {'name': 'Test Mijoz', 'phone': '901234567'},
+            }),
+            content_type='application/json',
+        )
+
+    def test_cash_less_than_service_debt_is_goods_only(self):
+        resp = self._checkout('100000')
+        self.assertTrue(resp.json()['success'], resp.content)
+        debt = CustomerDebt.objects.get()
+        self.assertEqual(debt.original_amount, Decimal('500000.00'))  # tovar, xizmatsiz
+
+    def test_cash_covers_service_then_goods(self):
+        resp = self._checkout('500000')
+        self.assertTrue(resp.json()['success'], resp.content)
+        debt = CustomerDebt.objects.get()
+        self.assertEqual(debt.original_amount, Decimal('200000.00'))  # 500000 - (500000-200000)
+
+    def test_full_cash_has_no_debt(self):
+        resp = self._checkout('700000')
+        self.assertTrue(resp.json()['success'], resp.content)
+        self.assertEqual(CustomerDebt.objects.count(), 0)
+
+    def test_report_debt_and_sof_foyda_exclude_service(self):
+        self._checkout('100000')
+        ctx = self.client.get(reverse('admin_reports'), {'period': 'all'}).context
+        self.assertEqual(ctx['outstanding_balance'], Decimal('500000.00'))
+        self.assertEqual(ctx['service_fee_total'], Decimal('200000'))
+
+    def test_strip_command_fixes_old_debts_and_keeps_paid_ones(self):
+        from django.core.management import call_command
+        from io import StringIO
+        # Eski tartibda yaratilgan qarz: jami 700000, naqd 1000 -> qarz 699000 (xizmat ichida)
+        resp = self._checkout('1000')
+        self.assertTrue(resp.json()['success'], resp.content)
+        debt = CustomerDebt.objects.get()
+        debt.original_amount = Decimal('699000.00')
+        debt.remaining_balance = Decimal('699000.00')
+        debt.save()
+        # dry-run hech narsani o‘zgartirmaydi
+        call_command('strip_service_from_debts', stdout=StringIO())
+        debt.refresh_from_db()
+        self.assertEqual(debt.original_amount, Decimal('699000.00'))
+        # apply: to‘lanmagan xizmat (200000-1000=199000) olib tashlanadi
+        call_command('strip_service_from_debts', '--apply', stdout=StringIO())
+        debt.refresh_from_db()
+        self.assertEqual(debt.original_amount, Decimal('500000.00'))
+        self.assertEqual(debt.remaining_balance, Decimal('500000.00'))
+        # qayta yurgizilsa o‘zgarmaydi (idempotent)
+        call_command('strip_service_from_debts', '--apply', stdout=StringIO())
+        debt.refresh_from_db()
+        self.assertEqual(debt.original_amount, Decimal('500000.00'))
+        self.assertEqual(debt.remaining_balance, Decimal('500000.00'))

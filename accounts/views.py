@@ -3026,7 +3026,10 @@ def checkout_cash(request):
                 if cash_received < 0:
                     return JsonResponse({'success': False, 'message': 'Naqd summa manfiy bo‘lishi mumkin emas'}, status=400)
 
-                debt_amount = max(Decimal('0.00'), total_amount - cash_received)
+                # Naqd avval xizmat (ustanovka) ga sanaladi; to‘lanmagan xizmat qarzga kirmaydi
+                service_fee = priced['service_total']
+                unpaid_service = max(Decimal('0.00'), service_fee - cash_received)
+                debt_amount = max(Decimal('0.00'), total_amount - cash_received - unpaid_service)
                 if debt_amount > 0 and (not name or not phone):
                     return JsonResponse({
                         'success': False,
